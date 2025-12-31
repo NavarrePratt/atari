@@ -28,6 +28,15 @@ const (
 	StateStopped  State = "stopped"
 )
 
+// agentStateMap maps controller states to bd agent states.
+var agentStateMap = map[State]string{
+	StateIdle:     "idle",
+	StateWorking:  "running",
+	StatePaused:   "idle",
+	StateStopping: "stopped",
+	StateStopped:  "dead",
+}
+
 // Controller orchestrates work queue polling and Claude session execution.
 type Controller struct {
 	config    *config.Config
@@ -390,11 +399,37 @@ func (c *Controller) getState() State {
 	return c.state
 }
 
-// setState updates the state (thread-safe).
+// setState updates the state and reports to bd agent (thread-safe).
 func (c *Controller) setState(s State) {
 	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
 	c.state = s
+	c.stateMu.Unlock()
+
+	// Report state change to bd agent (best effort, outside lock)
+	c.reportAgentState(s)
+}
+
+// reportAgentState reports the controller state to beads via bd agent state command.
+// Errors are logged but do not affect controller operation.
+func (c *Controller) reportAgentState(state State) {
+	if c.runner == nil {
+		return
+	}
+
+	agentState, ok := agentStateMap[state]
+	if !ok {
+		agentState = "idle"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := c.runner.Run(ctx, "bd", "agent", "state", "atari", agentState)
+	if err != nil {
+		c.logger.Warn("failed to report agent state",
+			"state", agentState,
+			"error", err)
+	}
 }
 
 // emit sends an event to the router if available.

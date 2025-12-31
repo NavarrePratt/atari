@@ -54,6 +54,20 @@ stopping -> stopped (session ends)
 - `BeadAbandonedEvent` - when bead exceeds max failures
 - `ErrorEvent` - on work queue or session errors
 
+## Agent State Reporting
+
+The controller reports its state to beads via `bd agent state atari <state>` on each state transition:
+
+| Controller State | Agent State |
+|-----------------|-------------|
+| idle | idle |
+| working | running |
+| paused | idle |
+| stopping | stopped |
+| stopped | dead |
+
+Agent state reporting is best-effort: errors are logged but do not affect controller operation.
+
 ## Dependencies
 
 - `config.Config` - configuration values

@@ -24,6 +24,13 @@ func testConfig() *config.Config {
 	return cfg
 }
 
+// setupAgentStateMocks configures mock responses for all bd agent state commands.
+func setupAgentStateMocks(runner *testutil.MockRunner) {
+	for _, state := range []string{"idle", "running", "stopped", "dead"} {
+		runner.SetResponse("bd", []string{"agent", "state", "atari", state}, []byte(""))
+	}
+}
+
 func TestControllerStates(t *testing.T) {
 	t.Run("initial state is idle", func(t *testing.T) {
 		cfg := testConfig()
@@ -39,6 +46,7 @@ func TestControllerStates(t *testing.T) {
 	t.Run("state transitions are thread-safe", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
 		wq := workqueue.New(cfg, runner)
 		c := New(cfg, wq, nil, runner, nil)
 
@@ -66,6 +74,7 @@ func TestControllerPauseResume(t *testing.T) {
 	t.Run("pause transitions from idle", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
 		// Return empty beads so controller stays in idle
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
@@ -115,6 +124,7 @@ func TestControllerStop(t *testing.T) {
 	t.Run("stop from idle", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -147,6 +157,7 @@ func TestControllerStop(t *testing.T) {
 	t.Run("stop from paused", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -187,6 +198,7 @@ func TestControllerStop(t *testing.T) {
 func TestControllerContextCancellation(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
+	setupAgentStateMocks(runner)
 	runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(cfg, runner)
@@ -231,6 +243,7 @@ func TestControllerStats(t *testing.T) {
 func TestControllerEventEmission(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
+	setupAgentStateMocks(runner)
 	runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(cfg, runner)
@@ -293,6 +306,7 @@ func TestControllerEventEmission(t *testing.T) {
 func TestControllerWorkQueueError(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
+	setupAgentStateMocks(runner)
 	runner.SetError("bd", []string{"ready", "--json"}, errors.New("connection refused"))
 
 	wq := workqueue.New(cfg, runner)
@@ -337,6 +351,7 @@ func TestControllerMultipleSignals(t *testing.T) {
 	t.Run("multiple pause signals are deduplicated", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -353,6 +368,7 @@ func TestControllerMultipleSignals(t *testing.T) {
 	t.Run("multiple stop signals are deduplicated", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -364,5 +380,120 @@ func TestControllerMultipleSignals(t *testing.T) {
 		c.Stop()
 
 		// Should not panic
+	})
+}
+
+func TestControllerAgentStateReporting(t *testing.T) {
+	t.Run("reports agent state on state transitions", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
+		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Run(ctx)
+		}()
+
+		// Wait for controller to run a bit
+		time.Sleep(50 * time.Millisecond)
+		c.Stop()
+		<-done
+
+		// Check that agent state commands were called
+		calls := runner.GetCalls()
+		var agentStateCalls []testutil.CommandCall
+		for _, call := range calls {
+			if call.Name == "bd" && len(call.Args) >= 3 && call.Args[0] == "agent" && call.Args[1] == "state" {
+				agentStateCalls = append(agentStateCalls, call)
+			}
+		}
+
+		if len(agentStateCalls) == 0 {
+			t.Error("expected at least one agent state call")
+		}
+
+		// Verify we see the expected state transitions
+		seenStates := make(map[string]bool)
+		for _, call := range agentStateCalls {
+			if len(call.Args) >= 4 {
+				seenStates[call.Args[3]] = true
+			}
+		}
+
+		// Should have at least stopped and dead states from shutdown sequence
+		if !seenStates["stopped"] {
+			t.Error("expected to see 'stopped' agent state")
+		}
+		if !seenStates["dead"] {
+			t.Error("expected to see 'dead' agent state")
+		}
+	})
+
+	t.Run("handles agent state command failure gracefully", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		// Set up errors for agent state commands
+		runner.SetError("bd", []string{"agent", "state", "atari", "idle"}, errors.New("bd not available"))
+		runner.SetError("bd", []string{"agent", "state", "atari", "running"}, errors.New("bd not available"))
+		runner.SetError("bd", []string{"agent", "state", "atari", "stopped"}, errors.New("bd not available"))
+		runner.SetError("bd", []string{"agent", "state", "atari", "dead"}, errors.New("bd not available"))
+		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Run(ctx)
+		}()
+
+		time.Sleep(30 * time.Millisecond)
+		c.Stop()
+
+		// Controller should still stop cleanly even with agent state errors
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for controller to stop")
+		}
+
+		if c.State() != StateStopped {
+			t.Errorf("expected state %s, got %s", StateStopped, c.State())
+		}
+	})
+
+	t.Run("maps controller states to agent states correctly", func(t *testing.T) {
+		// Verify the mapping
+		expectedMappings := map[State]string{
+			StateIdle:     "idle",
+			StateWorking:  "running",
+			StatePaused:   "idle",
+			StateStopping: "stopped",
+			StateStopped:  "dead",
+		}
+
+		for controllerState, expectedAgentState := range expectedMappings {
+			agentState, ok := agentStateMap[controllerState]
+			if !ok {
+				t.Errorf("missing mapping for state %s", controllerState)
+				continue
+			}
+			if agentState != expectedAgentState {
+				t.Errorf("state %s: expected agent state %s, got %s", controllerState, expectedAgentState, agentState)
+			}
+		}
 	})
 }
