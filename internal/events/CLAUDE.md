@@ -1,12 +1,13 @@
 # Events Package
 
-Type definitions for the Atari event system. All components communicate through events.
+Type definitions and router for the Atari event system. All components communicate through events.
 
 ## Key Types
 
 - `Event` interface: Base for all events (Type, Timestamp, Source)
 - `BaseEvent`: Embed this in concrete event types
 - `EventType`: String constants for event categories
+- `Router`: Channel-based pub/sub for broadcasting events
 
 ## Event Categories
 
@@ -44,3 +45,32 @@ evt := &events.ClaudeTextEvent{
 2. Create struct embedding `BaseEvent`
 3. Add JSON tags for persistence
 4. Add tests in types_test.go
+
+## Router
+
+Channel-based pub/sub for broadcasting events to multiple subscribers. Non-blocking emit with configurable buffer sizes.
+
+### Usage
+
+```go
+router := events.NewRouter(100) // buffer size per subscriber
+defer router.Close()
+
+// Subscribe
+ch := router.Subscribe()
+// or with custom buffer
+ch := router.SubscribeBuffered(500)
+
+// Emit (non-blocking, drops if buffer full)
+router.Emit(evt)
+
+// Unsubscribe when done
+router.Unsubscribe(ch)
+```
+
+### Behavior
+
+- `Emit()` is non-blocking: drops events if subscriber buffer is full (logs warning)
+- Multiple subscribers receive all events
+- Thread-safe for concurrent access
+- `Close()` closes all subscriber channels (idempotent)
