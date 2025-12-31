@@ -5,10 +5,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/npratt/atari/internal/config"
+	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/testutil"
+)
+
+// Re-export types from events package for convenience.
+type BeadHistory = events.BeadHistory
+type HistoryStatus = events.HistoryStatus
+
+// Re-export HistoryStatus constants.
+const (
+	HistoryPending   = events.HistoryPending
+	HistoryWorking   = events.HistoryWorking
+	HistoryCompleted = events.HistoryCompleted
+	HistoryFailed    = events.HistoryFailed
+	HistoryAbandoned = events.HistoryAbandoned
 )
 
 // Bead represents an issue from bd ready --json output.
@@ -27,15 +43,18 @@ type Bead struct {
 
 // Manager discovers available work by polling bd ready.
 type Manager struct {
-	config *config.Config
-	runner testutil.CommandRunner
+	config  *config.Config
+	runner  testutil.CommandRunner
+	history map[string]*BeadHistory
+	mu      sync.RWMutex
 }
 
 // New creates a Manager with the given config and command runner.
 func New(cfg *config.Config, runner testutil.CommandRunner) *Manager {
 	return &Manager{
-		config: cfg,
-		runner: runner,
+		config:  cfg,
+		runner:  runner,
+		history: make(map[string]*BeadHistory),
 	}
 }
 
@@ -73,4 +92,199 @@ func (m *Manager) Poll(ctx context.Context) ([]Bead, error) {
 	}
 
 	return beads, nil
+}
+
+// Next polls for available work, filters by history, and returns the
+// highest-priority eligible bead. Returns nil if no work is available
+// or all beads are in backoff.
+func (m *Manager) Next(ctx context.Context) (*Bead, error) {
+	beads, err := m.Poll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(beads) == 0 {
+		return nil, nil
+	}
+
+	eligible := m.filterEligible(beads)
+	if len(eligible) == 0 {
+		return nil, nil
+	}
+
+	// Sort by priority (lower = higher priority), then by created_at
+	sort.Slice(eligible, func(i, j int) bool {
+		if eligible[i].Priority != eligible[j].Priority {
+			return eligible[i].Priority < eligible[j].Priority
+		}
+		return eligible[i].CreatedAt.Before(eligible[j].CreatedAt)
+	})
+
+	selected := eligible[0]
+
+	// Mark as working and increment attempts
+	m.mu.Lock()
+	if m.history[selected.ID] == nil {
+		m.history[selected.ID] = &BeadHistory{ID: selected.ID}
+	}
+	m.history[selected.ID].Status = HistoryWorking
+	m.history[selected.ID].Attempts++
+	m.history[selected.ID].LastAttempt = time.Now()
+	m.mu.Unlock()
+
+	return &selected, nil
+}
+
+// filterEligible returns beads that are not completed, abandoned, or in backoff.
+func (m *Manager) filterEligible(beads []Bead) []Bead {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var eligible []Bead
+	now := time.Now()
+
+	for _, bead := range beads {
+		history := m.history[bead.ID]
+		if history == nil {
+			// Never seen before - eligible
+			eligible = append(eligible, bead)
+			continue
+		}
+
+		// Skip completed or abandoned beads
+		if history.Status == HistoryCompleted || history.Status == HistoryAbandoned {
+			continue
+		}
+
+		// Check failed beads for backoff and max failures
+		if history.Status == HistoryFailed {
+			// Check if we've hit max failures
+			if m.config.Backoff.MaxFailures > 0 && history.Attempts >= m.config.Backoff.MaxFailures {
+				// Would be abandoned - skip
+				continue
+			}
+			// Check if still in backoff period
+			backoff := m.calculateBackoff(history.Attempts)
+			if now.Sub(history.LastAttempt) < backoff {
+				continue
+			}
+		}
+
+		eligible = append(eligible, bead)
+	}
+
+	return eligible
+}
+
+// calculateBackoff returns the backoff duration for a given number of attempts.
+// Returns 0 for first attempt, Initial for second attempt, then exponential growth capped at max.
+func (m *Manager) calculateBackoff(attempts int) time.Duration {
+	if attempts <= 1 {
+		return 0
+	}
+
+	backoff := m.config.Backoff.Initial
+	for i := 2; i < attempts; i++ {
+		backoff = time.Duration(float64(backoff) * m.config.Backoff.Multiplier)
+		if backoff > m.config.Backoff.Max {
+			return m.config.Backoff.Max
+		}
+	}
+
+	return backoff
+}
+
+// RecordSuccess marks a bead as completed.
+func (m *Manager) RecordSuccess(beadID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.history[beadID] == nil {
+		m.history[beadID] = &BeadHistory{ID: beadID}
+	}
+	m.history[beadID].Status = HistoryCompleted
+}
+
+// RecordFailure marks a bead as failed with the given error.
+// If the bead has exceeded max failures, it will be marked as abandoned.
+func (m *Manager) RecordFailure(beadID string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.history[beadID] == nil {
+		m.history[beadID] = &BeadHistory{ID: beadID}
+	}
+	h := m.history[beadID]
+	h.LastError = err.Error()
+	h.LastAttempt = time.Now()
+
+	// Check if we've exceeded max failures
+	if m.config.Backoff.MaxFailures > 0 && h.Attempts >= m.config.Backoff.MaxFailures {
+		h.Status = HistoryAbandoned
+	} else {
+		h.Status = HistoryFailed
+	}
+}
+
+// QueueStats provides statistics about the work queue.
+type QueueStats struct {
+	TotalSeen int
+	Completed int
+	Failed    int
+	Abandoned int
+	InBackoff int
+}
+
+// Stats returns current queue statistics.
+func (m *Manager) Stats() QueueStats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var stats QueueStats
+	now := time.Now()
+
+	for _, h := range m.history {
+		stats.TotalSeen++
+		switch h.Status {
+		case HistoryCompleted:
+			stats.Completed++
+		case HistoryFailed:
+			stats.Failed++
+			backoff := m.calculateBackoff(h.Attempts)
+			if now.Sub(h.LastAttempt) < backoff {
+				stats.InBackoff++
+			}
+		case HistoryAbandoned:
+			stats.Abandoned++
+		}
+	}
+
+	return stats
+}
+
+// History returns a copy of the current bead history map.
+// This is useful for state persistence.
+func (m *Manager) History() map[string]*BeadHistory {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make(map[string]*BeadHistory, len(m.history))
+	for k, v := range m.history {
+		// Copy the struct to prevent mutation
+		copy := *v
+		result[k] = &copy
+	}
+	return result
+}
+
+// SetHistory restores history from persisted state.
+// This is called during recovery after a restart.
+func (m *Manager) SetHistory(history map[string]*BeadHistory) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.history = make(map[string]*BeadHistory, len(history))
+	for k, v := range history {
+		copy := *v
+		m.history[k] = &copy
+	}
 }
