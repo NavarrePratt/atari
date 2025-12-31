@@ -11,8 +11,9 @@ type EventType string
 // MVP event types - only the events needed for Phase 1.
 const (
 	// Session events
-	EventSessionStart EventType = "session.start"
-	EventSessionEnd   EventType = "session.end"
+	EventSessionStart   EventType = "session.start"
+	EventSessionEnd     EventType = "session.end"
+	EventSessionTimeout EventType = "session.timeout"
 
 	// Claude content events
 	EventClaudeText       EventType = "claude.text"
@@ -85,6 +86,12 @@ type SessionEndEvent struct {
 	DurationMs   int64   `json:"duration_ms"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	Result       string  `json:"result,omitempty"`
+}
+
+// SessionTimeoutEvent is emitted when a session is killed due to inactivity.
+type SessionTimeoutEvent struct {
+	BaseEvent
+	Duration time.Duration `json:"duration"`
 }
 
 // ClaudeTextEvent is emitted for assistant text output.
