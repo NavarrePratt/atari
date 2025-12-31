@@ -1,0 +1,123 @@
+# Testutil Package
+
+Test infrastructure for unit and integration testing. Provides mocks, fixtures, and helpers for testing atari components.
+
+## Components
+
+### CommandRunner Interface
+
+Abstraction for command execution, allowing tests to mock external commands (bd, claude).
+
+```go
+type CommandRunner interface {
+    Run(ctx context.Context, name string, args ...string) ([]byte, error)
+}
+```
+
+### MockRunner
+
+Mock implementation with canned responses and call recording.
+
+```go
+mock := testutil.NewMockRunner()
+
+// Configure responses
+mock.SetResponse("bd", []string{"ready", "--json"}, []byte(`[...]`))
+mock.SetError("bd", []string{"close", "bd-001"}, errors.New("not found"))
+
+// Execute (records calls)
+output, err := mock.Run(ctx, "bd", "ready", "--json")
+
+// Assert
+testutil.AssertCalled(t, mock, "bd", "ready", "--json")
+testutil.AssertCallCount(t, mock, "bd", 2)
+```
+
+**Prefix matching**: Commands with variable args can use prefix matching - if no exact match is found, the runner checks if any registered key is a prefix of the actual command.
+
+## Fixtures
+
+Pre-defined JSON responses for common scenarios:
+
+| Fixture | Description |
+|---------|-------------|
+| `SampleBeadReadyJSON` | bd ready response with multiple beads |
+| `SingleBeadReadyJSON` | bd ready response with one bead |
+| `EmptyBeadReadyJSON` | bd ready response when no beads available |
+| `SampleClaudeInit` | Claude system init event |
+| `SampleClaudeAssistant` | Claude text response event |
+| `SampleClaudeToolUse` | Claude tool use event |
+| `SampleClaudeToolResult` | Tool result event |
+| `SampleClaudeResultSuccess` | Successful session result |
+| `SampleStateJSON` | Sample state.json file |
+
+## Mock Claude Sessions
+
+Generate mock Claude stream-json output for testing session parsing.
+
+```go
+// Successful session
+output := testutil.NewSuccessfulSession("session-001")
+
+// Session that closes a bead
+output := testutil.NewSuccessfulSessionWithBDClose("session-001", "bd-001")
+
+// Failed session
+output := testutil.NewFailedSession("session-001", "command failed")
+
+// Max turns exceeded
+output := testutil.NewMaxTurnsSession("session-001", 10)
+
+// Timeout (truncated output)
+output := testutil.NewTimeoutSession("session-001")
+
+// Custom tool usage
+output := testutil.NewSessionWithToolUse("session-001", []testutil.ToolCall{
+    {Name: "Bash", Input: map[string]any{"command": "ls"}, Result: "file.txt\n"},
+})
+
+// Use as io.Reader or string
+reader := output.Reader()
+str := output.String()
+```
+
+## Test Helpers
+
+```go
+// Temporary directories
+dir, cleanup := testutil.TempDir(t)
+defer cleanup()
+
+// File operations
+path := testutil.WriteFile(t, dir, "config.json", `{"key": "value"}`)
+content := testutil.ReadFile(t, path)
+exists := testutil.FileExists(t, path)
+
+// Setup with atari structure
+dir, cleanup := testutil.SetupTestDir(t)              // Creates .atari/
+dir, cleanup := testutil.SetupTestDirWithState(t, json) // Creates .atari/state.json
+
+// Mock setup helpers
+testutil.SetupMockBDReady(mock, testutil.SampleBeadReadyJSON)
+testutil.SetupMockBDAgentState(mock)
+testutil.SetupMockBDClose(mock, "bd-001")
+```
+
+## Usage Pattern
+
+```go
+func TestController(t *testing.T) {
+    dir, cleanup := testutil.SetupTestDir(t)
+    defer cleanup()
+
+    mock := testutil.NewMockRunner()
+    testutil.SetupMockBDReady(mock, testutil.SingleBeadReadyJSON)
+
+    // Create component with mock runner
+    ctrl := controller.New(mock, dir)
+
+    // Run test...
+
+    testutil.AssertCalled(t, mock, "bd", "ready", "--json")
+}
+```

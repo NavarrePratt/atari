@@ -82,15 +82,16 @@ cmd/atari/          # CLI entrypoint (Cobra/Viper)
   main.go           # Root command and subcommands
   config.go         # Flag constants
 internal/           # Non-exported packages
-  controller/       # Main orchestration loop
-  workqueue/        # Work discovery and selection
-  session/          # Claude process management
-  events/           # Event types and router (see internal/events/CLAUDE.md)
-  bdactivity/       # BD activity stream watcher
-  daemon/           # Daemon mode and RPC
-  tui/              # Terminal UI (bubbletea)
-  config/           # Configuration loading (see internal/config/CLAUDE.md)
+  config/           # Configuration types and defaults (see internal/config/CLAUDE.md)
+  events/           # Event types, router, sinks (see internal/events/CLAUDE.md)
   shutdown/         # Graceful shutdown helper (see internal/shutdown/CLAUDE.md)
+  testutil/         # Test infrastructure: mocks, fixtures (see internal/testutil/CLAUDE.md)
+  controller/       # [planned] Main orchestration loop
+  session/          # [planned] Claude process management
+  workqueue/        # [planned] Work discovery and selection
+  bdactivity/       # [planned] BD activity stream watcher
+  daemon/           # [planned] Daemon mode and RPC
+  tui/              # [planned] Terminal UI (bubbletea)
 docs/               # Design and implementation docs
   components/       # Detailed component specifications
   cli/              # CLI command documentation
