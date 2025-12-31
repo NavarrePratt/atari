@@ -33,6 +33,19 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 | `--prompt` | "" | Custom prompt template file |
 | `--model` | opus | Claude model to use |
 
+## Stop Command Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--graceful` | true | Wait for current bead to complete |
+
+## Events Command Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--follow` | false | Follow event stream (like tail -f) |
+| `--count` | 20 | Number of recent events to show |
+
 ## Configuration Binding
 
 All flags are bound to Viper with:
