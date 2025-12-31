@@ -7,7 +7,7 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 | Command | Status | Description |
 |---------|--------|-------------|
 | `version` | Implemented | Print version information |
-| `start` | Stubbed | Start the drain daemon |
+| `start` | Implemented | Start the drain loop |
 | `status` | Stubbed | Show daemon status via socket |
 | `pause` | Stubbed | Pause after current bead completes |
 | `resume` | Stubbed | Resume from paused state |
@@ -66,8 +66,24 @@ maxTurns := viper.GetInt(FlagMaxTurns)
 - `main.go` - Root command, subcommands, flag definitions
 - `config.go` - Flag name constants for Viper binding
 
+## Start Command Flow
+
+The `start` command:
+1. Creates .atari directory if needed
+2. Initializes event router with default buffer size
+3. Creates and starts LogSink and StateSink
+4. Creates ExecRunner for real command execution
+5. Creates workqueue.Manager for work discovery
+6. Creates controller.Controller for orchestration
+7. Runs controller with graceful shutdown handling (SIGINT/SIGTERM)
+8. Cleans up sinks and router on exit
+
 ## Integration Points
 
-- `internal/controller` - Start command will instantiate and run the controller
+- `internal/controller` - Start instantiates and runs the controller
 - `internal/config` - Flag values map to config.Config struct
+- `internal/events` - Router and sinks for event distribution
+- `internal/workqueue` - Work discovery via bd ready
+- `internal/shutdown` - Graceful shutdown handling
+- `internal/testutil` - ExecRunner for command execution
 - `internal/daemon` (Phase 2) - Socket commands for status/pause/resume/stop
