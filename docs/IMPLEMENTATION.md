@@ -1,23 +1,26 @@
 # Implementation Plan
 
-This document outlines the phased implementation approach for atari.
+Phased implementation approach for Atari.
 
-## Technology Choices
+For detailed component specifications, see the [components/](components/) directory.
 
-**Language: Go**
+## Technology Stack
 
-Rationale:
-- Single binary distribution (no runtime dependencies)
-- Excellent process management and concurrency
-- Good CLI library ecosystem (cobra, bubbletea)
-- Consistent with bd (beads) which is also Go
-- Fast startup time for daemon
+- **Language**: Go
+- **CLI Framework**: Cobra + Viper
+- **TUI Framework**: Bubbletea + Lipgloss
+- **Configuration**: YAML (gopkg.in/yaml.v3)
 
-**Key Dependencies:**
-- `github.com/spf13/cobra` - CLI framework
-- `github.com/charmbracelet/bubbletea` - TUI framework (optional)
-- `github.com/charmbracelet/lipgloss` - TUI styling
-- `gopkg.in/yaml.v3` - Config parsing
+## Phase Overview
+
+| Phase | Focus | Key Deliverables |
+|-------|-------|------------------|
+| 1 | Core Loop (MVP) | Poll, spawn, log, persist |
+| 2 | Control & Monitoring | Daemon mode, pause/resume/stop |
+| 3 | BD Activity | Unified event stream |
+| 4 | Terminal UI | Bubbletea TUI |
+| 5 | Notifications | Webhooks, IFTTT, Slack |
+| 6 | Polish | Backoff, config, docs |
 
 ---
 
@@ -25,81 +28,44 @@ Rationale:
 
 **Goal**: Minimal working drain that can run unattended.
 
-### Deliverables
+### Components to Implement
 
-1. **Main loop** that:
-   - Polls `bd ready --json`
-   - Spawns `claude -p` for each bead
-   - Parses stream-json output
-   - Logs to file
-   - Resets stuck issues after each session
+| Component | Documentation |
+|-----------|---------------|
+| Controller (basic) | [components/controller.md](components/controller.md) |
+| Work Queue | [components/workqueue.md](components/workqueue.md) |
+| Session Manager | [components/session.md](components/session.md) |
+| Event Router | [components/events.md](components/events.md) |
+| Log Sink | [components/sinks.md](components/sinks.md) |
+| State Sink | [components/sinks.md](components/sinks.md) |
 
-2. **Basic CLI**:
-   - `atari start` - Run in foreground
-   - `atari version`
+### CLI Commands
 
-3. **State persistence**:
-   - Write state.json after each iteration
-   - Recover on startup
+- `atari start` (foreground only)
+- `atari version`
 
-### Implementation Tasks
+### Tasks
 
-```
-Phase 1 Tasks:
-├── Project setup
-│   ├── Initialize Go module
-│   ├── Set up cobra CLI structure
-│   └── Create Makefile with build/install targets
-│
-├── Core types
-│   ├── Define Event types
-│   ├── Define State types
-│   ├── Define Config types
-│   └── Define Bead/BeadHistory types
-│
-├── Work Queue Manager
-│   ├── Implement bd ready polling
-│   ├── Parse JSON output
-│   ├── Track bead history
-│   └── Select next bead logic
-│
-├── Session Manager
-│   ├── Spawn claude process
-│   ├── Stream stdout parsing
-│   ├── Handle process exit
-│   └── Extract session stats (cost, turns, duration)
-│
-├── Event Router
-│   ├── Create event channel
-│   ├── Route claude events
-│   └── Add internal events
-│
-├── Log Sink
-│   ├── JSON lines writer
-│   ├── Log rotation on startup
-│   └── Configurable path
-│
-├── State Management
-│   ├── State file read/write
-│   ├── Recovery logic
-│   └── Stats tracking
-│
-├── Stuck Issue Reset
-│   ├── Port _bd_reset_stuck_issues logic
-│   └── Run after each session
-│
-└── Integration
-    ├── Wire components together
-    ├── Main control loop
-    └── Signal handling (SIGINT, SIGTERM)
-```
+1. Project setup (go mod, cobra structure, Makefile)
+2. Core types (Event, State, Config, Bead)
+3. Work Queue Manager (bd ready polling, bead selection)
+4. Session Manager (spawn claude, parse stream-json)
+5. Event Router (channel-based pub/sub)
+6. Log Sink (JSON lines file)
+7. State Sink (state.json persistence)
+8. Controller main loop
+9. Signal handling (SIGINT, SIGTERM)
+10. Stuck issue reset after each session
+11. Agent state reporting (`bd agent state atari <state>`)
 
 ### Success Criteria
 
-- [x] Can run `atari start` and it processes all ready beads
-- [x] Logs written to file in JSON lines format
-- [x] State persisted and recovered on restart
-- [x] Graceful shutdown on Ctrl+C
+- [ ] `atari start` processes all ready beads
+- [ ] Logs written to `.atari/atari.log`
+- [ ] State persisted to `.atari/state.json`
+- [ ] Graceful shutdown on Ctrl+C
+- [ ] Recovers state on restart
+- [ ] Reports agent state to beads via `bd agent state`
 
 ---
 
@@ -107,60 +73,37 @@ Phase 1 Tasks:
 
 **Goal**: Add daemon mode with external control.
 
-### Deliverables
+### Components to Implement
 
-1. **Daemon mode**:
-   - Run in background
-   - Unix socket for IPC
-   - PID file management
+| Component | Documentation |
+|-----------|---------------|
+| Daemon | [components/daemon.md](components/daemon.md) |
+| Controller (full state machine) | [components/controller.md](components/controller.md) |
 
-2. **Control commands**:
-   - `atari status` - Show current state
-   - `atari pause` - Pause after current bead
-   - `atari resume` - Resume from pause
-   - `atari stop` - Stop daemon
+### CLI Commands
 
-3. **Event streaming**:
-   - `atari events --follow` - Tail event log
+- `atari start --daemon`
+- `atari status`
+- `atari pause`
+- `atari resume`
+- `atari stop`
+- `atari events`
 
-### Implementation Tasks
+### Tasks
 
-```
-Phase 2 Tasks:
-├── Daemon mode
-│   ├── Daemonize process
-│   ├── PID file management
-│   ├── Unix socket listener
-│   └── JSON-RPC protocol
-│
-├── Control commands
-│   ├── Implement status command
-│   ├── Implement pause command
-│   ├── Implement resume command
-│   └── Implement stop command
-│
-├── State machine
-│   ├── Add paused state
-│   ├── Add stopping state
-│   ├── Transition logic
-│   └── State persistence updates
-│
-├── Event streaming
-│   ├── Implement events command
-│   ├── Follow mode (tail -f style)
-│   └── Count/filter options
-│
-└── Testing
-    ├── Unit tests for state machine
-    ├── Integration test for daemon lifecycle
-    └── Test pause/resume behavior
-```
+1. Daemonize process (fork, setsid)
+2. PID file management
+3. Unix socket listener
+4. JSON-RPC protocol
+5. Implement pause/resume state transitions
+6. Status command with stats
+7. Events command (tail log file)
 
 ### Success Criteria
 
-- [x] Can start daemon, pause, resume, stop via CLI
-- [x] Status command shows current state and stats
-- [x] Events command can tail the event stream
+- [ ] Can start daemon, pause, resume, stop via CLI
+- [ ] Status command shows current state and stats
+- [ ] Events command can tail the event stream
 
 ---
 
@@ -168,49 +111,25 @@ Phase 2 Tasks:
 
 **Goal**: Unified event stream with bd activity.
 
-### Deliverables
+### Components to Implement
 
-1. **BD Activity Stream**:
-   - Run `bd activity --follow --json` in background
-   - Parse mutation events
-   - Merge into event stream
+| Component | Documentation |
+|-----------|---------------|
+| BD Activity Watcher | [components/bdactivity.md](components/bdactivity.md) |
 
-2. **Enhanced Event Display**:
-   - Bead status changes visible in real-time
-   - Color-coded event types
-   - Timestamps and symbols
+### Tasks
 
-### Implementation Tasks
-
-```
-Phase 3 Tasks:
-├── BD Activity Manager
-│   ├── Spawn bd activity process
-│   ├── Parse JSON output
-│   ├── Handle process lifecycle
-│   └── Reconnect on failure
-│
-├── Event merging
-│   ├── Unified event format
-│   ├── Source tagging (claude vs bd vs internal)
-│   └── Chronological ordering
-│
-├── Enhanced logging
-│   ├── Human-readable format option
-│   ├── Color support (detect TTY)
-│   └── Symbol/emoji indicators
-│
-└── Testing
-    ├── Test bd activity parsing
-    ├── Test event merging
-    └── Test display formatting
-```
+1. Spawn `bd activity --follow --json`
+2. Parse mutation events
+3. Convert to unified event format
+4. Merge into event stream
+5. Handle reconnection on failure
 
 ### Success Criteria
 
-- [x] Bead status changes appear in event stream
-- [x] `atari events` shows unified claude + bd events
-- [x] Events are color-coded and easy to read
+- [ ] Bead status changes appear in event stream
+- [ ] `atari events` shows unified claude + bd events
+- [ ] Reconnects automatically on bd activity failure
 
 ---
 
@@ -218,133 +137,89 @@ Phase 3 Tasks:
 
 **Goal**: Rich terminal interface for monitoring.
 
-### Deliverables
+### Components to Implement
 
-1. **TUI mode** (`atari start --tui`):
-   - Current bead display
-   - Live event feed
-   - Stats panel
-   - Keyboard controls
+| Component | Documentation |
+|-----------|---------------|
+| TUI | [components/tui.md](components/tui.md) |
+| Observer (future) | [components/observer.md](components/observer.md) |
 
-2. **Layout**:
-   ```
-   ┌─ ATARI ─────────────────────────────────────────────────┐
-   │ Status: WORKING                      Cost: $2.35        │
-   │ Current: bd-042 "Fix auth bug"       Turns: 42          │
-   │ Progress: 4 completed, 1 failed, 3 remaining            │
-   ├─ Events ────────────────────────────────────────────────┤
-   │ 14:23:45 $ go test ./...                                │
-   │ 14:23:50 ✓ BEAD bd-042 closed                          │
-   │ 14:23:51 📋 BEAD bd-043 "Add rate limiting"            │
-   │ 14:23:52 🚀 SESSION started                             │
-   │ 14:23:54 📄 Read: src/ratelimit.go                     │
-   │ ...                                                     │
-   ├─────────────────────────────────────────────────────────┤
-   │ [p] pause  [r] resume  [q] quit                         │
-   └─────────────────────────────────────────────────────────┘
-   ```
+### Tasks
 
-### Implementation Tasks
-
-```
-Phase 4 Tasks:
-├── TUI framework setup
-│   ├── Bubbletea model
-│   ├── View components
-│   └── Update handlers
-│
-├── Layout components
-│   ├── Header (status, stats)
-│   ├── Event feed (scrollable)
-│   ├── Footer (keyboard help)
-│   └── Responsive sizing
-│
-├── Keyboard handling
-│   ├── p = pause
-│   ├── r = resume
-│   ├── q = quit
-│   └── Arrow keys for scrolling
-│
-├── Event feed
-│   ├── Ring buffer for events
-│   ├── Auto-scroll to bottom
-│   ├── Manual scroll mode
-│   └── Color formatting
-│
-└── Integration
-    ├── TUI flag handling
-    ├── Graceful degradation (no TTY)
-    └── Testing on different terminal sizes
-```
+1. Bubbletea model and update loop
+2. Header component (status, stats)
+3. Event feed component (scrollable)
+4. Footer component (keyboard help)
+5. Keyboard handling (p/r/q, arrows, o for observer)
+6. Graceful degradation (no TTY)
 
 ### Success Criteria
 
-- [x] TUI displays current state and events
-- [x] Keyboard controls work
-- [x] Scrolling works for event history
-- [x] Graceful exit on q
+- [ ] TUI displays current state and events
+- [ ] Keyboard controls work (pause, resume, quit)
+- [ ] Scrolling works for event history
+- [ ] Falls back to simple output when no TTY
+
+**Future**: Observer Mode - interactive Q&A pane for asking questions about events. See [observer.md](components/observer.md).
 
 ---
 
-## Phase 5: Polish & Edge Cases
+## Phase 5: Notifications
 
-**Goal**: Production-ready reliability.
+**Goal**: External alerts for key events.
 
-### Deliverables
+### Components to Implement
 
-1. **Backoff logic** for failed beads
-2. **Configuration file** support
-3. **Custom prompt templates**
-4. **Better error messages**
-5. **Documentation**
+| Component | Documentation |
+|-----------|---------------|
+| Notifications | [components/notifications.md](components/notifications.md) |
 
-### Implementation Tasks
+### Tasks
 
-```
-Phase 5 Tasks:
-├── Backoff implementation
-│   ├── Exponential backoff for failures
-│   ├── Max attempts before skip
-│   ├── Backoff reset on success
-│   └── Configurable parameters
-│
-├── Configuration
-│   ├── YAML config file parsing
-│   ├── Config file discovery
-│   ├── Environment variable overrides
-│   └── Config validation
-│
-├── Prompt templates
-│   ├── Default embedded template
-│   ├── Custom template file support
-│   ├── Template variables
-│   └── Template validation
-│
-├── Error handling
-│   ├── Better error messages
-│   ├── Suggestions for common issues
-│   ├── Debug logging flag
-│   └── Error codes for scripting
-│
-├── Documentation
-│   ├── README with examples
-│   ├── Man page generation
-│   ├── --help improvements
-│   └── Troubleshooting guide
-│
-└── Testing
-    ├── End-to-end tests
-    ├── Edge case tests
-    ├── Performance testing
-    └── CI/CD setup
-```
+1. Notification sink (event consumer)
+2. IFTTT provider
+3. Slack provider
+4. Discord provider
+5. Generic webhook provider
+6. Rate limiting
+7. Retry logic
 
 ### Success Criteria
 
-- [x] Failed beads don't block drain indefinitely
-- [x] Configuration works from file and env
-- [x] Custom prompts can be used
-- [x] Errors are clear and actionable
+- [ ] IFTTT notifications work
+- [ ] Slack notifications work
+- [ ] Configurable triggers per provider
+- [ ] Rate limiting prevents spam
+
+---
+
+## Phase 6: Polish & Init
+
+**Goal**: Production-ready reliability and onboarding.
+
+### Components to Implement
+
+| Component | Documentation |
+|-----------|---------------|
+| Init Command | [cli/init-command.md](cli/init-command.md) |
+| Configuration | [config/configuration.md](config/configuration.md) |
+
+### Tasks
+
+1. Exponential backoff for failed beads
+2. YAML config file parsing
+3. Environment variable overrides
+4. Custom prompt templates
+5. `atari init` command
+6. User guide documentation
+7. Error messages and suggestions
+
+### Success Criteria
+
+- [ ] Failed beads don't block drain indefinitely
+- [ ] Configuration works from file and env
+- [ ] `atari init` sets up Claude Code correctly
+- [ ] Documentation is complete
 
 ---
 
@@ -352,43 +227,59 @@ Phase 5 Tasks:
 
 ```
 atari/
-├── cmd/
-│   └── atari/
-│       └── main.go           # Entry point
+├── cmd/atari/
+│   ├── main.go
+│   ├── start.go
+│   ├── stop.go
+│   ├── pause.go
+│   ├── resume.go
+│   ├── status.go
+│   ├── events.go
+│   ├── init.go
+│   └── version.go
 ├── internal/
 │   ├── controller/
-│   │   ├── controller.go     # Main orchestration
-│   │   └── state.go          # State machine
+│   │   ├── controller.go
+│   │   └── state.go
 │   ├── workqueue/
-│   │   ├── queue.go          # Work queue manager
-│   │   └── backoff.go        # Backoff logic
+│   │   ├── queue.go
+│   │   └── backoff.go
 │   ├── session/
-│   │   ├── manager.go        # Session manager
-│   │   └── parser.go         # Stream-json parser
+│   │   ├── manager.go
+│   │   └── parser.go
 │   ├── events/
-│   │   ├── router.go         # Event router
-│   │   ├── types.go          # Event types
-│   │   └── sinks.go          # Log, TUI, State sinks
+│   │   ├── router.go
+│   │   ├── types.go
+│   │   └── sinks.go
 │   ├── bdactivity/
-│   │   └── watcher.go        # BD activity stream
+│   │   └── watcher.go
 │   ├── daemon/
-│   │   ├── daemon.go         # Daemon mode
-│   │   └── rpc.go            # Unix socket RPC
+│   │   ├── daemon.go
+│   │   └── rpc.go
 │   ├── tui/
-│   │   ├── model.go          # Bubbletea model
-│   │   ├── view.go           # View rendering
-│   │   └── styles.go         # Lipgloss styles
-│   └── config/
-│       ├── config.go         # Config loading
-│       └── defaults.go       # Default values
+│   │   ├── model.go
+│   │   ├── view.go
+│   │   └── styles.go
+│   ├── notifications/
+│   │   ├── notifier.go
+│   │   ├── ifttt.go
+│   │   ├── slack.go
+│   │   └── webhook.go
+│   ├── config/
+│   │   ├── config.go
+│   │   └── defaults.go
+│   └── init/
+│       ├── init.go
+│       └── templates/
 ├── docs/
-│   ├── CONTEXT.md            # Background research
-│   ├── DESIGN.md             # Architecture
-│   └── IMPLEMENTATION.md     # This file
-├── .atari/                   # Runtime directory (gitignored)
-│   ├── state.json
-│   ├── atari.log
-│   └── atari.sock
+│   ├── CONTEXT.md
+│   ├── DESIGN.md
+│   ├── IMPLEMENTATION.md
+│   ├── USER_GUIDE.md
+│   ├── components/
+│   ├── cli/
+│   └── config/
+├── .atari/              # Runtime (gitignored)
 ├── go.mod
 ├── go.sum
 ├── Makefile
@@ -401,17 +292,18 @@ atari/
 
 ### Unit Tests
 
-- State machine transitions
-- Event parsing (claude, bd)
-- Backoff calculations
-- Config loading
+Each component should have unit tests for:
+- Core logic and state transitions
+- Event parsing and formatting
+- Configuration loading and validation
+- Error handling
 
 ### Integration Tests
 
 - Full drain cycle with mock claude/bd
 - Daemon start/stop lifecycle
 - Pause/resume behavior
-- Recovery from state file
+- State recovery after simulated crash
 
 ### End-to-End Tests
 
@@ -441,6 +333,8 @@ The project is complete when:
 2. State persists across restarts
 3. Pause/resume/stop work correctly
 4. TUI provides good visibility into progress
-5. Failed beads don't block forever (backoff)
-6. Documentation is complete
-7. Works on macOS and Linux
+5. Notifications alert on key events
+6. Failed beads don't block forever (backoff)
+7. `atari init` onboards new users easily
+8. Documentation is complete
+9. Works on macOS and Linux
