@@ -26,18 +26,36 @@ Read these documents in order for full context:
 
 ## Development Commands
 
+All commands use mise (tool version manager). See `.mise.toml` for tool versions and task definitions.
+
 ```bash
 # Build
-go build -o bd-drain ./cmd/bd-drain
+mise run build
 
 # Run
 ./bd-drain start
 
 # Test
-go test ./...
+mise run test
 
 # Install locally
-go install ./cmd/bd-drain
+mise run install
+
+# Lint
+mise run lint
+
+# Format
+mise run fmt
+
+# Build container
+mise run bake
+
+# Development with hot-reload (requires reflex)
+mise run dev
+
+# Or use raw Go commands
+go build -o bd-drain ./cmd/bd-drain
+go test ./...
 ```
 
 ## Implementation Phases
@@ -50,11 +68,31 @@ go install ./cmd/bd-drain
 
 ## Code Style
 
-- Follow standard Go conventions
+- Follow standard Go conventions (Cobra + Viper for CLI)
 - Use `internal/` for non-exported packages
+- Use `log/slog` for structured logging
 - Keep functions small and testable
 - Add tests for new functionality
 - Use meaningful error messages
+
+## Directory Structure
+
+```
+cmd/bd-drain/       # CLI entrypoint (Cobra/Viper)
+  main.go           # Root command and subcommands
+  config.go         # Flag constants
+internal/           # Non-exported packages
+  controller/       # Main orchestration loop
+  workqueue/        # Work discovery and selection
+  session/          # Claude process management
+  events/           # Event routing and sinks
+  bdactivity/       # BD activity stream watcher
+  daemon/           # Daemon mode and RPC
+  tui/              # Terminal UI (bubbletea)
+  config/           # Configuration loading
+  shutdown/         # Graceful shutdown helper
+docs/               # Design and implementation docs
+```
 
 ## Key Design Decisions
 
@@ -72,8 +110,11 @@ When implementing, always:
 3. Verify graceful shutdown behavior
 4. Check state recovery after simulated crash
 
+Validate changes with `mise run bake` for end-to-end verification (runs tests + builds container).
+
 ## References
 
 - Beads repo: `~/.cache/claude/repos/steveyegge/beads/`
 - User's current drain scripts: `~/.zshrc` (search for `bd-drain`)
 - User's Claude config: `~/.claude/`
+- Template patterns: `~/.cache/claude/repos/abatilo/template/`

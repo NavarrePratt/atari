@@ -1,0 +1,34 @@
+[tools]
+go = "1.25.4"
+
+[tasks.build]
+description = "Build the bd-drain binary"
+run = "go build -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o bd-drain ./cmd/bd-drain"
+
+[tasks.install]
+description = "Install bd-drain to GOBIN"
+run = "go install -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" ./cmd/bd-drain"
+
+[tasks.test]
+description = "Run all tests"
+run = "go test -v ./..."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run"
+
+[tasks.fmt]
+description = "Format Go code"
+run = "go fmt ./..."
+
+[tasks.clean]
+description = "Remove build artifacts and runtime files"
+run = ["rm -f bd-drain", "rm -rf .bd-drain/"]
+
+[tasks.bake]
+description = "Build container image via docker-bake.hcl"
+run = "docker buildx bake"
+
+[tasks.dev]
+description = "Auto-restart on file changes (requires reflex)"
+run = "go tool github.com/cespare/reflex --start-service -- go run ./cmd/bd-drain start"
