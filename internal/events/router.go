@@ -20,19 +20,37 @@ type subscriberEntry struct {
 type Router struct {
 	subscribers []subscriberEntry
 	bufferSize  int
+	logger      *slog.Logger
 	mu          sync.RWMutex
 	closed      bool
 }
 
+// RouterOption configures a Router.
+type RouterOption func(*Router)
+
+// WithLogger sets a custom logger for the Router.
+// If not set, slog.Default() is used.
+func WithLogger(logger *slog.Logger) RouterOption {
+	return func(r *Router) {
+		r.logger = logger
+	}
+}
+
 // NewRouter creates a new event router with the specified default buffer size.
 // If bufferSize is 0 or negative, DefaultBufferSize is used.
-func NewRouter(bufferSize int) *Router {
+// Options can be provided to customize the router (e.g., WithLogger).
+func NewRouter(bufferSize int, opts ...RouterOption) *Router {
 	if bufferSize <= 0 {
 		bufferSize = DefaultBufferSize
 	}
-	return &Router{
+	r := &Router{
 		bufferSize: bufferSize,
+		logger:     slog.Default(),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Emit publishes an event to all subscribers.
@@ -53,7 +71,7 @@ func (r *Router) Emit(event Event) {
 			// Event delivered
 		default:
 			// Channel full, drop event
-			slog.Warn("event dropped: subscriber channel full",
+			r.logger.Warn("event dropped: subscriber channel full",
 				"event_type", event.Type(),
 				"source", event.Source(),
 			)

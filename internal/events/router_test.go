@@ -1,10 +1,18 @@
 package events
 
 import (
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 )
+
+// discardLogger returns a logger that discards all output.
+// Use in tests where log output is expected but not wanted in test output.
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestNewRouter(t *testing.T) {
 	t.Run("default buffer size", func(t *testing.T) {
@@ -235,7 +243,8 @@ func TestRouterClose(t *testing.T) {
 
 func TestRouterFullBuffer(t *testing.T) {
 	// Use a very small buffer to test drop behavior
-	r := NewRouter(2)
+	// Use discardLogger to suppress expected WARN logs for dropped events
+	r := NewRouter(2, WithLogger(discardLogger()))
 	defer r.Close()
 
 	ch := r.SubscribeBuffered(2)
@@ -265,7 +274,8 @@ done:
 }
 
 func TestRouterConcurrency(t *testing.T) {
-	r := NewRouter(100)
+	// Use discardLogger to suppress expected WARN logs for dropped events
+	r := NewRouter(100, WithLogger(discardLogger()))
 	defer r.Close()
 
 	subscribers := make([]<-chan Event, 10)
