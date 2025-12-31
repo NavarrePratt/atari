@@ -5,6 +5,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 )
@@ -107,4 +108,39 @@ func makeKey(name string, args []string) string {
 		return name
 	}
 	return name + " " + strings.Join(args, " ")
+}
+
+// ExecRunner executes real commands using os/exec.
+// This is the production implementation of CommandRunner.
+type ExecRunner struct{}
+
+// NewExecRunner creates a new ExecRunner for production use.
+func NewExecRunner() *ExecRunner {
+	return &ExecRunner{}
+}
+
+// Run executes a command and returns its combined output.
+func (r *ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := execCommand(ctx, name, args...)
+	return cmd.Output()
+}
+
+// execCommand is a variable to allow testing.
+var execCommand = execCommandImpl
+
+func execCommandImpl(ctx context.Context, name string, args ...string) execCmd {
+	return realExecCmd{cmd: exec.CommandContext(ctx, name, args...)}
+}
+
+// execCmd abstracts exec.Cmd for testing.
+type execCmd interface {
+	Output() ([]byte, error)
+}
+
+type realExecCmd struct {
+	cmd *exec.Cmd
+}
+
+func (c realExecCmd) Output() ([]byte, error) {
+	return c.cmd.Output()
 }

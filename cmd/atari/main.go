@@ -6,10 +6,18 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/npratt/atari/internal/config"
+	"github.com/npratt/atari/internal/controller"
+	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/shutdown"
+	"github.com/npratt/atari/internal/testutil"
+	"github.com/npratt/atari/internal/workqueue"
 )
 
 var version = "dev"
@@ -54,7 +62,7 @@ and persists state for pause/resume capability.`,
 		},
 	}
 
-	// Start command (placeholder)
+	// Start command
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the atari daemon",
@@ -68,17 +76,82 @@ sessions to work on each bead until completion.`,
 				logger.Debug("verbose logging enabled")
 			}
 
+			// Load default config and apply CLI flags
+			cfg := config.Default()
+			cfg.Paths.Log = viper.GetString(FlagLogFile)
+			cfg.Paths.State = viper.GetString(FlagStateFile)
+			cfg.Paths.Socket = viper.GetString(FlagSocketPath)
+			if label := viper.GetString(FlagLabel); label != "" {
+				cfg.WorkQueue.Label = label
+			}
+
+			// Ensure .atari directory exists
+			if err := os.MkdirAll(".atari", 0755); err != nil {
+				return fmt.Errorf("create .atari directory: %w", err)
+			}
+
 			logger.Info("atari starting",
 				"version", version,
-				"log_file", viper.GetString(FlagLogFile),
-				"state_file", viper.GetString(FlagStateFile),
+				"log_file", cfg.Paths.Log,
+				"state_file", cfg.Paths.State,
+				"label", cfg.WorkQueue.Label,
 			)
 
-			// TODO: Implement controller start
-			fmt.Println("atari start - implementation pending")
-			fmt.Println()
-			fmt.Println("See docs/IMPLEMENTATION.md for the implementation plan.")
-			return nil
+			// Create event router
+			router := events.NewRouter(events.DefaultBufferSize)
+
+			// Create and start sinks
+			logSink := events.NewLogSink(cfg.Paths.Log)
+			stateSink := events.NewStateSink(cfg.Paths.State)
+
+			// Create context for sinks
+			ctx := cmd.Context()
+			sinkCtx, sinkCancel := context.WithCancel(ctx)
+
+			// Subscribe sinks to router and start them
+			logEvents := router.Subscribe()
+			if err := logSink.Start(sinkCtx, logEvents); err != nil {
+				sinkCancel()
+				return fmt.Errorf("start log sink: %w", err)
+			}
+
+			stateEvents := router.SubscribeBuffered(events.StateBufferSize)
+			if err := stateSink.Start(sinkCtx, stateEvents); err != nil {
+				sinkCancel()
+				_ = logSink.Stop()
+				return fmt.Errorf("start state sink: %w", err)
+			}
+
+			// Create command runner for real commands
+			runner := testutil.NewExecRunner()
+
+			// Create work queue
+			wq := workqueue.New(cfg, runner)
+
+			// Create controller
+			ctrl := controller.New(cfg, wq, router, runner, logger)
+
+			// Run with graceful shutdown handling
+			err := shutdown.RunWithGracefulShutdown(
+				ctx,
+				logger,
+				30*time.Second,
+				func(runCtx context.Context) error {
+					return ctrl.Run(runCtx)
+				},
+				func(shutdownCtx context.Context) error {
+					ctrl.Stop()
+					return nil
+				},
+			)
+
+			// Clean up sinks
+			sinkCancel()
+			router.Close()
+			_ = logSink.Stop()
+			_ = stateSink.Stop()
+
+			return err
 		},
 	}
 
