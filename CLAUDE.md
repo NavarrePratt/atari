@@ -64,7 +64,7 @@ See `docs/IMPLEMENTATION.md` for detailed specs.
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 1 | Core Loop (MVP) | In progress - workqueue, session, events, sinks done; controller pending |
+| 1 | Core Loop (MVP) | Complete - workqueue, session, events, sinks, controller done |
 | 2 | Control & Monitoring | Not started |
 | 3 | BD Activity | Not started |
 | 4 | Terminal UI | Not started |
@@ -83,7 +83,7 @@ See `docs/IMPLEMENTATION.md` for detailed specs.
 ## Directory Structure
 
 ```
-cmd/atari/          # CLI entrypoint (Cobra/Viper)
+cmd/atari/          # CLI entrypoint (see cmd/atari/CLAUDE.md)
   main.go           # Root command and subcommands
   config.go         # Flag constants
 internal/           # Non-exported packages
@@ -93,7 +93,7 @@ internal/           # Non-exported packages
   testutil/         # Test infrastructure: mocks, fixtures (see internal/testutil/CLAUDE.md)
   session/          # Claude process lifecycle (see internal/session/CLAUDE.md)
   workqueue/        # Work discovery and selection (see internal/workqueue/CLAUDE.md)
-  controller/       # [planned] Main orchestration loop
+  controller/       # Main orchestration loop (see internal/controller/CLAUDE.md)
   bdactivity/       # [planned] BD activity stream watcher
   daemon/           # [planned] Daemon mode and RPC
   tui/              # [planned] Terminal UI (bubbletea)

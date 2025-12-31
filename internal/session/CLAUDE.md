@@ -86,7 +86,7 @@ The manager runs a background watchdog that terminates idle sessions:
 The session package integrates with:
 - `config.Config` - Claude timeout and extra args
 - `events.Router` - Emits parsed events and timeout events
-- Controller (planned) - Orchestrates session lifecycle
+- `controller.Controller` - Orchestrates session lifecycle
 
 Typical usage:
 ```go
