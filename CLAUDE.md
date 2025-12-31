@@ -60,11 +60,16 @@ go test ./...
 
 ## Implementation Phases
 
-1. **Phase 1 (MVP)**: Core loop - poll bd ready, spawn claude, log events, persist state
-2. **Phase 2**: Daemon mode with pause/resume/stop control via Unix socket
-3. **Phase 3**: BD activity integration for unified event stream
-4. **Phase 4**: Terminal UI with bubbletea
-5. **Phase 5**: Polish - backoff, config files, custom prompts
+See `docs/IMPLEMENTATION.md` for detailed specs.
+
+| Phase | Focus | Status |
+|-------|-------|--------|
+| 1 | Core Loop (MVP) | In progress - workqueue, session, events, sinks done; controller pending |
+| 2 | Control & Monitoring | Not started |
+| 3 | BD Activity | Not started |
+| 4 | Terminal UI | Not started |
+| 5 | Notifications | Not started |
+| 6 | Polish & Init | Partially done (backoff in workqueue) |
 
 ## Code Style
 

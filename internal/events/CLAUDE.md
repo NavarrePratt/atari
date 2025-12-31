@@ -13,12 +13,13 @@ Type definitions and router for the Atari event system. All components communica
 
 | Prefix | Source | Examples |
 |--------|--------|----------|
-| `session.*` | atari | start, end |
+| `session.*` | atari | start, end, timeout |
 | `claude.*` | claude | text, tool_use, tool_result |
 | `drain.*` | atari | start, stop |
 | `iteration.*` | atari | start, end |
 | `bead.*` | atari | abandoned |
-| `error` | any | error conditions |
+| `error` | any | generic error |
+| `error.parse` | atari | stream-json parse failures |
 
 ## Creating Events
 
