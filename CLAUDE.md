@@ -89,7 +89,7 @@ internal/           # Non-exported packages
   bdactivity/       # BD activity stream watcher
   daemon/           # Daemon mode and RPC
   tui/              # Terminal UI (bubbletea)
-  config/           # Configuration loading
+  config/           # Configuration loading (see internal/config/CLAUDE.md)
   shutdown/         # Graceful shutdown helper (see internal/shutdown/CLAUDE.md)
 docs/               # Design and implementation docs
   components/       # Detailed component specifications
@@ -114,8 +114,3 @@ When implementing, always:
 4. Check state recovery after simulated crash
 
 Validate changes with `mise run bake` for end-to-end verification (runs tests + builds container).
-
-## References
-
-- Beads repo: `~/.cache/claude/repos/steveyegge/beads/`
-- Template patterns: `~/.cache/claude/repos/abatilo/template/`

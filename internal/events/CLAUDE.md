@@ -74,3 +74,56 @@ router.Unsubscribe(ch)
 - Multiple subscribers receive all events
 - Thread-safe for concurrent access
 - `Close()` closes all subscriber channels (idempotent)
+
+## Sinks
+
+Sinks consume events from the router for persistence and analysis. All sinks implement the `Sink` interface.
+
+### Sink Interface
+
+```go
+type Sink interface {
+    Start(ctx context.Context, events <-chan Event) error
+    Stop() error
+}
+```
+
+### LogSink
+
+Writes events to a JSON lines file for debugging and analysis.
+
+```go
+sink := events.NewLogSink(".atari/atari.log")
+ch := router.SubscribeBuffered(100)
+sink.Start(ctx, ch)
+// ... run ...
+sink.Stop()
+```
+
+- Appends JSON-encoded events, one per line
+- Creates parent directories automatically
+- Thread-safe writes with mutex protection
+
+### StateSink
+
+Persists runtime state to JSON for crash recovery.
+
+```go
+sink := events.NewStateSink(".atari/state.json")
+ch := router.SubscribeBuffered(events.StateBufferSize) // 1000
+sink.Start(ctx, ch)
+// ... run ...
+sink.Stop()
+```
+
+**State tracking**:
+- Drain status (running/stopped)
+- Iteration count and current bead
+- Per-bead history (status, attempts, errors)
+- Aggregate cost and turn counts
+
+**Behavior**:
+- Debounced saves (default 5s) to reduce disk writes
+- Immediate save on drain stop
+- Atomic writes via temp file + rename
+- Loads existing state on Start if present
