@@ -6,14 +6,11 @@ Use this as the playbook for building the atari CLI. It follows the Cobra + Vipe
 
 ```
 cmd/atari/
-├── main.go          # Cobra/Viper setup, root command
-├── config.go        # Flag/env key constants
-├── start.go         # Start command implementation
-├── status.go        # Status command implementation
-├── pause.go         # Pause command implementation
-├── resume.go        # Resume command implementation
-└── stop.go          # Stop command implementation
+├── main.go          # Cobra/Viper setup, root command, all subcommands
+└── config.go        # Flag/env key constants
 ```
+
+When commands grow complex, extract to separate files (start.go, status.go, etc.).
 
 ## Configuration (Cobra + Viper)
 

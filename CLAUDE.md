@@ -85,12 +85,12 @@ internal/           # Non-exported packages
   controller/       # Main orchestration loop
   workqueue/        # Work discovery and selection
   session/          # Claude process management
-  events/           # Event routing and sinks
+  events/           # Event type definitions (see internal/events/CLAUDE.md)
   bdactivity/       # BD activity stream watcher
   daemon/           # Daemon mode and RPC
   tui/              # Terminal UI (bubbletea)
   config/           # Configuration loading
-  shutdown/         # Graceful shutdown helper
+  shutdown/         # Graceful shutdown helper (see internal/shutdown/CLAUDE.md)
 docs/               # Design and implementation docs
 ```
 

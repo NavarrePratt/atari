@@ -14,23 +14,6 @@ Use this doc as a quick operational guide when editing or validating atari.
 - State: JSON state file at `.atari/state.json` for persistence across restarts.
 - Events: Unified event stream from Claude output, bd activity, and internal state changes.
 
-## Directory structure
-
-```
-cmd/atari/          # CLI entrypoint (Cobra/Viper)
-internal/           # Non-exported packages
-  controller/       # Main orchestration loop
-  workqueue/        # Work discovery and selection
-  session/          # Claude process management
-  events/           # Event routing and sinks
-  bdactivity/       # BD activity stream watcher
-  daemon/           # Daemon mode and RPC
-  tui/              # Terminal UI (bubbletea)
-  config/           # Configuration loading
-  shutdown/         # Graceful shutdown helper
-docs/               # Design and implementation docs
-```
-
 ## Tooling pins
 
 - See `.mise.toml` for Go version and task definitions.
@@ -42,3 +25,29 @@ docs/               # Design and implementation docs
 - Favor structured logging (slog) over fmt.Print.
 - Persist state on significant events for crash recovery.
 - Single Claude session at a time (no parallel execution).
+
+## Landing the Plane (Session Completion)
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd sync
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
