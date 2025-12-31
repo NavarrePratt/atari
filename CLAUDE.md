@@ -94,6 +94,7 @@ internal/           # Non-exported packages
   session/          # Claude process lifecycle (see internal/session/CLAUDE.md)
   workqueue/        # Work discovery and selection (see internal/workqueue/CLAUDE.md)
   controller/       # Main orchestration loop (see internal/controller/CLAUDE.md)
+  integration/      # End-to-end tests (see internal/integration/CLAUDE.md)
   bdactivity/       # [planned] BD activity stream watcher
   daemon/           # [planned] Daemon mode and RPC
   tui/              # [planned] Terminal UI (bubbletea)

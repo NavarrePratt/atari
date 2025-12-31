@@ -35,6 +35,31 @@ testutil.AssertCallCount(t, mock, "bd", 2)
 
 **Prefix matching**: Commands with variable args can use prefix matching - if no exact match is found, the runner checks if any registered key is a prefix of the actual command.
 
+**Dynamic responses**: For tests needing call-count-based response variations:
+
+```go
+mock.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+    if name == "bd" && len(args) > 0 && args[0] == "ready" {
+        // Return different beads on each call
+        callCount++
+        if callCount == 1 {
+            return []byte(`[{"id": "bd-001"}]`), nil, true
+        }
+        return []byte(`[]`), nil, true
+    }
+    return nil, nil, false  // Fall through to normal lookup
+}
+```
+
+### ExecRunner
+
+Production implementation using os/exec. Used by the CLI start command for real command execution.
+
+```go
+runner := testutil.NewExecRunner()
+output, err := runner.Run(ctx, "bd", "ready", "--json")
+```
+
 ## Fixtures
 
 Pre-defined JSON responses for common scenarios:
