@@ -1,0 +1,236 @@
+package events
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+// StateBufferSize is the recommended buffer size for state sink subscriptions.
+const StateBufferSize = 1000
+
+// State represents the persistent drain state.
+type State struct {
+	Version     int                      `json:"version"`
+	Status      string                   `json:"status"`
+	Iteration   int                      `json:"iteration"`
+	CurrentBead string                   `json:"current_bead,omitempty"`
+	History     map[string]*BeadHistory  `json:"history"`
+	TotalCost   float64                  `json:"total_cost"`
+	TotalTurns  int                      `json:"total_turns"`
+	UpdatedAt   time.Time                `json:"updated_at"`
+}
+
+// DefaultMinSaveDelay is the minimum time between saves.
+const DefaultMinSaveDelay = 5 * time.Second
+
+// StateSink persists state to a JSON file for crash recovery.
+type StateSink struct {
+	path     string
+	state    *State
+	dirty    bool
+	mu       sync.Mutex
+	done     chan struct{}
+	lastSave time.Time
+	minDelay time.Duration
+}
+
+// NewStateSink creates a new StateSink that writes to the specified path.
+func NewStateSink(path string) *StateSink {
+	return &StateSink{
+		path: path,
+		state: &State{
+			Version: 1,
+			History: make(map[string]*BeadHistory),
+		},
+		done:     make(chan struct{}),
+		minDelay: DefaultMinSaveDelay,
+	}
+}
+
+// Start ensures the directory exists, loads existing state, and begins processing events.
+func (s *StateSink) Start(ctx context.Context, events <-chan Event) error {
+	// Ensure directory exists
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create state directory: %w", err)
+	}
+
+	// Load existing state if present
+	if err := s.Load(); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("load state: %w", err)
+	}
+
+	go s.run(ctx, events)
+	return nil
+}
+
+func (s *StateSink) run(ctx context.Context, events <-chan Event) {
+	defer close(s.done)
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.flushIfDirty()
+			return
+		case event, ok := <-events:
+			if !ok {
+				s.flushIfDirty()
+				return
+			}
+			s.handleEvent(event)
+		}
+	}
+}
+
+func (s *StateSink) handleEvent(event Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch e := event.(type) {
+	case *DrainStartEvent:
+		s.state.Status = "running"
+		s.dirty = true
+
+	case *DrainStopEvent:
+		s.state.Status = "stopped"
+		s.dirty = true
+		// Always save immediately on stop
+		s.saveUnlocked()
+		return
+
+	case *IterationStartEvent:
+		s.state.Iteration++
+		s.state.CurrentBead = e.BeadID
+		// Initialize or update history
+		if s.state.History[e.BeadID] == nil {
+			s.state.History[e.BeadID] = &BeadHistory{
+				ID:     e.BeadID,
+				Status: HistoryWorking,
+			}
+		}
+		h := s.state.History[e.BeadID]
+		h.Status = HistoryWorking
+		h.Attempts = e.Attempt
+		h.LastAttempt = event.Timestamp()
+		s.dirty = true
+
+	case *IterationEndEvent:
+		s.state.CurrentBead = ""
+		s.state.TotalCost += e.TotalCostUSD
+		s.state.TotalTurns += e.NumTurns
+		// Update history
+		if h := s.state.History[e.BeadID]; h != nil {
+			if e.Success {
+				h.Status = HistoryCompleted
+			} else {
+				h.Status = HistoryFailed
+				h.LastError = e.Error
+			}
+		}
+		s.dirty = true
+
+	case *BeadAbandonedEvent:
+		if h := s.state.History[e.BeadID]; h != nil {
+			h.Status = HistoryAbandoned
+			h.LastError = e.LastError
+		}
+		s.dirty = true
+
+	case *SessionEndEvent:
+		// Track cost from session end as well (in case iteration end is missed)
+		s.state.TotalCost += e.TotalCostUSD
+		s.state.TotalTurns += e.NumTurns
+		s.dirty = true
+	}
+
+	// Debounced save
+	if s.dirty && time.Since(s.lastSave) >= s.minDelay {
+		s.saveUnlocked()
+	}
+}
+
+func (s *StateSink) saveUnlocked() {
+	s.state.UpdatedAt = time.Now()
+
+	data, err := json.MarshalIndent(s.state, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "state sink: marshal error: %v\n", err)
+		return
+	}
+
+	// Atomic write: temp file + rename
+	tmpPath := s.path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "state sink: write error: %v\n", err)
+		return
+	}
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		fmt.Fprintf(os.Stderr, "state sink: rename error: %v\n", err)
+		return
+	}
+
+	s.dirty = false
+	s.lastSave = time.Now()
+}
+
+func (s *StateSink) flushIfDirty() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dirty {
+		s.saveUnlocked()
+	}
+}
+
+// Stop waits for the run goroutine to finish and performs a final save if needed.
+func (s *StateSink) Stop() error {
+	<-s.done
+	return nil
+}
+
+// Load reads the state file from disk.
+func (s *StateSink) Load() error {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var state State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("unmarshal state: %w", err)
+	}
+
+	// Initialize history map if nil
+	if state.History == nil {
+		state.History = make(map[string]*BeadHistory)
+	}
+
+	s.state = &state
+	return nil
+}
+
+// State returns a copy of the current state.
+func (s *StateSink) State() State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return *s.state
+}
+
+// Path returns the state file path.
+func (s *StateSink) Path() string {
+	return s.path
+}
+
+// SetMinDelay sets the minimum delay between saves (for testing).
+func (s *StateSink) SetMinDelay(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.minDelay = d
+}
