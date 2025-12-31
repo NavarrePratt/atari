@@ -21,13 +21,18 @@ type CommandCall struct {
 	Args []string
 }
 
+// DynamicResponseFunc is called to generate dynamic responses for commands.
+// If it returns (nil, nil), the normal response lookup is used.
+type DynamicResponseFunc func(ctx context.Context, name string, args []string) ([]byte, error, bool)
+
 // MockRunner returns canned responses based on command patterns.
 // It records all calls for later assertion.
 type MockRunner struct {
-	mu        sync.Mutex
-	Responses map[string][]byte
-	Errors    map[string]error
-	Calls     []CommandCall
+	mu              sync.Mutex
+	Responses       map[string][]byte
+	Errors          map[string]error
+	Calls           []CommandCall
+	DynamicResponse DynamicResponseFunc
 }
 
 // NewMockRunner creates a MockRunner with initialized maps.
@@ -46,6 +51,13 @@ func (m *MockRunner) Run(ctx context.Context, name string, args ...string) ([]by
 	defer m.mu.Unlock()
 
 	m.Calls = append(m.Calls, CommandCall{Name: name, Args: args})
+
+	// Check dynamic response first
+	if m.DynamicResponse != nil {
+		if resp, err, handled := m.DynamicResponse(ctx, name, args); handled {
+			return resp, err
+		}
+	}
 
 	key := makeKey(name, args)
 
