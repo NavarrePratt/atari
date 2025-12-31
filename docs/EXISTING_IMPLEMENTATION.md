@@ -92,9 +92,9 @@ _bd_reset_stuck_issues() {
 }
 ```
 
-## bd-drain Function
+## Original bd-drain Function
 
-Main drain loop:
+Main drain loop (shell implementation that atari replaces):
 
 ```bash
 bd-drain() (

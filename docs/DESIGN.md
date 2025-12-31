@@ -1,6 +1,6 @@
 # Design Document
 
-This document describes the architecture and design decisions for bd-drain.
+This document describes the architecture and design decisions for atari.
 
 ## Table of Contents
 
@@ -38,7 +38,7 @@ This document describes the architecture and design decisions for bd-drain.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              bd-drain daemon                                 │
+│                               atari daemon                                   │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
 │  │                           Controller                                     ││
@@ -313,7 +313,7 @@ For terminal output, events are formatted with color and symbols:
 
 ### State File
 
-Location: `.bd-drain/state.json` in project directory
+Location: `.atari/state.json` in project directory
 
 ```json
 {
@@ -379,7 +379,7 @@ Location: `.bd-drain/state.json` in project directory
 
 ### Recovery on Startup
 
-When bd-drain starts:
+When atari starts:
 
 1. Check for existing state file
 2. If found and status != "stopped":
@@ -396,40 +396,40 @@ When bd-drain starts:
 ### Commands
 
 ```bash
-# Start the drain daemon
-bd-drain start [flags]
+# Start the atari daemon
+atari start [flags]
   --tui              Enable terminal UI
-  --log FILE         Log file path (default: .bd-drain/drain.log)
+  --log FILE         Log file path (default: .atari/atari.log)
   --max-turns N      Max turns per Claude session (default: 50)
   --label LABEL      Filter bd ready by label
   --prompt FILE      Custom prompt template
 
 # Check daemon status
-bd-drain status
+atari status
   Output: JSON with current state, stats, recent events
 
 # Pause (finish current bead, then wait)
-bd-drain pause
+atari pause
 
 # Resume after pause
-bd-drain resume
+atari resume
 
 # Stop immediately (SIGTERM to claude if running)
-bd-drain stop
+atari stop
 
 # Stop gracefully (wait for current bead)
-bd-drain stop --graceful
+atari stop --graceful
 
 # View recent events
-bd-drain events [--follow] [--count N]
+atari events [--follow] [--count N]
 
 # View statistics
-bd-drain stats
+atari stats
 ```
 
 ### Daemon Communication
 
-The daemon listens on a Unix socket: `.bd-drain/drain.sock`
+The daemon listens on a Unix socket: `.atari/atari.sock`
 
 Protocol: Simple JSON-RPC over Unix socket
 
@@ -451,7 +451,7 @@ type Response struct {
 
 ### Config File
 
-Location: `.bd-drain/config.yaml` or `~/.config/bd-drain/config.yaml`
+Location: `.atari/config.yaml` or `~/.config/atari/config.yaml`
 
 ```yaml
 # Claude settings
@@ -488,10 +488,10 @@ prompt: |
 ### Environment Variables
 
 ```bash
-BD_DRAIN_LOG=/path/to/log        # Override log location
-BD_DRAIN_CONFIG=/path/to/config  # Override config location
-BD_DRAIN_NO_TUI=1                # Disable TUI even if --tui passed
-BEADS_ACTOR=bd-drain             # Actor name for bd audit trail
+ATARI_LOG=/path/to/log        # Override log location
+ATARI_CONFIG=/path/to/config  # Override config location
+ATARI_NO_TUI=1                # Disable TUI even if --tui passed
+BEADS_ACTOR=atari             # Actor name for bd audit trail
 ```
 
 ---

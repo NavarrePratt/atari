@@ -2,10 +2,10 @@ variable "GITHUB_SHA" { default = "latest" }
 variable "VERSION" { default = "dev" }
 
 group "default" {
-  targets = ["bd-drain"]
+  targets = ["atari"]
 }
 
-target "bd-drain" {
+target "atari" {
   context    = "."
   dockerfile = "Dockerfile"
   args = {
@@ -15,6 +15,6 @@ target "bd-drain" {
     "type=image,oci-mediatypes=true,compression=zstd,compression-level=22,force-compression=true",
   ]
   tags = [
-    "ghcr.io/npratt/bd-drain:${GITHUB_SHA}",
+    "ghcr.io/npratt/atari:${GITHUB_SHA}",
   ]
 }

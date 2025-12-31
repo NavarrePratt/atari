@@ -1,6 +1,6 @@
 # Context & Research
 
-This document captures all background research and context needed to understand and implement bd-drain.
+This document captures all background research and context needed to understand and implement atari.
 
 ## Table of Contents
 
@@ -15,9 +15,11 @@ This document captures all background research and context needed to understand 
 
 The user has shell functions in `~/.zshrc` that implement a working but limited drain system.
 
-### bd-drain Function
+### Original bd-drain Function
 
 Location: `~/.zshrc` (around line 950)
+
+Note: This shell function is the original implementation that atari replaces.
 
 ```bash
 bd-drain() (
@@ -231,12 +233,12 @@ Claude Code supports hooks that trigger on specific events:
 }
 ```
 
-### Key Findings for Drain
+### Key Findings for atari
 
 1. Use `--output-format stream-json` for real-time monitoring
 2. Use `--max-turns` to prevent runaway sessions
 3. Can capture `session_id` from JSON output for potential resume
-4. SessionEnd hooks could trigger next drain iteration
+4. SessionEnd hooks could trigger next atari iteration
 5. No built-in queue system - must implement externally
 
 ---
@@ -338,14 +340,14 @@ bd daemons killall     # Stop all daemons
 Environment variables for automation:
 ```bash
 BEADS_NO_DAEMON=true        # Disable background process
-BEADS_ACTOR="bd-drain"      # Audit trail actor name
+BEADS_ACTOR="atari"         # Audit trail actor name
 BEADS_AUTO_START_DAEMON=0   # Prevent daemon creation
 ```
 
-### Key Findings for Drain
+### Key Findings for atari
 
 1. `bd activity --follow --json` provides real-time event stream
-2. `bd agent` commands can track drain controller state
+2. `bd agent` commands can track atari controller state
 3. Daemon handles multi-process safety
 4. No webhooks - must poll or use `--follow`
 5. All mutations have JSON output for parsing
@@ -429,12 +431,12 @@ A Go daemon that:
 
 ### Key Integration Points
 
-| Component | How bd-drain Integrates |
+| Component | How atari Integrates |
 |-----------|------------------------|
 | Claude Code | `claude -p --output-format stream-json --max-turns N` |
 | bd ready | Poll for available work, parse JSON |
 | bd activity | `--follow --json` for real-time bead events |
-| bd agent | Track drain controller state |
+| bd agent | Track atari controller state |
 | State file | Persist iteration count, costs, current bead |
 
 ### Design Constraints

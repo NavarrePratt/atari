@@ -1,8 +1,8 @@
 # Binary
-bd-drain
+/atari
 
 # Runtime directory
-.bd-drain/
+.atari/
 
 # Go build artifacts
 *.exe

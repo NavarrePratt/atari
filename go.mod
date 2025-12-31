@@ -1,4 +1,4 @@
-module github.com/npratt/bd-drain
+module github.com/npratt/atari
 
 go 1.25.4
 

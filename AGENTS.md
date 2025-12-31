@@ -1,6 +1,6 @@
 # Repository Checklist (for agents and humans)
 
-Use this doc as a quick operational guide when editing or validating bd-drain.
+Use this doc as a quick operational guide when editing or validating atari.
 
 ## Validate changes
 
@@ -11,13 +11,13 @@ Use this doc as a quick operational guide when editing or validating bd-drain.
 ## Patterns to follow
 
 - Backend: Cobra + Viper config, structured logging with slog, graceful shutdown (`cmd/AGENTS.md`).
-- State: JSON state file at `.bd-drain/state.json` for persistence across restarts.
+- State: JSON state file at `.atari/state.json` for persistence across restarts.
 - Events: Unified event stream from Claude output, bd activity, and internal state changes.
 
 ## Directory structure
 
 ```
-cmd/bd-drain/       # CLI entrypoint (Cobra/Viper)
+cmd/atari/          # CLI entrypoint (Cobra/Viper)
 internal/           # Non-exported packages
   controller/       # Main orchestration loop
   workqueue/        # Work discovery and selection

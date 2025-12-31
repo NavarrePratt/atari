@@ -1,6 +1,6 @@
 # Implementation Plan
 
-This document outlines the phased implementation approach for bd-drain.
+This document outlines the phased implementation approach for atari.
 
 ## Technology Choices
 
@@ -35,8 +35,8 @@ Rationale:
    - Resets stuck issues after each session
 
 2. **Basic CLI**:
-   - `bd-drain start` - Run in foreground
-   - `bd-drain version`
+   - `atari start` - Run in foreground
+   - `atari version`
 
 3. **State persistence**:
    - Write state.json after each iteration
@@ -96,7 +96,7 @@ Phase 1 Tasks:
 
 ### Success Criteria
 
-- [x] Can run `bd-drain start` and it processes all ready beads
+- [x] Can run `atari start` and it processes all ready beads
 - [x] Logs written to file in JSON lines format
 - [x] State persisted and recovered on restart
 - [x] Graceful shutdown on Ctrl+C
@@ -115,13 +115,13 @@ Phase 1 Tasks:
    - PID file management
 
 2. **Control commands**:
-   - `bd-drain status` - Show current state
-   - `bd-drain pause` - Pause after current bead
-   - `bd-drain resume` - Resume from pause
-   - `bd-drain stop` - Stop daemon
+   - `atari status` - Show current state
+   - `atari pause` - Pause after current bead
+   - `atari resume` - Resume from pause
+   - `atari stop` - Stop daemon
 
 3. **Event streaming**:
-   - `bd-drain events --follow` - Tail event log
+   - `atari events --follow` - Tail event log
 
 ### Implementation Tasks
 
@@ -209,7 +209,7 @@ Phase 3 Tasks:
 ### Success Criteria
 
 - [x] Bead status changes appear in event stream
-- [x] `bd-drain events` shows unified claude + bd events
+- [x] `atari events` shows unified claude + bd events
 - [x] Events are color-coded and easy to read
 
 ---
@@ -220,7 +220,7 @@ Phase 3 Tasks:
 
 ### Deliverables
 
-1. **TUI mode** (`bd-drain start --tui`):
+1. **TUI mode** (`atari start --tui`):
    - Current bead display
    - Live event feed
    - Stats panel
@@ -228,7 +228,7 @@ Phase 3 Tasks:
 
 2. **Layout**:
    ```
-   ┌─ BD-DRAIN ──────────────────────────────────────────────┐
+   ┌─ ATARI ─────────────────────────────────────────────────┐
    │ Status: WORKING                      Cost: $2.35        │
    │ Current: bd-042 "Fix auth bug"       Turns: 42          │
    │ Progress: 4 completed, 1 failed, 3 remaining            │
@@ -351,9 +351,9 @@ Phase 5 Tasks:
 ## File Structure
 
 ```
-bd-drain/
+atari/
 ├── cmd/
-│   └── bd-drain/
+│   └── atari/
 │       └── main.go           # Entry point
 ├── internal/
 │   ├── controller/
@@ -385,10 +385,10 @@ bd-drain/
 │   ├── CONTEXT.md            # Background research
 │   ├── DESIGN.md             # Architecture
 │   └── IMPLEMENTATION.md     # This file
-├── .bd-drain/                # Runtime directory (gitignored)
+├── .atari/                   # Runtime directory (gitignored)
 │   ├── state.json
-│   ├── drain.log
-│   └── drain.sock
+│   ├── atari.log
+│   └── atari.sock
 ├── go.mod
 ├── go.sum
 ├── Makefile
@@ -437,7 +437,7 @@ bd-drain/
 
 The project is complete when:
 
-1. `bd-drain start` can process all ready beads autonomously
+1. `atari start` can process all ready beads autonomously
 2. State persists across restarts
 3. Pause/resume/stop work correctly
 4. TUI provides good visibility into progress

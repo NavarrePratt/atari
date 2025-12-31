@@ -1,4 +1,6 @@
-# bd-drain
+# atari
+
+**Applied Training: Automatic Research & Implementation**
 
 A daemon controller that orchestrates Claude Code sessions to automatically work through beads (bd) issues until all ready work is complete.
 
@@ -10,7 +12,7 @@ When using Claude Code with the beads issue tracker, the ideal workflow is:
 3. Monitor progress in real-time with good observability
 4. Survive interruptions and resume later
 
-The current shell-script approach (`bd-drain` function in zshrc) works but has limitations:
+The current shell-script approach works but has limitations:
 - No persistent state between iterations
 - No real-time bead status visualization (only see changes after iteration completes)
 - One fresh session per iteration (no session continuity)
@@ -30,7 +32,7 @@ A daemon controller written in Go that:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        bd-drain daemon                          │
+│                         atari daemon                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
@@ -58,23 +60,23 @@ A daemon controller written in Go that:
 ## Quick Start
 
 ```bash
-# Start drain in current directory (where .beads/ exists)
-bd-drain start
+# Start daemon in current directory (where .beads/ exists)
+atari start
 
 # Start with TUI monitoring
-bd-drain start --tui
+atari start --tui
 
 # Check status
-bd-drain status
+atari status
 
 # Pause (finish current bead, then stop)
-bd-drain pause
+atari pause
 
 # Resume
-bd-drain resume
+atari resume
 
 # Stop immediately
-bd-drain stop
+atari stop
 ```
 
 ## Documentation
@@ -85,7 +87,7 @@ bd-drain stop
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.25+
 - Claude Code CLI (`claude` command)
 - beads CLI (`bd` command)
 - A project with `.beads/` initialized

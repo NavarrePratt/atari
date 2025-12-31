@@ -2,12 +2,12 @@
 go = "1.25.4"
 
 [tasks.build]
-description = "Build the bd-drain binary"
-run = "go build -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o bd-drain ./cmd/bd-drain"
+description = "Build the atari binary"
+run = "go build -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o atari ./cmd/atari"
 
 [tasks.install]
-description = "Install bd-drain to GOBIN"
-run = "go install -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" ./cmd/bd-drain"
+description = "Install atari to GOBIN"
+run = "go install -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" ./cmd/atari"
 
 [tasks.test]
 description = "Run all tests"
@@ -23,7 +23,7 @@ run = "go fmt ./..."
 
 [tasks.clean]
 description = "Remove build artifacts and runtime files"
-run = ["rm -f bd-drain", "rm -rf .bd-drain/"]
+run = ["rm -f atari", "rm -rf .atari/"]
 
 [tasks.bake]
 description = "Build container image via docker-bake.hcl"
@@ -31,4 +31,4 @@ run = "docker buildx bake"
 
 [tasks.dev]
 description = "Auto-restart on file changes (requires reflex)"
-run = "go tool github.com/cespare/reflex --start-service -- go run ./cmd/bd-drain start"
+run = "go tool github.com/cespare/reflex --start-service -- go run ./cmd/atari start"

@@ -1,4 +1,4 @@
-# BD-Drain Project
+# Atari - Applied Training: Automatic Research & Implementation
 
 A daemon controller that orchestrates Claude Code sessions to automatically work through beads (bd) issues.
 
@@ -22,7 +22,7 @@ Read these documents in order for full context:
 - Claude Code: `claude -p --output-format stream-json --max-turns N`
 - BD ready: `bd ready --json` for work discovery
 - BD activity: `bd activity --follow --json` for real-time bead events
-- BD agent: `bd agent state bd-drain <state>` for tracking
+- BD agent: `bd agent state atari <state>` for tracking
 
 ## Development Commands
 
@@ -33,7 +33,7 @@ All commands use mise (tool version manager). See `.mise.toml` for tool versions
 mise run build
 
 # Run
-./bd-drain start
+./atari start
 
 # Test
 mise run test
@@ -54,7 +54,7 @@ mise run bake
 mise run dev
 
 # Or use raw Go commands
-go build -o bd-drain ./cmd/bd-drain
+go build -o atari ./cmd/atari
 go test ./...
 ```
 
@@ -78,7 +78,7 @@ go test ./...
 ## Directory Structure
 
 ```
-cmd/bd-drain/       # CLI entrypoint (Cobra/Viper)
+cmd/atari/          # CLI entrypoint (Cobra/Viper)
   main.go           # Root command and subcommands
   config.go         # Flag constants
 internal/           # Non-exported packages
@@ -98,8 +98,8 @@ docs/               # Design and implementation docs
 
 1. **Single worker**: One Claude session at a time (no parallel execution)
 2. **Fresh sessions**: Each bead gets a new Claude session (no resume across beads)
-3. **State file**: JSON state persisted to `.bd-drain/state.json`
-4. **Unix socket**: Daemon control via `.bd-drain/drain.sock`
+3. **State file**: JSON state persisted to `.atari/state.json`
+4. **Unix socket**: Daemon control via `.atari/atari.sock`
 5. **Event-driven**: All significant actions emit events to unified stream
 
 ## Testing
@@ -115,6 +115,4 @@ Validate changes with `mise run bake` for end-to-end verification (runs tests + 
 ## References
 
 - Beads repo: `~/.cache/claude/repos/steveyegge/beads/`
-- User's current drain scripts: `~/.zshrc` (search for `bd-drain`)
-- User's Claude config: `~/.claude/`
 - Template patterns: `~/.cache/claude/repos/abatilo/template/`

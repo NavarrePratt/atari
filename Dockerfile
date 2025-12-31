@@ -1,4 +1,4 @@
-# Multi-stage build for bd-drain
+# Multi-stage build for atari
 FROM golang:1.25.4 AS builder
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
@@ -17,11 +17,11 @@ RUN \
   go test -v ./...
   CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s -X main.version=${VERSION}" \
-    -o /go/bin/bd-drain \
-    ./cmd/bd-drain
+    -o /go/bin/atari \
+    ./cmd/atari
 EOF
 
 # Runtime image
 FROM gcr.io/distroless/static:nonroot
-COPY --link --from=builder /go/bin/bd-drain /usr/local/bin/bd-drain
-ENTRYPOINT ["/usr/local/bin/bd-drain"]
+COPY --link --from=builder /go/bin/atari /usr/local/bin/atari
+ENTRYPOINT ["/usr/local/bin/atari"]
