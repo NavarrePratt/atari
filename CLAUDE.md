@@ -86,9 +86,9 @@ internal/           # Non-exported packages
   events/           # Event types, router, sinks (see internal/events/CLAUDE.md)
   shutdown/         # Graceful shutdown helper (see internal/shutdown/CLAUDE.md)
   testutil/         # Test infrastructure: mocks, fixtures (see internal/testutil/CLAUDE.md)
+  session/          # Claude process lifecycle (see internal/session/CLAUDE.md)
+  workqueue/        # Work discovery and selection (see internal/workqueue/CLAUDE.md)
   controller/       # [planned] Main orchestration loop
-  session/          # [planned] Claude process management
-  workqueue/        # [planned] Work discovery and selection
   bdactivity/       # [planned] BD activity stream watcher
   daemon/           # [planned] Daemon mode and RPC
   tui/              # [planned] Terminal UI (bubbletea)
