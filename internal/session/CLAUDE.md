@@ -1,8 +1,33 @@
 # Session Package
 
-Manages Claude Code process lifecycle with timeout watchdog.
+Manages Claude Code process lifecycle with timeout watchdog and stream-json parsing.
 
 ## Key Types
+
+### Parser
+
+Parses Claude stream-json output and emits typed events.
+
+```go
+parser := session.NewParser(reader, router, manager)
+
+// Parse reads until EOF, emitting events to router
+err := parser.Parse()
+```
+
+Event type mappings:
+- `assistant` with `text` content -> `ClaudeTextEvent`
+- `assistant` with `thinking` content -> `ClaudeTextEvent`
+- `assistant` with `tool_use` content -> `ClaudeToolUseEvent`
+- `user` with `tool_result` content -> `ClaudeToolResultEvent`
+- `result` -> `SessionEndEvent`
+- Parse errors -> `ParseErrorEvent` (parsing continues)
+
+Features:
+- 1MB scanner buffer for large tool outputs
+- Calls `manager.UpdateActivity()` on each valid event
+- Parse errors emit events but don't stop parsing
+- Unknown event types are silently ignored
 
 ### Manager
 
@@ -58,7 +83,21 @@ The manager runs a background watchdog that terminates idle sessions:
 
 ## Integration
 
-The session manager integrates with:
+The session package integrates with:
 - `config.Config` - Claude timeout and extra args
-- `events.Router` - Emits timeout events
+- `events.Router` - Emits parsed events and timeout events
 - Controller (planned) - Orchestrates session lifecycle
+
+Typical usage:
+```go
+mgr := session.New(cfg, router)
+err := mgr.Start(ctx, prompt)
+if err != nil {
+    return err
+}
+
+parser := session.NewParser(mgr.Stdout(), router, mgr)
+go parser.Parse()
+
+err = mgr.Wait()
+```

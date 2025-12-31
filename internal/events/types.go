@@ -32,7 +32,8 @@ const (
 	EventBeadAbandoned EventType = "bead.abandoned"
 
 	// Error events
-	EventError EventType = "error"
+	EventError      EventType = "error"
+	EventParseError EventType = "error.parse"
 )
 
 // Source constants identify the origin of events.
@@ -171,6 +172,13 @@ type ErrorEvent struct {
 	Severity string            `json:"severity"`
 	BeadID   string            `json:"bead_id,omitempty"`
 	Context  map[string]string `json:"context,omitempty"`
+}
+
+// ParseErrorEvent is emitted when stream-json parsing fails on a line.
+type ParseErrorEvent struct {
+	BaseEvent
+	Line  string `json:"line"`
+	Error string `json:"error"`
 }
 
 // NewEvent creates a BaseEvent with the given type and source.
