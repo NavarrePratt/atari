@@ -104,7 +104,7 @@ func (m *Manager) Start(ctx context.Context, prompt string) error {
 		return fmt.Errorf("session already started")
 	}
 
-	args := []string{"-p", "--output-format", "stream-json"}
+	args := []string{"-p", "--verbose", "--output-format", "stream-json"}
 	args = append(args, m.config.Claude.ExtraArgs...)
 
 	m.cmd = exec.CommandContext(ctx, "claude", args...)
