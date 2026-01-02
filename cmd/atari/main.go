@@ -346,6 +346,19 @@ Use --daemon to run in the background.`,
 			// Create controller
 			ctrl := controller.New(cfg, wq, router, runner, logger)
 
+			// Create daemon for RPC control
+			dmn := daemon.New(cfg, ctrl, logger)
+
+			// Start daemon socket server in background
+			daemonCtx, daemonCancel := context.WithCancel(ctx)
+			daemonDone := make(chan struct{})
+			go func() {
+				defer close(daemonDone)
+				if err := dmn.Start(daemonCtx); err != nil {
+					logger.Error("daemon server error", "error", err)
+				}
+			}()
+
 			// Run with graceful shutdown handling
 			err = shutdown.RunWithGracefulShutdown(
 				ctx,
@@ -356,6 +369,8 @@ Use --daemon to run in the background.`,
 				},
 				func(shutdownCtx context.Context) error {
 					ctrl.Stop()
+					daemonCancel()
+					<-daemonDone // Wait for daemon to finish
 					return nil
 				},
 			)
