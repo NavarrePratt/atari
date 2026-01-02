@@ -5,48 +5,48 @@ import "time"
 
 // Config holds all configuration for atari.
 type Config struct {
-	Claude     ClaudeConfig
-	WorkQueue  WorkQueueConfig
-	Backoff    BackoffConfig
-	Paths      PathsConfig
-	BDActivity BDActivityConfig
-	Prompt     string
-	AgentID    string // Bead ID for agent state reporting (empty = disabled)
+	Claude     ClaudeConfig     `yaml:"claude" mapstructure:"claude"`
+	WorkQueue  WorkQueueConfig  `yaml:"workqueue" mapstructure:"workqueue"`
+	Backoff    BackoffConfig    `yaml:"backoff" mapstructure:"backoff"`
+	Paths      PathsConfig      `yaml:"paths" mapstructure:"paths"`
+	BDActivity BDActivityConfig `yaml:"bdactivity" mapstructure:"bdactivity"`
+	Prompt     string           `yaml:"prompt" mapstructure:"prompt"`
+	AgentID    string           `yaml:"agent_id" mapstructure:"agent_id"` // Bead ID for agent state reporting (empty = disabled)
 }
 
 // ClaudeConfig holds Claude Code session settings.
 type ClaudeConfig struct {
-	Timeout   time.Duration
-	ExtraArgs []string
+	Timeout   time.Duration `yaml:"timeout" mapstructure:"timeout"`
+	ExtraArgs []string      `yaml:"extra_args" mapstructure:"extra_args"`
 }
 
 // WorkQueueConfig holds work queue polling settings.
 type WorkQueueConfig struct {
-	PollInterval time.Duration
-	Label        string
+	PollInterval time.Duration `yaml:"poll_interval" mapstructure:"poll_interval"`
+	Label        string        `yaml:"label" mapstructure:"label"`
 }
 
 // BackoffConfig holds exponential backoff settings for failed beads.
 type BackoffConfig struct {
-	Initial     time.Duration
-	Max         time.Duration
-	Multiplier  float64
-	MaxFailures int
+	Initial     time.Duration `yaml:"initial" mapstructure:"initial"`
+	Max         time.Duration `yaml:"max" mapstructure:"max"`
+	Multiplier  float64       `yaml:"multiplier" mapstructure:"multiplier"`
+	MaxFailures int           `yaml:"max_failures" mapstructure:"max_failures"`
 }
 
 // PathsConfig holds file paths for state, logs, and socket.
 type PathsConfig struct {
-	State  string
-	Log    string
-	Socket string
-	PID    string
+	State  string `yaml:"state" mapstructure:"state"`
+	Log    string `yaml:"log" mapstructure:"log"`
+	Socket string `yaml:"socket" mapstructure:"socket"`
+	PID    string `yaml:"pid" mapstructure:"pid"`
 }
 
 // BDActivityConfig holds BD activity watcher settings.
 type BDActivityConfig struct {
-	Enabled           bool
-	ReconnectDelay    time.Duration
-	MaxReconnectDelay time.Duration
+	Enabled           bool          `yaml:"enabled" mapstructure:"enabled"`
+	ReconnectDelay    time.Duration `yaml:"reconnect_delay" mapstructure:"reconnect_delay"`
+	MaxReconnectDelay time.Duration `yaml:"max_reconnect_delay" mapstructure:"max_reconnect_delay"`
 }
 
 // DefaultPrompt is the default prompt sent to Claude Code sessions.

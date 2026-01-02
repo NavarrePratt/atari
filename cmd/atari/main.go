@@ -217,9 +217,10 @@ and persists state for pause/resume capability.`,
 
 	// Persistent flags available to all commands
 	rootCmd.PersistentFlags().Bool(FlagVerbose, false, "Enable verbose (debug) logging")
-	rootCmd.PersistentFlags().String(FlagLogFile, ".atari/atari.log", "Log file path")
-	rootCmd.PersistentFlags().String(FlagStateFile, ".atari/state.json", "State file path")
-	rootCmd.PersistentFlags().String(FlagSocketPath, ".atari/atari.sock", "Unix socket path for daemon control")
+	rootCmd.PersistentFlags().String(FlagConfig, "", "Config file path (default: .atari/config.yaml)")
+	rootCmd.PersistentFlags().String(FlagLogFile, "", "Log file path")
+	rootCmd.PersistentFlags().String(FlagStateFile, "", "State file path")
+	rootCmd.PersistentFlags().String(FlagSocketPath, "", "Unix socket path for daemon control")
 
 	// Bind all flags to viper
 	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
@@ -265,22 +266,36 @@ Use --daemon to run in the background.`,
 				logger.Debug("verbose logging enabled")
 			}
 
-			// Load default config and apply CLI flags
-			cfg := config.Default()
-			cfg.Paths.Log = viper.GetString(FlagLogFile)
-			cfg.Paths.State = viper.GetString(FlagStateFile)
-			cfg.Paths.Socket = viper.GetString(FlagSocketPath)
-			if label := viper.GetString(FlagLabel); label != "" {
-				cfg.WorkQueue.Label = label
+			// Load config from files with defaults
+			cfg, err := config.LoadConfig(viper.GetViper())
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
 			}
-			cfg.AgentID = viper.GetString(FlagAgentID)
-			cfg.BDActivity.Enabled = viper.GetBool(FlagBDActivityEnabled)
+
+			// Apply CLI flag overrides (only if explicitly set)
+			if cmd.Flags().Changed(FlagLogFile) {
+				cfg.Paths.Log = viper.GetString(FlagLogFile)
+			}
+			if cmd.Flags().Changed(FlagStateFile) {
+				cfg.Paths.State = viper.GetString(FlagStateFile)
+			}
+			if cmd.Flags().Changed(FlagSocketPath) {
+				cfg.Paths.Socket = viper.GetString(FlagSocketPath)
+			}
+			if cmd.Flags().Changed(FlagLabel) {
+				cfg.WorkQueue.Label = viper.GetString(FlagLabel)
+			}
+			if cmd.Flags().Changed(FlagAgentID) {
+				cfg.AgentID = viper.GetString(FlagAgentID)
+			}
+			if cmd.Flags().Changed(FlagBDActivityEnabled) {
+				cfg.BDActivity.Enabled = viper.GetBool(FlagBDActivityEnabled)
+			}
 
 			// Find project root for path resolution
 			projectRoot := daemon.FindProjectRoot("")
 
 			// Resolve all paths to absolute
-			var err error
 			cfg.Paths, err = daemon.ResolvePaths(cfg.Paths, projectRoot)
 			if err != nil {
 				return fmt.Errorf("resolve paths: %w", err)

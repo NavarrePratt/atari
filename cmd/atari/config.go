@@ -4,6 +4,7 @@ package main
 const (
 	// Global flags
 	FlagVerbose    = "verbose"
+	FlagConfig     = "config"
 	FlagLogFile    = "log-file"
 	FlagStateFile  = "state-file"
 	FlagSocketPath = "socket-path"
