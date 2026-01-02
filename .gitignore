@@ -1,5 +1,6 @@
 # Binary
 /atari
+/atari-daemon
 
 # Runtime directory
 .atari/
