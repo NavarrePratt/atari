@@ -19,8 +19,10 @@ For detailed component specifications, see the [components/](components/) direct
 | 2 | Control & Monitoring | Daemon mode, pause/resume/stop | **Complete** |
 | 3 | BD Activity | Unified event stream | **Complete** |
 | 4 | Terminal UI | Bubbletea TUI | **Complete** |
-| 5 | Notifications | Webhooks, IFTTT, Slack | Not started |
-| 6 | Polish | Backoff, config, docs | Partial (backoff done) |
+| 5 | Polish & Init | Config, log rotation, cost tracking | Partial |
+| 6 | Observer Mode | Interactive Q&A pane | Not started |
+| 7 | Bead Visualization | TUI bead graph/tree | Not started |
+| 8 | Notifications | Webhooks, IFTTT, Slack | Not started |
 
 ---
 
@@ -228,7 +230,96 @@ For detailed component specifications, see the [components/](components/) direct
 
 ---
 
-## Phase 5: Notifications
+## Phase 5: Polish & Init
+
+**Goal**: Production-ready reliability, cost tracking, and onboarding.
+
+**Status**: Partial (backoff and env vars done in Phase 1)
+
+### Components to Implement
+
+| Component | Documentation |
+|-----------|---------------|
+| Init Command | [cli/init-command.md](cli/init-command.md) |
+| Configuration | [config/configuration.md](config/configuration.md) |
+| Cost Tracking | - |
+| Log Rotation | - |
+
+### Tasks
+
+1. [x] Exponential backoff for failed beads - **Done in Phase 1**
+2. [ ] YAML config file parsing
+3. [x] Environment variable overrides - **Done in Phase 1** (via Viper)
+4. [ ] Custom prompt templates
+5. [ ] `atari init` command
+6. [ ] Log rotation for `.atari/atari.log` and `.atari/atari-debug.log`
+7. [ ] Cost/usage tracking - integrate with [ccusage-go](https://github.com/ryanmac/ccusage-go) for session cost aggregation
+8. [ ] User guide documentation
+9. [ ] Error messages and suggestions
+
+### Success Criteria
+
+- [x] Failed beads don't block drain indefinitely (backoff + max failures)
+- [ ] Configuration works from file and env
+- [ ] `atari init` sets up Claude Code correctly
+- [ ] Log files don't grow unbounded
+- [ ] Cost tracking shows usage per session and cumulative totals
+- [ ] Documentation is complete
+
+---
+
+## Phase 6: Observer Mode
+
+**Goal**: Interactive Q&A pane for asking questions about events and session activity.
+
+### Components to Implement
+
+| Component | Documentation |
+|-----------|---------------|
+| Observer Pane | [components/observer.md](components/observer.md) |
+| Event Context | - |
+
+### Tasks
+
+1. [ ] Add observer pane to TUI (split view or modal)
+2. [ ] Capture event context for Claude queries
+3. [ ] Send user questions to Claude with event history
+4. [ ] Display Claude responses in observer pane
+5. [ ] Keyboard shortcut to toggle observer mode
+6. [ ] Event selection for targeted questions
+
+### Success Criteria
+
+- [ ] Can ask questions about current session activity
+- [ ] Claude responses appear in TUI
+- [ ] Can reference specific events in questions
+- [ ] Does not interfere with main drain operation
+
+---
+
+## Phase 7: Bead Visualization
+
+**Goal**: Visual representation of bead relationships and status in TUI.
+
+### Tasks
+
+1. [ ] Fetch bead dependency graph from bd
+2. [ ] Render bead tree/graph in TUI pane
+3. [ ] Show bead status with color coding (ready, in_progress, closed)
+4. [ ] Highlight currently processing bead
+5. [ ] Navigate between beads with keyboard
+6. [ ] Show bead details on selection
+
+### Success Criteria
+
+- [ ] Bead graph renders correctly in TUI
+- [ ] Current bead is visually highlighted
+- [ ] Can navigate and inspect beads
+- [ ] Updates in real-time as beads change status
+
+---
+
+## Phase 8: Notifications
 
 **Goal**: External alerts for key events.
 
@@ -240,13 +331,13 @@ For detailed component specifications, see the [components/](components/) direct
 
 ### Tasks
 
-1. Notification sink (event consumer)
-2. IFTTT provider
-3. Slack provider
-4. Discord provider
-5. Generic webhook provider
-6. Rate limiting
-7. Retry logic
+1. [ ] Notification sink (event consumer)
+2. [ ] IFTTT provider
+3. [ ] Slack provider
+4. [ ] Discord provider
+5. [ ] Generic webhook provider
+6. [ ] Rate limiting
+7. [ ] Retry logic
 
 ### Success Criteria
 
@@ -254,38 +345,6 @@ For detailed component specifications, see the [components/](components/) direct
 - [ ] Slack notifications work
 - [ ] Configurable triggers per provider
 - [ ] Rate limiting prevents spam
-
----
-
-## Phase 6: Polish & Init
-
-**Goal**: Production-ready reliability and onboarding.
-
-**Status**: Partial (backoff and env vars done in Phase 1)
-
-### Components to Implement
-
-| Component | Documentation |
-|-----------|---------------|
-| Init Command | [cli/init-command.md](cli/init-command.md) |
-| Configuration | [config/configuration.md](config/configuration.md) |
-
-### Tasks
-
-1. [x] Exponential backoff for failed beads - **Done in Phase 1**
-2. [ ] YAML config file parsing
-3. [x] Environment variable overrides - **Done in Phase 1** (via Viper)
-4. [ ] Custom prompt templates
-5. [ ] `atari init` command
-6. [ ] User guide documentation
-7. [ ] Error messages and suggestions
-
-### Success Criteria
-
-- [x] Failed beads don't block drain indefinitely (backoff + max failures)
-- [ ] Configuration works from file and env
-- [ ] `atari init` sets up Claude Code correctly
-- [ ] Documentation is complete
 
 ---
 
@@ -484,8 +543,9 @@ The project is complete when:
 2. [x] State persists across restarts - **Phase 1**
 3. [x] Pause/resume/stop work correctly - **Phase 2** (via daemon socket)
 4. [x] TUI provides good visibility into progress - **Phase 4**
-5. [ ] Notifications alert on key events - Phase 5
+5. [ ] Observer mode allows interactive Q&A - Phase 6
 6. [x] Failed beads don't block forever (backoff) - **Phase 1**
-7. [ ] `atari init` onboards new users easily - Phase 6
-8. [ ] Documentation is complete - Ongoing
+7. [ ] `atari init` onboards new users easily - Phase 5
+8. [ ] Documentation is complete - Blocking (core docs match features before milestone)
 9. [x] Works on macOS and Linux - **Phase 1** (tested on macOS)
+10. [ ] Notifications alert on key events - Phase 8 (optional)
