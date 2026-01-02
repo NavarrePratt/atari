@@ -16,7 +16,7 @@ For detailed component specifications, see the [components/](components/) direct
 | Phase | Focus | Key Deliverables | Status |
 |-------|-------|------------------|--------|
 | 1 | Core Loop (MVP) | Poll, spawn, log, persist | **Complete** |
-| 2 | Control & Monitoring | Daemon mode, pause/resume/stop | Not started |
+| 2 | Control & Monitoring | Daemon mode, pause/resume/stop | **Complete** |
 | 3 | BD Activity | Unified event stream | Not started |
 | 4 | Terminal UI | Bubbletea TUI | Not started |
 | 5 | Notifications | Webhooks, IFTTT, Slack | Not started |
@@ -80,41 +80,57 @@ For detailed component specifications, see the [components/](components/) direct
 
 ---
 
-## Phase 2: Control & Monitoring
+## Phase 2: Control & Monitoring - COMPLETE
 
 **Goal**: Add daemon mode with external control.
 
-### Components to Implement
+**Status**: Complete as of 2026-01-02
 
-| Component | Documentation |
-|-----------|---------------|
-| Daemon | [components/daemon.md](components/daemon.md) |
-| Controller (full state machine) | [components/controller.md](components/controller.md) |
+### Components Implemented
+
+| Component | Documentation | Implementation |
+|-----------|---------------|----------------|
+| Daemon Server | [components/daemon.md](components/daemon.md) | `internal/daemon/server.go` |
+| RPC Client | [components/daemon.md](components/daemon.md) | `internal/daemon/client.go` |
+| PID Management | [components/daemon.md](components/daemon.md) | `internal/daemon/pid.go` |
+| Daemonization | [components/daemon.md](components/daemon.md) | `internal/daemon/daemonize.go` |
+| Path Resolution | [components/daemon.md](components/daemon.md) | `internal/daemon/paths.go` |
+| JSON-RPC Protocol | [components/daemon.md](components/daemon.md) | `internal/daemon/protocol.go` |
+| RPC Handlers | [components/daemon.md](components/daemon.md) | `internal/daemon/handlers.go` |
+| Daemon Integration Tests | - | `internal/daemon/integration_test.go` |
 
 ### CLI Commands
 
-- `atari start --daemon`
-- `atari status`
-- `atari pause`
-- `atari resume`
-- `atari stop`
-- `atari events`
+- `atari start --daemon` - **Implemented**
+- `atari status` (with `--json` option) - **Implemented**
+- `atari pause` - **Implemented**
+- `atari resume` - **Implemented**
+- `atari stop` - **Implemented**
+- `atari events` (with `--follow` and `--count` options) - **Implemented**
 
 ### Tasks
 
-1. Daemonize process (fork, setsid)
-2. PID file management
-3. Unix socket listener
-4. JSON-RPC protocol
-5. Implement pause/resume state transitions
-6. Status command with stats
-7. Events command (tail log file)
+1. [x] Daemonize process (fork, setsid)
+2. [x] PID file management
+3. [x] Unix socket listener
+4. [x] JSON-RPC protocol
+5. [x] Implement pause/resume state transitions
+6. [x] Status command with stats
+7. [x] Events command (tail log file)
 
 ### Success Criteria
 
-- [ ] Can start daemon, pause, resume, stop via CLI
-- [ ] Status command shows current state and stats
-- [ ] Events command can tail the event stream
+- [x] Can start daemon, pause, resume, stop via CLI
+- [x] Status command shows current state and stats
+- [x] Events command can tail the event stream
+
+### Notes
+
+- Daemon uses Unix socket at `.atari/atari.sock` for RPC communication
+- PID tracking via `.atari/atari.pid` (removed, daemon info now in `.atari/daemon.json`)
+- Path resolution handles both foreground and daemon modes correctly
+- Foreground start now also supports RPC control (socket enabled by default)
+- All daemon tests pass: `go test -v ./internal/daemon/...` (8 packages)
 
 ---
 
@@ -238,7 +254,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## File Structure
 
-Current structure (Phase 1 complete):
+Current structure (Phase 2 complete):
 
 ```
 atari/
@@ -255,6 +271,23 @@ atari/
 │   │   ├── controller.go
 │   │   ├── controller_test.go
 │   │   └── CLAUDE.md
+│   ├── daemon/              # Daemon mode and RPC (Phase 2)
+│   │   ├── CLAUDE.md
+│   │   ├── client.go        # RPC client for CLI commands
+│   │   ├── client_test.go
+│   │   ├── daemon.go        # Daemon struct and lifecycle
+│   │   ├── daemon_test.go
+│   │   ├── daemonize.go     # Fork/setsid for background mode
+│   │   ├── daemonize_test.go
+│   │   ├── handlers.go      # RPC command handlers
+│   │   ├── integration_test.go  # Full daemon integration tests
+│   │   ├── paths.go         # Path resolution for daemon files
+│   │   ├── paths_test.go
+│   │   ├── pid.go           # PID file management
+│   │   ├── pid_test.go
+│   │   ├── protocol.go      # JSON-RPC types
+│   │   ├── server.go        # Unix socket listener
+│   │   └── server_test.go
 │   ├── events/              # Event types, router, sinks
 │   │   ├── types.go         # Event interface, concrete types
 │   │   ├── types_test.go
@@ -293,7 +326,6 @@ atari/
 │   │   ├── drain_test.go
 │   │   └── CLAUDE.md
 │   ├── bdactivity/          # [Phase 3] BD activity stream watcher
-│   ├── daemon/              # [Phase 2] Daemon mode and RPC
 │   └── tui/                 # [Phase 4] Terminal UI (bubbletea)
 ├── docs/
 │   ├── CONTEXT.md           # Background research
@@ -335,8 +367,13 @@ Run with: `mise run test`
 - [x] Backoff progression (`TestBackoffProgression`)
 - [x] Context cancellation (`TestContextCancellation`)
 - [x] Pause/resume behavior (`TestPauseResumeDuringDrain`)
+- [x] Daemon lifecycle (`TestDaemonLifecycle_WithController`) - Phase 2
+- [x] Daemon pause/resume (`TestDaemonPauseResume_WithController`) - Phase 2
+- [x] Daemon graceful stop (`TestDaemonGracefulStop`) - Phase 2
+- [x] Daemon force stop (`TestDaemonForceStop`) - Phase 2
+- [x] Daemon status with stats (`TestDaemonStatus_Stats`) - Phase 2
 
-Run with: `go test -v ./internal/integration/...`
+Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...`
 
 ### End-to-End Tests - PARTIAL
 
@@ -364,7 +401,7 @@ The project is complete when:
 
 1. [x] `atari start` can process all ready beads autonomously - **Phase 1**
 2. [x] State persists across restarts - **Phase 1**
-3. [ ] Pause/resume/stop work correctly - Phase 2 (via daemon socket)
+3. [x] Pause/resume/stop work correctly - **Phase 2** (via daemon socket)
 4. [ ] TUI provides good visibility into progress - Phase 4
 5. [ ] Notifications alert on key events - Phase 5
 6. [x] Failed beads don't block forever (backoff) - **Phase 1**
