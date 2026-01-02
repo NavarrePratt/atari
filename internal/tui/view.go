@@ -1,0 +1,238 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/npratt/atari/internal/events"
+)
+
+const (
+	minWidth  = 60
+	minHeight = 15
+)
+
+// View implements tea.Model. This renders the full TUI display.
+func (m model) View() string {
+	if m.width == 0 || m.height == 0 {
+		return "Loading..."
+	}
+
+	// Handle too small terminal
+	if m.width < minWidth || m.height < minHeight {
+		return m.renderTooSmall()
+	}
+
+	// Build the view
+	var sections []string
+	sections = append(sections, m.renderHeader())
+	sections = append(sections, m.renderDivider())
+	sections = append(sections, m.renderEvents())
+	sections = append(sections, m.renderDivider())
+	sections = append(sections, m.renderFooter())
+
+	content := strings.Join(sections, "\n")
+
+	return styles.Container.
+		Width(safeWidth(m.width)).
+		Height(m.height).
+		Render(content)
+}
+
+// renderTooSmall renders a minimal message for terminals that are too small.
+func (m model) renderTooSmall() string {
+	msg := fmt.Sprintf("Terminal too small (%dx%d). Need %dx%d minimum.",
+		m.width, m.height, minWidth, minHeight)
+	return msg
+}
+
+// renderHeader renders the status header with state, cost, bead info, and stats.
+func (m model) renderHeader() string {
+	w := safeWidth(m.width - 4) // Account for container borders
+
+	// Line 1: Status and cost
+	status := m.renderStatus()
+	cost := styles.Cost.Render(fmt.Sprintf("$%.4f", m.stats.TotalCost))
+
+	statusLine := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		status,
+		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-lipgloss.Width(cost))),
+		cost,
+	)
+
+	// Line 2: Current bead (or idle message)
+	var beadLine string
+	if m.currentBead != nil {
+		beadText := fmt.Sprintf("bead: %s - %s", m.currentBead.ID, m.currentBead.Title)
+		if len(beadText) > w {
+			beadText = beadText[:w-3] + "..."
+		}
+		beadLine = styles.Bead.Render(beadText)
+	} else {
+		beadLine = styles.Bead.Render("no active bead")
+	}
+
+	// Line 3: Turns and progress stats
+	turnsText := fmt.Sprintf("turns: %d", m.stats.TotalTurns)
+	statsText := fmt.Sprintf("completed: %d  failed: %d  abandoned: %d",
+		m.stats.Completed, m.stats.Failed, m.stats.Abandoned)
+
+	statsLine := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		styles.Turns.Render(turnsText),
+		strings.Repeat(" ", max(1, w-len(turnsText)-len(statsText))),
+		styles.Turns.Render(statsText),
+	)
+
+	return strings.Join([]string{statusLine, beadLine, statsLine}, "\n")
+}
+
+// renderStatus renders the status indicator with appropriate styling.
+func (m model) renderStatus() string {
+	status := strings.ToUpper(m.status)
+	var style lipgloss.Style
+
+	switch m.status {
+	case "idle":
+		style = styles.StatusIdle
+	case "working":
+		style = styles.StatusWorking
+	case "paused", "pausing...", "pausing":
+		style = styles.StatusPaused
+	case "stopped":
+		style = styles.StatusStopped
+	default:
+		style = styles.StatusIdle
+	}
+
+	return style.Render(status)
+}
+
+// renderDivider renders a horizontal divider line.
+func (m model) renderDivider() string {
+	w := safeWidth(m.width - 4) // Account for container borders
+	return styles.Divider.Render(strings.Repeat("─", w))
+}
+
+// renderEvents renders the scrollable event feed.
+func (m model) renderEvents() string {
+	visible := m.visibleLines()
+	w := safeWidth(m.width - 4) // Account for container borders
+
+	if len(m.eventLines) == 0 {
+		// Center a placeholder message
+		placeholder := "Waiting for events..."
+		padding := strings.Repeat("\n", visible/2)
+		return padding + lipgloss.PlaceHorizontal(w, lipgloss.Center, placeholder)
+	}
+
+	// Calculate scroll bounds
+	scrollPos := safeScroll(m.scrollPos, len(m.eventLines), visible)
+
+	// Get visible slice of events
+	endPos := min(scrollPos+visible, len(m.eventLines))
+	visibleEvents := m.eventLines[scrollPos:endPos]
+
+	// Render each event line
+	var lines []string
+	for _, el := range visibleEvents {
+		line := m.renderEventLine(el, w)
+		lines = append(lines, line)
+	}
+
+	// Pad with empty lines if needed
+	for len(lines) < visible {
+		lines = append(lines, "")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderEventLine renders a single event with timestamp and styling.
+func (m model) renderEventLine(el eventLine, maxWidth int) string {
+	// Format timestamp as HH:MM:SS
+	timestamp := el.Time.Format("15:04:05")
+	prefix := timestamp + " "
+
+	// Calculate available width for text
+	textWidth := maxWidth - len(prefix)
+	if textWidth < 10 {
+		textWidth = 10
+	}
+
+	// Truncate text if needed
+	text := el.Text
+	if len(text) > textWidth {
+		text = text[:textWidth-3] + "..."
+	}
+
+	// Apply style and combine
+	styledText := el.Style.Render(text)
+	return styles.Turns.Render(prefix) + styledText
+}
+
+// renderFooter renders keyboard shortcuts help text.
+func (m model) renderFooter() string {
+	var help string
+	switch m.status {
+	case "paused", "pausing...", "pausing":
+		help = "r: resume  q: quit  ↑/↓: scroll  g/G: top/bottom"
+	case "stopped":
+		help = "q: quit  ↑/↓: scroll  g/G: top/bottom"
+	default:
+		help = "p: pause  q: quit  ↑/↓: scroll  g/G: top/bottom"
+	}
+	return styles.Footer.Render(help)
+}
+
+// safeWidth returns a width that is at least 1 to prevent negative values.
+func safeWidth(w int) int {
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
+// safeScroll clamps scroll position to valid bounds.
+func safeScroll(pos, totalLines, visibleLines int) int {
+	if pos < 0 {
+		return 0
+	}
+	maxScroll := totalLines - visibleLines
+	if maxScroll < 0 {
+		return 0
+	}
+	if pos > maxScroll {
+		return maxScroll
+	}
+	return pos
+}
+
+// StyleForEvent returns the appropriate style for an event type.
+func StyleForEvent(event events.Event) lipgloss.Style {
+	if event == nil {
+		return styles.Tool
+	}
+
+	switch event.(type) {
+	case *events.ClaudeToolUseEvent, *events.ClaudeToolResultEvent:
+		return styles.Tool
+	case *events.ClaudeTextEvent:
+		return styles.Session
+	case *events.SessionStartEvent, *events.SessionEndEvent, *events.SessionTimeoutEvent:
+		return styles.Session
+	case *events.IterationStartEvent, *events.IterationEndEvent:
+		return styles.BeadStatus
+	case *events.BeadCreatedEvent, *events.BeadStatusEvent, *events.BeadUpdatedEvent,
+		*events.BeadCommentEvent, *events.BeadClosedEvent, *events.BeadAbandonedEvent:
+		return styles.BeadStatus
+	case *events.DrainStartEvent, *events.DrainStopEvent, *events.DrainStateChangedEvent:
+		return styles.Session
+	case *events.ErrorEvent, *events.ParseErrorEvent:
+		return styles.Error
+	default:
+		return styles.Tool
+	}
+}

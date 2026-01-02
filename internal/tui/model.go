@@ -118,18 +118,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// View implements tea.Model.
-func (m model) View() string {
-	if m.width == 0 {
-		return "Loading..."
-	}
-
-	// Placeholder view - full rendering will be added in subsequent issues
-	return styles.Container.
-		Width(m.width).
-		Height(m.height).
-		Render("Atari TUI - Coming Soon")
-}
+// View is implemented in view.go
 
 // handleKey processes keyboard input.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -218,8 +207,24 @@ func (m *model) handleEvent(event events.Event) {
 		m.status = "stopped"
 	}
 
-	// Add to event log - formatting will be added in subsequent issues
-	// For now, just track that events are received
+	// Add to event log with formatting
+	text := Format(event)
+	if text != "" {
+		el := eventLine{
+			Time:  event.Timestamp(),
+			Text:  text,
+			Style: StyleForEvent(event),
+		}
+		m.eventLines = append(m.eventLines, el)
+
+		// Auto-scroll to bottom if enabled
+		if m.autoScroll {
+			maxScroll := len(m.eventLines) - m.visibleLines()
+			if maxScroll > 0 {
+				m.scrollPos = maxScroll
+			}
+		}
+	}
 }
 
 // visibleLines returns the number of event lines that fit in the viewport.

@@ -40,8 +40,10 @@ WithStatsGetter(sg StatsGetter)  // Stats provider for header display
 | File | Contents |
 |------|----------|
 | tui.go | TUI struct, New(), Run(), Option functions |
-| model.go | Bubbletea model, Init(), Update(), View() |
+| model.go | Bubbletea model, Init(), Update(), event handling |
+| view.go | View() rendering, header, events, footer, tooSmall mode |
 | styles.go | Lipgloss style definitions |
+| format.go | Event formatting for display |
 
 ## Dependencies
 
@@ -65,5 +67,7 @@ WithStatsGetter(sg StatsGetter)  // Stats provider for header display
 
 Tests use mock event channels and verify:
 - Model state transitions
-- Event formatting
-- Scroll bounds checking
+- Event formatting (format_test.go)
+- View rendering: header, events, footer (view_test.go)
+- Scroll bounds and safe width calculations
+- Terminal size handling (tooSmall mode)
