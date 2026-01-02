@@ -17,7 +17,7 @@ For detailed component specifications, see the [components/](components/) direct
 |-------|-------|------------------|--------|
 | 1 | Core Loop (MVP) | Poll, spawn, log, persist | **Complete** |
 | 2 | Control & Monitoring | Daemon mode, pause/resume/stop | **Complete** |
-| 3 | BD Activity | Unified event stream | Not started |
+| 3 | BD Activity | Unified event stream | **Complete** |
 | 4 | Terminal UI | Bubbletea TUI | Not started |
 | 5 | Notifications | Webhooks, IFTTT, Slack | Not started |
 | 6 | Polish | Backoff, config, docs | Partial (backoff done) |
@@ -134,29 +134,44 @@ For detailed component specifications, see the [components/](components/) direct
 
 ---
 
-## Phase 3: BD Activity Integration
+## Phase 3: BD Activity Integration - COMPLETE
 
 **Goal**: Unified event stream with bd activity.
 
-### Components to Implement
+**Status**: Complete as of 2026-01-02
 
-| Component | Documentation |
-|-----------|---------------|
-| BD Activity Watcher | [components/bdactivity.md](components/bdactivity.md) |
+### Components Implemented
+
+| Component | Documentation | Implementation |
+|-----------|---------------|----------------|
+| BD Activity Watcher | [components/bdactivity.md](components/bdactivity.md) | `internal/bdactivity/watcher.go` |
+| BD Activity Parser | [components/bdactivity.md](components/bdactivity.md) | `internal/bdactivity/parser.go` |
+| ProcessRunner Interface | - | `internal/runner/` |
+| BD Event Types | [components/events.md](components/events.md) | `internal/events/types.go` |
 
 ### Tasks
 
-1. Spawn `bd activity --follow --json`
-2. Parse mutation events
-3. Convert to unified event format
-4. Merge into event stream
-5. Handle reconnection on failure
+1. [x] Spawn `bd activity --follow --json`
+2. [x] Parse mutation events (create, status, update, comment, closed)
+3. [x] Convert to unified event format (BeadCreatedEvent, BeadStatusEvent, etc.)
+4. [x] Merge into event stream via shared Router
+5. [x] Handle reconnection on failure (exponential backoff with reset)
 
 ### Success Criteria
 
-- [ ] Bead status changes appear in event stream
-- [ ] `atari events` shows unified claude + bd events
-- [ ] Reconnects automatically on bd activity failure
+- [x] Bead status changes appear in event stream
+- [x] `atari events` shows unified claude + bd events
+- [x] Reconnects automatically on bd activity failure
+
+### Notes
+
+- ProcessRunner interface abstracts streaming process execution for testability
+- MockProcessRunner enables deterministic testing without real bd process
+- Watcher uses exponential backoff: 5s initial, 5min max, resets after 3 successful events
+- Parse errors are rate-limited (1 warning per 5 seconds) to avoid log spam
+- Controller integration is optional: watcher disabled when processRunner is nil
+- All tests pass: `go test -v ./internal/bdactivity/...` (51 tests)
+- Silently skips unknown mutation types (bonded, squashed, burned, delete)
 
 ---
 
@@ -254,7 +269,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## File Structure
 
-Current structure (Phase 2 complete):
+Current structure (Phase 3 complete):
 
 ```
 atari/
@@ -325,7 +340,16 @@ atari/
 │   ├── integration/         # End-to-end tests
 │   │   ├── drain_test.go
 │   │   └── CLAUDE.md
-│   ├── bdactivity/          # [Phase 3] BD activity stream watcher
+│   ├── runner/              # ProcessRunner interface for streaming processes
+│   │   ├── runner.go        # Interface and ExecProcessRunner
+│   │   ├── mock.go          # MockProcessRunner for testing
+│   │   └── CLAUDE.md
+│   ├── bdactivity/          # BD activity stream watcher (Phase 3)
+│   │   ├── watcher.go       # Spawns bd activity, reconnects on failure
+│   │   ├── watcher_test.go
+│   │   ├── parser.go        # JSON to typed event conversion
+│   │   ├── parser_test.go
+│   │   └── CLAUDE.md
 │   └── tui/                 # [Phase 4] Terminal UI (bubbletea)
 ├── docs/
 │   ├── CONTEXT.md           # Background research
@@ -355,6 +379,8 @@ Each component has unit tests covering:
 - [x] Event parsing and formatting (session parser, event types)
 - [x] Configuration loading and validation (config package)
 - [x] Error handling (mock runner errors, session failures)
+- [x] BD Activity parsing and watcher lifecycle (bdactivity) - Phase 3
+- [x] ProcessRunner interface and mock (runner) - Phase 3
 
 Run with: `mise run test`
 
@@ -372,8 +398,11 @@ Run with: `mise run test`
 - [x] Daemon graceful stop (`TestDaemonGracefulStop`) - Phase 2
 - [x] Daemon force stop (`TestDaemonForceStop`) - Phase 2
 - [x] Daemon status with stats (`TestDaemonStatus_Stats`) - Phase 2
+- [x] BD Activity watcher lifecycle (start, stop, reconnect) - Phase 3
+- [x] BD Activity parser (all mutation types) - Phase 3
+- [x] BD Activity event flow through router - Phase 3
 
-Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...`
+Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...` or `go test -v ./internal/bdactivity/...`
 
 ### End-to-End Tests - PARTIAL
 
