@@ -331,8 +331,16 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		return nil, fmt.Errorf("session error: %w", waitErr)
 	}
 
-	// Return result (actual values would come from parsed events)
-	return &SessionResult{}, nil
+	// Retrieve session result from parser
+	result := &SessionResult{}
+	if parserResult := parser.Result(); parserResult != nil {
+		result.NumTurns = parserResult.NumTurns
+		result.TotalCostUSD = parserResult.TotalCostUSD
+	} else {
+		c.logger.Warn("session completed without result event", "bead_id", bead.ID)
+	}
+
+	return result, nil
 }
 
 // runPaused waits for resume or stop signal.

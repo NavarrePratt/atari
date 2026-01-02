@@ -512,3 +512,156 @@ func TestStateSinkTracksDrainStateChanged(t *testing.T) {
 	cancel()
 	_ = sink.Stop()
 }
+
+func TestStateSinkNoCostDoubleCount(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	sink := NewStateSink(path)
+	sink.SetMinDelay(0)
+	events := make(chan Event, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Simulate the normal flow where both SessionEndEvent and IterationEndEvent fire
+	// with the same cost data - only one should be counted
+
+	// 1. IterationStartEvent sets CurrentBead
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-100",
+		Title:     "Test bead",
+		Priority:  1,
+		Attempt:   1,
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. SessionEndEvent (from parser) - this fires first in normal flow
+	events <- &SessionEndEvent{
+		BaseEvent:    NewInternalEvent(EventSessionEnd),
+		SessionID:    "sess-100",
+		NumTurns:     10,
+		DurationMs:   5000,
+		TotalCostUSD: 0.50,
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 3. IterationEndEvent (from controller) - this fires second
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-100",
+		Success:      true,
+		NumTurns:     10,
+		DurationMs:   5000,
+		TotalCostUSD: 0.50,
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	state := sink.State()
+
+	// Cost should only be counted once, not twice
+	if state.TotalCost != 0.50 {
+		t.Errorf("TotalCost = %f, want 0.50 (got double-counted if 1.00)", state.TotalCost)
+	}
+	if state.TotalTurns != 10 {
+		t.Errorf("TotalTurns = %d, want 10 (got double-counted if 20)", state.TotalTurns)
+	}
+
+	cancel()
+	_ = sink.Stop()
+}
+
+func TestStateSinkCostCountedOncePerBead(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	sink := NewStateSink(path)
+	sink.SetMinDelay(0)
+	events := make(chan Event, 20)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Process two beads with full event sequences
+
+	// Bead 1
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-200",
+		Title:     "Bead 1",
+		Priority:  1,
+		Attempt:   1,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &SessionEndEvent{
+		BaseEvent:    NewInternalEvent(EventSessionEnd),
+		SessionID:    "sess-200",
+		NumTurns:     5,
+		TotalCostUSD: 0.25,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-200",
+		Success:      true,
+		NumTurns:     5,
+		TotalCostUSD: 0.25,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	// Bead 2
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-201",
+		Title:     "Bead 2",
+		Priority:  1,
+		Attempt:   1,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &SessionEndEvent{
+		BaseEvent:    NewInternalEvent(EventSessionEnd),
+		SessionID:    "sess-201",
+		NumTurns:     8,
+		TotalCostUSD: 0.40,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-201",
+		Success:      true,
+		NumTurns:     8,
+		TotalCostUSD: 0.40,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	state := sink.State()
+
+	// Total should be sum of both beads, not double-counted
+	expectedCost := 0.25 + 0.40
+	if state.TotalCost != expectedCost {
+		t.Errorf("TotalCost = %f, want %f", state.TotalCost, expectedCost)
+	}
+	expectedTurns := 5 + 8
+	if state.TotalTurns != expectedTurns {
+		t.Errorf("TotalTurns = %d, want %d", state.TotalTurns, expectedTurns)
+	}
+
+	cancel()
+	_ = sink.Stop()
+}

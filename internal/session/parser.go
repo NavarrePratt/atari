@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"github.com/npratt/atari/internal/events"
 )
@@ -64,6 +65,7 @@ type Parser struct {
 	scanner *bufio.Scanner
 	router  *events.Router
 	manager *Manager
+	result  atomic.Value // stores *events.SessionEndEvent
 }
 
 // NewParser creates a Parser for the given reader.
@@ -218,12 +220,24 @@ func (p *Parser) handleUserEvent(e *StreamEvent) {
 
 // handleResultEvent processes session result events.
 func (p *Parser) handleResultEvent(e *StreamEvent) {
-	p.router.Emit(&events.SessionEndEvent{
+	endEvent := &events.SessionEndEvent{
 		BaseEvent:    events.NewClaudeEvent(events.EventSessionEnd),
 		SessionID:    e.SessionID,
 		NumTurns:     e.NumTurns,
 		DurationMs:   e.DurationMs,
 		TotalCostUSD: e.TotalCostUSD,
 		Result:       e.Result,
-	})
+	}
+	// Capture result for later retrieval (thread-safe)
+	p.result.Store(endEvent)
+	p.router.Emit(endEvent)
+}
+
+// Result returns the captured session end event, or nil if no result was parsed.
+// This is safe to call from any goroutine after Parse() completes.
+func (p *Parser) Result() *events.SessionEndEvent {
+	if v := p.result.Load(); v != nil {
+		return v.(*events.SessionEndEvent)
+	}
+	return nil
 }

@@ -211,6 +211,58 @@ func TestParser_SessionResultEvent(t *testing.T) {
 	}
 }
 
+func TestParser_ResultCapture(t *testing.T) {
+	input := `{"type":"result","session_id":"abc123","num_turns":5,"duration_ms":30000,"total_cost_usd":0.42,"result":"Task completed"}`
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	// Before parsing, Result() should return nil
+	if parser.Result() != nil {
+		t.Error("expected Result() to be nil before parsing")
+	}
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// After parsing, Result() should return the captured event
+	result := parser.Result()
+	if result == nil {
+		t.Fatal("expected Result() to be non-nil after parsing")
+	}
+	if result.SessionID != "abc123" {
+		t.Errorf("expected abc123, got %q", result.SessionID)
+	}
+	if result.NumTurns != 5 {
+		t.Errorf("expected 5 turns, got %d", result.NumTurns)
+	}
+	if result.TotalCostUSD != 0.42 {
+		t.Errorf("expected 0.42, got %f", result.TotalCostUSD)
+	}
+}
+
+func TestParser_ResultNilWithoutResultEvent(t *testing.T) {
+	// No result event in stream
+	input := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}`
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Result() should return nil when no result event was parsed
+	if parser.Result() != nil {
+		t.Error("expected Result() to be nil without result event")
+	}
+}
+
 func TestParser_ParseErrorContinues(t *testing.T) {
 	// First line is invalid JSON, second is valid
 	input := `not valid json

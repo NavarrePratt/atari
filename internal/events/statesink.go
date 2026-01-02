@@ -30,13 +30,14 @@ const DefaultMinSaveDelay = 5 * time.Second
 
 // StateSink persists state to a JSON file for crash recovery.
 type StateSink struct {
-	path     string
-	state    *State
-	dirty    bool
-	mu       sync.Mutex
-	done     chan struct{}
-	lastSave time.Time
-	minDelay time.Duration
+	path            string
+	state           *State
+	dirty           bool
+	mu              sync.Mutex
+	done            chan struct{}
+	lastSave        time.Time
+	minDelay        time.Duration
+	countedSessions map[string]bool // tracks sessions whose cost has been counted
 }
 
 // NewStateSink creates a new StateSink that writes to the specified path.
@@ -47,8 +48,9 @@ func NewStateSink(path string) *StateSink {
 			Version: 1,
 			History: make(map[string]*BeadHistory),
 		},
-		done:     make(chan struct{}),
-		minDelay: DefaultMinSaveDelay,
+		done:            make(chan struct{}),
+		minDelay:        DefaultMinSaveDelay,
+		countedSessions: make(map[string]bool),
 	}
 }
 
@@ -125,8 +127,12 @@ func (s *StateSink) handleEvent(event Event) {
 
 	case *IterationEndEvent:
 		s.state.CurrentBead = ""
-		s.state.TotalCost += e.TotalCostUSD
-		s.state.TotalTurns += e.NumTurns
+		// Only add cost if this session hasn't been counted (by SessionEndEvent)
+		if !s.countedSessions[e.BeadID] {
+			s.state.TotalCost += e.TotalCostUSD
+			s.state.TotalTurns += e.NumTurns
+			s.countedSessions[e.BeadID] = true
+		}
 		// Update history
 		if h := s.state.History[e.BeadID]; h != nil {
 			if e.Success {
@@ -146,10 +152,16 @@ func (s *StateSink) handleEvent(event Event) {
 		s.dirty = true
 
 	case *SessionEndEvent:
-		// Track cost from session end as well (in case iteration end is missed)
-		s.state.TotalCost += e.TotalCostUSD
-		s.state.TotalTurns += e.NumTurns
-		s.dirty = true
+		// Only add cost if this session hasn't been counted via IterationEndEvent.
+		// Use CurrentBead to identify the session (set by IterationStartEvent).
+		// This is a fallback for when IterationEndEvent is missed.
+		beadID := s.state.CurrentBead
+		if beadID != "" && !s.countedSessions[beadID] {
+			s.state.TotalCost += e.TotalCostUSD
+			s.state.TotalTurns += e.NumTurns
+			s.countedSessions[beadID] = true
+			s.dirty = true
+		}
 	}
 
 	// Debounced save
