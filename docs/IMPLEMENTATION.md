@@ -18,7 +18,7 @@ For detailed component specifications, see the [components/](components/) direct
 | 1 | Core Loop (MVP) | Poll, spawn, log, persist | **Complete** |
 | 2 | Control & Monitoring | Daemon mode, pause/resume/stop | **Complete** |
 | 3 | BD Activity | Unified event stream | **Complete** |
-| 4 | Terminal UI | Bubbletea TUI | Not started |
+| 4 | Terminal UI | Bubbletea TUI | **Complete** |
 | 5 | Notifications | Webhooks, IFTTT, Slack | Not started |
 | 6 | Polish | Backoff, config, docs | Partial (backoff done) |
 
@@ -175,32 +175,54 @@ For detailed component specifications, see the [components/](components/) direct
 
 ---
 
-## Phase 4: Terminal UI
+## Phase 4: Terminal UI - COMPLETE
 
 **Goal**: Rich terminal interface for monitoring.
 
-### Components to Implement
+**Status**: Complete as of 2026-01-02
 
-| Component | Documentation |
-|-----------|---------------|
-| TUI | [components/tui.md](components/tui.md) |
-| Observer (future) | [components/observer.md](components/observer.md) |
+### Components Implemented
+
+| Component | Documentation | Implementation |
+|-----------|---------------|----------------|
+| TUI Model | [components/tui.md](components/tui.md) | `internal/tui/model.go` |
+| TUI View | [components/tui.md](components/tui.md) | `internal/tui/view.go` |
+| TUI Update | [components/tui.md](components/tui.md) | `internal/tui/update.go` |
+| Event Formatting | [components/tui.md](components/tui.md) | `internal/tui/format.go` |
+| Styles | [components/tui.md](components/tui.md) | `internal/tui/styles.go` |
+| Graceful Fallback | [components/tui.md](components/tui.md) | `internal/tui/fallback.go` |
+| DrainStateChangedEvent | [components/events.md](components/events.md) | `internal/events/types.go` |
+
+### CLI Commands
+
+- `atari start --tui` - **Implemented** (TUI mode, default when TTY available)
+- `atari start --tui=false` - **Implemented** (simple fallback mode)
 
 ### Tasks
 
-1. Bubbletea model and update loop
-2. Header component (status, stats)
-3. Event feed component (scrollable)
-4. Footer component (keyboard help)
-5. Keyboard handling (p/r/q, arrows, o for observer)
-6. Graceful degradation (no TTY)
+1. [x] Bubbletea model and update loop
+2. [x] Header component (status, stats)
+3. [x] Event feed component (scrollable)
+4. [x] Footer component (keyboard help)
+5. [x] Keyboard handling (p/r/q, arrows)
+6. [x] Graceful degradation (no TTY)
+7. [x] DrainStateChangedEvent for state tracking
 
 ### Success Criteria
 
-- [ ] TUI displays current state and events
-- [ ] Keyboard controls work (pause, resume, quit)
-- [ ] Scrolling works for event history
-- [ ] Falls back to simple output when no TTY
+- [x] TUI displays current state and events
+- [x] Keyboard controls work (pause, resume, quit)
+- [x] Scrolling works for event history
+- [x] Falls back to simple output when no TTY
+
+### Notes
+
+- TUI uses event-driven status updates via DrainStateChangedEvent
+- StatsGetter interface provides backup polling for dropped events
+- Startup-only runSimple fallback (no dynamic mode switching)
+- Centralized format.go keeps events package focused on types
+- SessionEndEvent is authoritative for cost/turns (avoids double-counting)
+- All TUI tests pass: `go test -v ./internal/tui/...`
 
 **Future**: Observer Mode - interactive Q&A pane for asking questions about events. See [observer.md](components/observer.md).
 
@@ -269,7 +291,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## File Structure
 
-Current structure (Phase 3 complete):
+Current structure (Phase 4 complete):
 
 ```
 atari/
@@ -350,7 +372,19 @@ atari/
 │   │   ├── parser.go        # JSON to typed event conversion
 │   │   ├── parser_test.go
 │   │   └── CLAUDE.md
-│   └── tui/                 # [Phase 4] Terminal UI (bubbletea)
+│   └── tui/                 # Terminal UI (bubbletea) - Phase 4
+│       ├── model.go         # Bubbletea model definition
+│       ├── view.go          # View rendering (header, events, footer)
+│       ├── view_test.go
+│       ├── update.go        # Update loop and keyboard handling
+│       ├── update_test.go
+│       ├── format.go        # Event formatting for display
+│       ├── format_test.go
+│       ├── styles.go        # Lipgloss styles
+│       ├── fallback.go      # Non-TTY fallback mode
+│       ├── fallback_test.go
+│       ├── tui.go           # Public API (Run, RunSimple)
+│       └── CLAUDE.md
 ├── docs/
 │   ├── CONTEXT.md           # Background research
 │   ├── DESIGN.md            # Architecture decisions
@@ -381,6 +415,7 @@ Each component has unit tests covering:
 - [x] Error handling (mock runner errors, session failures)
 - [x] BD Activity parsing and watcher lifecycle (bdactivity) - Phase 3
 - [x] ProcessRunner interface and mock (runner) - Phase 3
+- [x] TUI view rendering, update logic, event formatting (tui) - Phase 4
 
 Run with: `mise run test`
 
@@ -402,12 +437,12 @@ Run with: `mise run test`
 - [x] BD Activity parser (all mutation types) - Phase 3
 - [x] BD Activity event flow through router - Phase 3
 
-Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...` or `go test -v ./internal/bdactivity/...`
+Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...` or `go test -v ./internal/bdactivity/...` or `go test -v ./internal/tui/...`
 
 ### End-to-End Tests - PARTIAL
 
 - [x] Real drain on test project with dummy beads (manual testing done)
-- [ ] TUI interaction tests (Phase 4)
+- [x] TUI unit tests (view, update, format, fallback) - Phase 4
 - [ ] Long-running stability test
 
 ---
@@ -431,7 +466,7 @@ The project is complete when:
 1. [x] `atari start` can process all ready beads autonomously - **Phase 1**
 2. [x] State persists across restarts - **Phase 1**
 3. [x] Pause/resume/stop work correctly - **Phase 2** (via daemon socket)
-4. [ ] TUI provides good visibility into progress - Phase 4
+4. [x] TUI provides good visibility into progress - **Phase 4**
 5. [ ] Notifications alert on key events - Phase 5
 6. [x] Failed beads don't block forever (backoff) - **Phase 1**
 7. [ ] `atari init` onboards new users easily - Phase 6
