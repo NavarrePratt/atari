@@ -437,6 +437,26 @@ func (c *Controller) Stats() Stats {
 	}
 }
 
+// Iteration returns the current iteration count.
+func (c *Controller) Iteration() int {
+	return c.iteration
+}
+
+// Completed returns the number of successfully completed beads.
+func (c *Controller) Completed() int {
+	return c.workQueue.Stats().Completed
+}
+
+// Failed returns the number of failed beads.
+func (c *Controller) Failed() int {
+	return c.workQueue.Stats().Failed
+}
+
+// Abandoned returns the number of abandoned beads.
+func (c *Controller) Abandoned() int {
+	return c.workQueue.Stats().Abandoned
+}
+
 // getState returns the current state (thread-safe).
 func (c *Controller) getState() State {
 	c.stateMu.RLock()

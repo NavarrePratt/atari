@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/shutdown"
 	"github.com/npratt/atari/internal/testutil"
+	"github.com/npratt/atari/internal/tui"
 	"github.com/npratt/atari/internal/workqueue"
 )
 
@@ -243,6 +245,14 @@ sessions to work on each bead until completion.
 
 Use --daemon to run in the background.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			tuiEnabled := viper.GetBool(FlagTUI)
+			daemonMode := viper.GetBool(FlagDaemon)
+
+			// Check for incompatible flags
+			if tuiEnabled && daemonMode {
+				return fmt.Errorf("--tui and --daemon flags are incompatible")
+			}
+
 			if viper.GetBool(FlagVerbose) {
 				logLevel.Set(slog.LevelDebug)
 				logger.Debug("verbose logging enabled")
@@ -270,7 +280,7 @@ Use --daemon to run in the background.`,
 			}
 
 			// Check if daemon is already running
-			if viper.GetBool(FlagDaemon) {
+			if daemonMode {
 				client := daemon.NewClient(cfg.Paths.Socket)
 				if client.IsRunning() {
 					return fmt.Errorf("daemon already running (socket: %s)", cfg.Paths.Socket)
@@ -351,7 +361,57 @@ Use --daemon to run in the background.`,
 			// Create controller
 			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, logger)
 
-			// Create daemon for RPC control
+			// TUI mode: run TUI in foreground with controller in background
+			if tuiEnabled {
+				// Redirect slog to a debug log file to avoid corrupting TUI display
+				debugLogPath := filepath.Join(filepath.Dir(cfg.Paths.Log), "atari-debug.log")
+				debugLogFile, err := os.OpenFile(debugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				if err != nil {
+					sinkCancel()
+					router.Close()
+					_ = logSink.Stop()
+					_ = stateSink.Stop()
+					return fmt.Errorf("open debug log file: %w", err)
+				}
+				defer func() { _ = debugLogFile.Close() }()
+				slog.SetDefault(slog.New(slog.NewJSONHandler(debugLogFile, &slog.HandlerOptions{Level: logLevel})))
+
+				// Subscribe TUI to events with buffering
+				tuiEvents := router.SubscribeBuffered(5000)
+				defer router.Unsubscribe(tuiEvents)
+
+				// Create TUI with callbacks
+				tuiApp := tui.New(tuiEvents,
+					tui.WithOnPause(ctrl.Pause),
+					tui.WithOnResume(ctrl.Resume),
+					tui.WithOnQuit(ctrl.Stop),
+					tui.WithStatsGetter(ctrl),
+				)
+
+				// Run controller in background
+				ctrlDone := make(chan error, 1)
+				go func() {
+					ctrlDone <- ctrl.Run(ctx)
+				}()
+
+				// Run TUI in foreground (blocks until quit)
+				tuiErr := tuiApp.Run()
+
+				// Ensure controller stops when TUI exits
+				ctrl.Stop()
+				<-ctrlDone
+
+				// Clean up
+				sinkCancel()
+				router.Close()
+				_ = logSink.Stop()
+				_ = stateSink.Stop()
+				_ = daemon.RemoveDaemonInfo(daemon.DaemonInfoPath(projectRoot))
+
+				return tuiErr
+			}
+
+			// Non-TUI mode: create daemon for RPC control
 			dmn := daemon.New(cfg, ctrl, logger)
 
 			// Start daemon socket server in background
