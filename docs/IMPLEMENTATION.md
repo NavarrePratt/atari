@@ -195,8 +195,8 @@ For detailed component specifications, see the [components/](components/) direct
 
 ### CLI Commands
 
-- `atari start --tui` - **Implemented** (TUI mode, default when TTY available)
-- `atari start --tui=false` - **Implemented** (simple fallback mode)
+- `atari start` - **Implemented** (TUI auto-enabled when TTY detected)
+- `atari start --tui=false` - **Implemented** (force simple fallback mode)
 
 ### Tasks
 

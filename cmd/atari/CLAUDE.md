@@ -27,7 +27,7 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--tui` | false | Enable terminal UI |
+| `--tui` | auto | Enable terminal UI (auto-enabled when TTY detected) |
 | `--max-turns` | 50 | Max turns per Claude session |
 | `--label` | "" | Filter bd ready by label |
 | `--prompt` | "" | Custom prompt template file |

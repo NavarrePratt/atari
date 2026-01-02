@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/controller"
@@ -245,8 +246,14 @@ sessions to work on each bead until completion.
 
 Use --daemon to run in the background.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			tuiEnabled := viper.GetBool(FlagTUI)
 			daemonMode := viper.GetBool(FlagDaemon)
+
+			// Determine TUI mode: explicit flag > auto-detect from TTY
+			tuiEnabled := viper.GetBool(FlagTUI)
+			if !cmd.Flags().Changed(FlagTUI) && !daemonMode {
+				// Auto-enable TUI when stdout is a TTY and not in daemon mode
+				tuiEnabled = term.IsTerminal(int(os.Stdout.Fd()))
+			}
 
 			// Check for incompatible flags
 			if tuiEnabled && daemonMode {
