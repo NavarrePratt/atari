@@ -9,8 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/npratt/atari/internal/bdactivity"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/session"
 	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/workqueue"
@@ -45,15 +47,20 @@ type Controller struct {
 	runner    testutil.CommandRunner
 	logger    *slog.Logger
 
+	// BD activity watcher (optional, started when config.BDActivity.Enabled)
+	bdWatcher     *bdactivity.Watcher
+	processRunner runner.ProcessRunner
+
 	state   State
 	stateMu sync.RWMutex
 
 	currentBead string
 	beadMu      sync.RWMutex
 
-	ctx context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx      context.Context
+	cancel   context.CancelFunc
+	cancelMu sync.Mutex
+	wg       sync.WaitGroup
 
 	// Control signals for pause/resume/stop
 	pauseSignal  chan struct{}
@@ -65,27 +72,48 @@ type Controller struct {
 }
 
 // New creates a Controller with the given dependencies.
-func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, runner testutil.CommandRunner, logger *slog.Logger) *Controller {
+// The processRunner parameter is optional - pass nil to disable BD activity watching.
+func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, cmdRunner testutil.CommandRunner, processRunner runner.ProcessRunner, logger *slog.Logger) *Controller {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Controller{
-		config:       cfg,
+	c := &Controller{
+		config:        cfg,
 		workQueue:    wq,
 		router:       router,
-		runner:       runner,
+		runner:       cmdRunner,
+		processRunner: processRunner,
 		logger:       logger,
 		state:        StateIdle,
 		pauseSignal:  make(chan struct{}, 1),
 		resumeSignal: make(chan struct{}, 1),
 		stopSignal:   make(chan struct{}, 1),
 	}
+
+	// Build BD activity watcher if enabled and processRunner is available
+	if cfg.BDActivity.Enabled && processRunner != nil {
+		c.bdWatcher = bdactivity.New(&cfg.BDActivity, router, processRunner, logger)
+	}
+
+	return c
 }
 
 // Run starts the main drain loop. It blocks until the context is cancelled
 // or Stop is called. Returns nil on clean shutdown.
 func (c *Controller) Run(ctx context.Context) error {
+	c.cancelMu.Lock()
 	c.ctx, c.cancel = context.WithCancel(ctx)
+	c.cancelMu.Unlock()
+
+	// Start BD activity watcher if configured (best-effort, non-fatal)
+	if c.bdWatcher != nil {
+		if err := c.bdWatcher.Start(c.ctx); err != nil {
+			c.logger.Warn("failed to start bd activity watcher", "error", err)
+			// Continue without watcher - it's non-fatal
+		} else {
+			c.logger.Info("bd activity watcher started")
+		}
+	}
 
 	// Get working directory for DrainStartEvent
 	workDir := "."
@@ -335,6 +363,15 @@ func (c *Controller) shutdown(reason string) error {
 	c.wg.Wait()
 	c.setState(StateStopped)
 
+	// Stop BD activity watcher if running
+	if c.bdWatcher != nil && c.bdWatcher.Running() {
+		if err := c.bdWatcher.Stop(); err != nil {
+			c.logger.Warn("failed to stop bd activity watcher", "error", err)
+		} else {
+			c.logger.Info("bd activity watcher stopped")
+		}
+	}
+
 	c.emit(&events.DrainStopEvent{
 		BaseEvent: events.NewInternalEvent(events.EventDrainStop),
 		Reason:    reason,
@@ -352,9 +389,11 @@ func (c *Controller) Stop() {
 	default:
 		// Signal already pending
 	}
+	c.cancelMu.Lock()
 	if c.cancel != nil {
 		c.cancel()
 	}
+	c.cancelMu.Unlock()
 }
 
 // Pause requests the controller to pause after the current iteration.

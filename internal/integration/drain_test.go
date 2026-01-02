@@ -247,7 +247,7 @@ func TestFullDrainCycle(t *testing.T) {
 	}
 
 	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -325,7 +325,7 @@ func TestDrainWithMultipleBeads(t *testing.T) {
 	}
 
 	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -373,7 +373,7 @@ func TestDrainWithFailedBead(t *testing.T) {
 	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-fail-001", "Failing bead"))
 
 	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -419,7 +419,7 @@ func TestGracefulShutdown(t *testing.T) {
 	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-shutdown-001", "Shutdown test"))
 
 	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
 
 	ctx := context.Background()
 
@@ -485,7 +485,7 @@ func TestBackoffProgression(t *testing.T) {
 	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-backoff-001", "Backoff test"))
 
 	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -539,7 +539,7 @@ func TestContextCancellation(t *testing.T) {
 	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-cancel-001", "Cancel test"))
 
 	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -580,7 +580,7 @@ func TestPauseResumeDuringDrain(t *testing.T) {
 	env.runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
 
 	ctx := context.Background()
 

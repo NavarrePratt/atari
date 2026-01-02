@@ -49,7 +49,7 @@ func newTestDaemonEnv(t *testing.T) *testDaemonEnv {
 
 	router := events.NewRouter(1000)
 	wq := workqueue.New(cfg, runner)
-	ctrl := controller.New(cfg, wq, router, runner, nil)
+	ctrl := controller.New(cfg, wq, router, runner, nil, nil)
 
 	d := New(cfg, ctrl, nil)
 	client := NewClient(cfg.Paths.Socket)

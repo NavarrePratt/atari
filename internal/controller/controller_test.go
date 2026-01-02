@@ -40,7 +40,7 @@ func TestControllerStates(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		if c.State() != StateIdle {
 			t.Errorf("expected initial state %s, got %s", StateIdle, c.State())
@@ -52,7 +52,7 @@ func TestControllerStates(t *testing.T) {
 		runner := testutil.NewMockRunner()
 		setupAgentStateMocks(runner)
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
@@ -86,7 +86,7 @@ func TestControllerPauseResume(t *testing.T) {
 		router := events.NewRouter(10)
 		defer router.Close()
 
-		c := New(cfg, wq, router, runner, nil)
+		c := New(cfg, wq, router, runner, nil, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -132,7 +132,7 @@ func TestControllerStop(t *testing.T) {
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		ctx := context.Background()
 
@@ -165,7 +165,7 @@ func TestControllerStop(t *testing.T) {
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		ctx := context.Background()
 
@@ -206,7 +206,7 @@ func TestControllerContextCancellation(t *testing.T) {
 	runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(cfg, runner)
-	c := New(cfg, wq, nil, runner, nil)
+	c := New(cfg, wq, nil, runner, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -236,7 +236,7 @@ func TestControllerStats(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
 	wq := workqueue.New(cfg, runner)
-	c := New(cfg, wq, nil, runner, nil)
+	c := New(cfg, wq, nil, runner, nil, nil)
 
 	stats := c.Stats()
 	if stats.Iteration != 0 {
@@ -255,7 +255,7 @@ func TestControllerEventEmission(t *testing.T) {
 	defer router.Close()
 
 	sub := router.Subscribe()
-	c := New(cfg, wq, router, runner, nil)
+	c := New(cfg, wq, router, runner, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -318,7 +318,7 @@ func TestControllerWorkQueueError(t *testing.T) {
 	defer router.Close()
 
 	sub := router.Subscribe()
-	c := New(cfg, wq, router, runner, nil)
+	c := New(cfg, wq, router, runner, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -359,7 +359,7 @@ func TestControllerMultipleSignals(t *testing.T) {
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		// Send multiple pause signals before starting
 		c.Pause()
@@ -376,7 +376,7 @@ func TestControllerMultipleSignals(t *testing.T) {
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		// Send multiple stop signals
 		c.Stop()
@@ -395,7 +395,7 @@ func TestControllerAgentStateReporting(t *testing.T) {
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -451,7 +451,7 @@ func TestControllerAgentStateReporting(t *testing.T) {
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil)
+		c := New(cfg, wq, nil, runner, nil, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

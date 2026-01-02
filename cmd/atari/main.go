@@ -19,6 +19,7 @@ import (
 	"github.com/npratt/atari/internal/controller"
 	"github.com/npratt/atari/internal/daemon"
 	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/shutdown"
 	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/workqueue"
@@ -339,13 +340,16 @@ Use --daemon to run in the background.`,
 			}
 
 			// Create command runner for real commands
-			runner := testutil.NewExecRunner()
+			cmdRunner := testutil.NewExecRunner()
+
+			// Create process runner for bd activity watcher
+			processRunner := runner.NewExecProcessRunner()
 
 			// Create work queue
-			wq := workqueue.New(cfg, runner)
+			wq := workqueue.New(cfg, cmdRunner)
 
 			// Create controller
-			ctrl := controller.New(cfg, wq, router, runner, logger)
+			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, logger)
 
 			// Create daemon for RPC control
 			dmn := daemon.New(cfg, ctrl, logger)
