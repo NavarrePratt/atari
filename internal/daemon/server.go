@@ -55,8 +55,11 @@ func (d *Daemon) Start(ctx context.Context) error {
 	// Start accept loop
 	go d.serve(ctx)
 
-	// Wait for context cancellation
-	<-ctx.Done()
+	// Wait for context cancellation or stop signal
+	select {
+	case <-ctx.Done():
+	case <-d.stopCh:
+	}
 
 	return d.Stop()
 }

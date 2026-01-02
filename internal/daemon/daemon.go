@@ -21,6 +21,7 @@ type Daemon struct {
 	logger     *slog.Logger
 
 	running bool
+	stopCh  chan struct{} // signals Start() to return
 	mu      sync.RWMutex
 }
 
@@ -34,6 +35,7 @@ func New(cfg *config.Config, ctrl *controller.Controller, logger *slog.Logger) *
 		controller: ctrl,
 		sockPath:   cfg.Paths.Socket,
 		logger:     logger,
+		stopCh:     make(chan struct{}),
 	}
 }
 

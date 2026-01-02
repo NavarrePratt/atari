@@ -89,7 +89,7 @@ func (d *Daemon) handleStop(req *Request) Response {
 
 	d.controller.Stop()
 
-	// Schedule daemon shutdown
+	// Schedule daemon shutdown via stop channel
 	go func() {
 		if force {
 			// Force immediate shutdown
@@ -98,7 +98,12 @@ func (d *Daemon) handleStop(req *Request) Response {
 			// Allow some time for graceful shutdown
 			time.Sleep(100 * time.Millisecond)
 		}
-		_ = d.Stop()
+		// Signal the daemon to stop
+		select {
+		case d.stopCh <- struct{}{}:
+		default:
+			// Already signaled
+		}
 	}()
 
 	return Response{Result: "stopping"}
