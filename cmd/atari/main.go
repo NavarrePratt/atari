@@ -365,14 +365,13 @@ Use --daemon to run in the background.`,
 			// Create work queue
 			wq := workqueue.New(cfg, cmdRunner)
 
-			// Create controller
-			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, logger)
-
-			// TUI mode: run TUI in foreground with controller in background
+			// TUI mode: redirect logger to file before creating controller
+			ctrlLogger := logger
+			var debugLogFile *os.File
 			if tuiEnabled {
-				// Redirect slog to a debug log file to avoid corrupting TUI display
 				debugLogPath := filepath.Join(filepath.Dir(cfg.Paths.Log), "atari-debug.log")
-				debugLogFile, err := os.OpenFile(debugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				var err error
+				debugLogFile, err = os.OpenFile(debugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 				if err != nil {
 					sinkCancel()
 					router.Close()
@@ -380,8 +379,16 @@ Use --daemon to run in the background.`,
 					_ = stateSink.Stop()
 					return fmt.Errorf("open debug log file: %w", err)
 				}
+				ctrlLogger = slog.New(slog.NewJSONHandler(debugLogFile, &slog.HandlerOptions{Level: logLevel}))
+				slog.SetDefault(ctrlLogger)
+			}
+
+			// Create controller with appropriate logger
+			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, ctrlLogger)
+
+			// TUI mode: run TUI in foreground with controller in background
+			if tuiEnabled {
 				defer func() { _ = debugLogFile.Close() }()
-				slog.SetDefault(slog.New(slog.NewJSONHandler(debugLogFile, &slog.HandlerOptions{Level: logLevel})))
 
 				// Subscribe TUI to events with buffering
 				tuiEvents := router.SubscribeBuffered(5000)
