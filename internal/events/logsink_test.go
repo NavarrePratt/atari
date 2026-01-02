@@ -111,7 +111,7 @@ func TestLogSinkWritesJSONLines(t *testing.T) {
 	}
 }
 
-func TestLogSinkAppendsToExistingFile(t *testing.T) {
+func TestLogSinkRotatesExistingFile(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "test.log")
 
@@ -140,18 +140,122 @@ func TestLogSinkAppendsToExistingFile(t *testing.T) {
 	cancel()
 	_ = sink.Stop()
 
-	// Verify both initial and new content exist
+	// Verify new log file only has new content (not initial)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("failed to read log file: %v", err)
 	}
 
 	content := string(data)
-	if !strings.Contains(content, `"type":"initial"`) {
-		t.Error("expected initial content to be preserved")
+	if strings.Contains(content, `"type":"initial"`) {
+		t.Error("expected initial content to be rotated out")
 	}
 	if !strings.Contains(content, `"type":"drain.stop"`) {
-		t.Error("expected new event to be appended")
+		t.Error("expected new event in log")
+	}
+
+	// Verify a .bak file was created
+	files, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatalf("failed to read dir: %v", err)
+	}
+
+	var bakFound bool
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".bak") {
+			bakFound = true
+			// Read and verify it contains initial content
+			bakData, err := os.ReadFile(filepath.Join(tmp, f.Name()))
+			if err != nil {
+				t.Fatalf("failed to read bak file: %v", err)
+			}
+			if !strings.Contains(string(bakData), `"type":"initial"`) {
+				t.Error("expected initial content in .bak file")
+			}
+		}
+	}
+	if !bakFound {
+		t.Error("expected .bak file to be created")
+	}
+}
+
+func TestLogSinkDoesNotRotateEmptyFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "test.log")
+
+	// Create empty file
+	if err := os.WriteFile(path, []byte{}, 0644); err != nil {
+		t.Fatalf("failed to create empty file: %v", err)
+	}
+
+	sink := NewLogSink(path)
+	events := make(chan Event, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	cancel()
+	_ = sink.Stop()
+
+	// Verify no .bak file was created
+	files, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatalf("failed to read dir: %v", err)
+	}
+
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".bak") {
+			t.Error("should not create .bak for empty file")
+		}
+	}
+}
+
+func TestLogSinkNoRotationWhenNoExistingFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "newfile.log")
+
+	sink := NewLogSink(path)
+	events := make(chan Event, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	events <- &DrainStartEvent{
+		BaseEvent: NewInternalEvent(EventDrainStart),
+		WorkDir:   "/test",
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	_ = sink.Stop()
+
+	// Verify file was created and has content
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read log file: %v", err)
+	}
+	if !strings.Contains(string(data), `"type":"drain.start"`) {
+		t.Error("expected event in new log file")
+	}
+
+	// Verify no .bak file was created
+	files, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatalf("failed to read dir: %v", err)
+	}
+
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".bak") {
+			t.Error("should not create .bak when no existing file")
+		}
 	}
 }
 

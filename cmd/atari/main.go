@@ -385,7 +385,7 @@ Use --daemon to run in the background.`,
 			var tuiLogResult *TUILoggerResult
 			if tuiEnabled {
 				var err error
-				tuiLogResult, err = SetupTUILogger(filepath.Dir(cfg.Paths.Log), logLevel)
+				tuiLogResult, err = SetupTUILogger(filepath.Dir(cfg.Paths.Log), logLevel, cfg.LogRotation)
 				if err != nil {
 					sinkCancel()
 					router.Close()

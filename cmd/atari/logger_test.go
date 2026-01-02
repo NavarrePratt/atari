@@ -7,18 +7,28 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/npratt/atari/internal/config"
 )
+
+func testRotationConfig() config.LogRotationConfig {
+	return config.LogRotationConfig{
+		MaxSizeMB:  100,
+		MaxBackups: 3,
+		MaxAgeDays: 7,
+		Compress:   false, // Disable compression in tests for simplicity
+	}
+}
 
 func TestSetupTUILogger_WritesToFile(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()
 
 	// Setup TUI logger
-	result, err := SetupTUILogger(tmpDir, slog.LevelInfo)
+	result, err := SetupTUILogger(tmpDir, slog.LevelInfo, testRotationConfig())
 	if err != nil {
 		t.Fatalf("SetupTUILogger failed: %v", err)
 	}
-	defer func() { _ = result.Close() }()
 
 	// Verify file path is correct
 	expectedPath := filepath.Join(tmpDir, "atari-debug.log")
@@ -29,8 +39,8 @@ func TestSetupTUILogger_WritesToFile(t *testing.T) {
 	// Write a log message
 	result.Logger.Info("test message", "key", "value")
 
-	// Sync the file to ensure writes are flushed
-	_ = result.LogFile.Sync()
+	// Close to flush writes (lumberjack flushes on close)
+	_ = result.Close()
 
 	// Read back the file and verify content
 	content, err := os.ReadFile(result.FilePath)
@@ -59,7 +69,7 @@ func TestSetupTUILogger_DoesNotWriteToStderr(t *testing.T) {
 	os.Stderr = w
 
 	// Setup TUI logger
-	result, err := SetupTUILogger(tmpDir, slog.LevelInfo)
+	result, err := SetupTUILogger(tmpDir, slog.LevelInfo, testRotationConfig())
 	if err != nil {
 		os.Stderr = oldStderr
 		t.Fatalf("SetupTUILogger failed: %v", err)
@@ -109,13 +119,12 @@ func TestSetupTUILogger_AppendsToExistingFile(t *testing.T) {
 	}
 
 	// Setup logger and write
-	result, err := SetupTUILogger(tmpDir, slog.LevelInfo)
+	result, err := SetupTUILogger(tmpDir, slog.LevelInfo, testRotationConfig())
 	if err != nil {
 		t.Fatalf("SetupTUILogger failed: %v", err)
 	}
 	result.Logger.Info("new message")
-	_ = result.LogFile.Sync()
-	_ = result.Close()
+	_ = result.Close() // Close flushes writes
 
 	// Verify both contents exist
 	content, _ := os.ReadFile(logPath)
@@ -127,12 +136,26 @@ func TestSetupTUILogger_AppendsToExistingFile(t *testing.T) {
 	}
 }
 
-func TestSetupTUILogger_FailsOnInvalidDirectory(t *testing.T) {
-	// Try to create logger in non-existent directory
-	result, err := SetupTUILogger("/nonexistent/path/that/does/not/exist", slog.LevelInfo)
-	if err == nil {
-		_ = result.Close()
-		t.Error("expected error for invalid directory")
+func TestSetupTUILogger_WritesToValidDirectory(t *testing.T) {
+	// Test that logger works with a valid directory path.
+	// Note: lumberjack creates parent directories automatically and handles
+	// errors lazily, so this test verifies the normal happy path instead.
+	tmpDir := t.TempDir()
+
+	result, err := SetupTUILogger(tmpDir, slog.LevelInfo, testRotationConfig())
+	if err != nil {
+		t.Fatalf("SetupTUILogger failed: %v", err)
+	}
+	defer func() { _ = result.Close() }()
+
+	// Verify we can write and the file exists
+	result.Logger.Info("test message")
+
+	// File should exist after close
+	_ = result.Close()
+
+	if _, err := os.Stat(result.FilePath); err != nil {
+		t.Errorf("log file should exist: %v", err)
 	}
 }
 
@@ -140,18 +163,17 @@ func TestSetupTUILogger_RespectsLogLevel(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Setup logger with WARN level
-	result, err := SetupTUILogger(tmpDir, slog.LevelWarn)
+	result, err := SetupTUILogger(tmpDir, slog.LevelWarn, testRotationConfig())
 	if err != nil {
 		t.Fatalf("SetupTUILogger failed: %v", err)
 	}
-	defer func() { _ = result.Close() }()
 
 	// Write INFO message (should be filtered)
 	result.Logger.Info("info message")
 	// Write WARN message (should appear)
 	result.Logger.Warn("warn message")
 
-	_ = result.LogFile.Sync()
+	_ = result.Close() // Close flushes writes
 
 	content, _ := os.ReadFile(result.FilePath)
 	contentStr := string(content)

@@ -1,17 +1,18 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
+
+	"github.com/npratt/atari/internal/config"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // TUILoggerResult contains the results of setting up logging for TUI mode.
 type TUILoggerResult struct {
 	Logger   *slog.Logger
-	LogFile  *os.File
+	LogFile  io.WriteCloser
 	FilePath string
 }
 
@@ -23,23 +24,36 @@ func (r *TUILoggerResult) Close() error {
 	return nil
 }
 
-// SetupTUILogger creates a logger that writes to a file instead of stderr.
+// SetupTUILogger creates a logger that writes to a rotating file instead of stderr.
 // This prevents log output from corrupting the TUI display.
-// Returns the logger, the open file (caller must close), and the file path.
-func SetupTUILogger(logDir string, level slog.Leveler) (*TUILoggerResult, error) {
+// Uses lumberjack for automatic log rotation based on the provided config.
+// Returns the logger, the writer (caller must close), and the file path.
+func SetupTUILogger(logDir string, level slog.Leveler, rotationCfg config.LogRotationConfig) (*TUILoggerResult, error) {
 	debugLogPath := filepath.Join(logDir, "atari-debug.log")
-	debugLogFile, err := os.OpenFile(debugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return nil, fmt.Errorf("open debug log file: %w", err)
+
+	// Use lumberjack for automatic rotation
+	debugLogWriter := &lumberjack.Logger{
+		Filename:   debugLogPath,
+		MaxSize:    rotationCfg.MaxSizeMB,
+		MaxBackups: rotationCfg.MaxBackups,
+		MaxAge:     rotationCfg.MaxAgeDays,
+		Compress:   rotationCfg.Compress,
 	}
 
-	logger := slog.New(slog.NewJSONHandler(debugLogFile, &slog.HandlerOptions{Level: level}))
+	logger := slog.New(slog.NewJSONHandler(debugLogWriter, &slog.HandlerOptions{Level: level}))
 
 	return &TUILoggerResult{
 		Logger:   logger,
-		LogFile:  debugLogFile,
+		LogFile:  debugLogWriter,
 		FilePath: debugLogPath,
 	}, nil
+}
+
+// SetupTUILoggerSimple creates a logger with default rotation settings.
+// This is a convenience wrapper for SetupTUILogger.
+func SetupTUILoggerSimple(logDir string, level slog.Leveler) (*TUILoggerResult, error) {
+	defaultCfg := config.Default().LogRotation
+	return SetupTUILogger(logDir, level, defaultCfg)
 }
 
 // SetupTUILoggerWithWriter creates a logger that writes to the given writer.

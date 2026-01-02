@@ -5,13 +5,14 @@ import "time"
 
 // Config holds all configuration for atari.
 type Config struct {
-	Claude     ClaudeConfig     `yaml:"claude" mapstructure:"claude"`
-	WorkQueue  WorkQueueConfig  `yaml:"workqueue" mapstructure:"workqueue"`
-	Backoff    BackoffConfig    `yaml:"backoff" mapstructure:"backoff"`
-	Paths      PathsConfig      `yaml:"paths" mapstructure:"paths"`
-	BDActivity BDActivityConfig `yaml:"bdactivity" mapstructure:"bdactivity"`
-	Prompt     string           `yaml:"prompt" mapstructure:"prompt"`
-	AgentID    string           `yaml:"agent_id" mapstructure:"agent_id"` // Bead ID for agent state reporting (empty = disabled)
+	Claude      ClaudeConfig      `yaml:"claude" mapstructure:"claude"`
+	WorkQueue   WorkQueueConfig   `yaml:"workqueue" mapstructure:"workqueue"`
+	Backoff     BackoffConfig     `yaml:"backoff" mapstructure:"backoff"`
+	Paths       PathsConfig       `yaml:"paths" mapstructure:"paths"`
+	BDActivity  BDActivityConfig  `yaml:"bdactivity" mapstructure:"bdactivity"`
+	LogRotation LogRotationConfig `yaml:"log_rotation" mapstructure:"log_rotation"`
+	Prompt      string            `yaml:"prompt" mapstructure:"prompt"`
+	AgentID     string            `yaml:"agent_id" mapstructure:"agent_id"` // Bead ID for agent state reporting (empty = disabled)
 }
 
 // ClaudeConfig holds Claude Code session settings.
@@ -49,6 +50,15 @@ type BDActivityConfig struct {
 	MaxReconnectDelay time.Duration `yaml:"max_reconnect_delay" mapstructure:"max_reconnect_delay"`
 }
 
+// LogRotationConfig holds settings for log file rotation.
+// Used for the TUI debug log (lumberjack-based automatic rotation).
+type LogRotationConfig struct {
+	MaxSizeMB  int  `yaml:"max_size_mb" mapstructure:"max_size_mb"`
+	MaxBackups int  `yaml:"max_backups" mapstructure:"max_backups"`
+	MaxAgeDays int  `yaml:"max_age_days" mapstructure:"max_age_days"`
+	Compress   bool `yaml:"compress" mapstructure:"compress"`
+}
+
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
 const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
 
@@ -79,6 +89,12 @@ func Default() *Config {
 			Enabled:           true,
 			ReconnectDelay:    5 * time.Second,
 			MaxReconnectDelay: 5 * time.Minute,
+		},
+		LogRotation: LogRotationConfig{
+			MaxSizeMB:  100,
+			MaxBackups: 3,
+			MaxAgeDays: 7,
+			Compress:   true,
 		},
 		Prompt: DefaultPrompt,
 	}
