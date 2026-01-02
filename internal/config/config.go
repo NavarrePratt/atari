@@ -5,12 +5,13 @@ import "time"
 
 // Config holds all configuration for atari.
 type Config struct {
-	Claude    ClaudeConfig
-	WorkQueue WorkQueueConfig
-	Backoff   BackoffConfig
-	Paths     PathsConfig
-	Prompt    string
-	AgentID   string // Bead ID for agent state reporting (empty = disabled)
+	Claude     ClaudeConfig
+	WorkQueue  WorkQueueConfig
+	Backoff    BackoffConfig
+	Paths      PathsConfig
+	BDActivity BDActivityConfig
+	Prompt     string
+	AgentID    string // Bead ID for agent state reporting (empty = disabled)
 }
 
 // ClaudeConfig holds Claude Code session settings.
@@ -41,6 +42,13 @@ type PathsConfig struct {
 	PID    string
 }
 
+// BDActivityConfig holds BD activity watcher settings.
+type BDActivityConfig struct {
+	Enabled           bool
+	ReconnectDelay    time.Duration
+	MaxReconnectDelay time.Duration
+}
+
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
 const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
 
@@ -66,6 +74,11 @@ func Default() *Config {
 			Log:    ".atari/atari.log",
 			Socket: ".atari/atari.sock",
 			PID:    ".atari/atari.pid",
+		},
+		BDActivity: BDActivityConfig{
+			Enabled:           true,
+			ReconnectDelay:    5 * time.Second,
+			MaxReconnectDelay: 5 * time.Minute,
 		},
 		Prompt: DefaultPrompt,
 	}

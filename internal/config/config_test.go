@@ -92,3 +92,19 @@ func TestDefaultPrompt(t *testing.T) {
 		t.Error("Prompt does not match DefaultPrompt constant")
 	}
 }
+
+func TestDefaultBDActivityConfig(t *testing.T) {
+	cfg := Default()
+
+	if !cfg.BDActivity.Enabled {
+		t.Error("BDActivity.Enabled = false, want true")
+	}
+
+	if cfg.BDActivity.ReconnectDelay != 5*time.Second {
+		t.Errorf("BDActivity.ReconnectDelay = %v, want %v", cfg.BDActivity.ReconnectDelay, 5*time.Second)
+	}
+
+	if cfg.BDActivity.MaxReconnectDelay != 5*time.Minute {
+		t.Errorf("BDActivity.MaxReconnectDelay = %v, want %v", cfg.BDActivity.MaxReconnectDelay, 5*time.Minute)
+	}
+}

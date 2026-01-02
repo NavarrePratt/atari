@@ -256,6 +256,7 @@ Use --daemon to run in the background.`,
 				cfg.WorkQueue.Label = label
 			}
 			cfg.AgentID = viper.GetString(FlagAgentID)
+			cfg.BDActivity.Enabled = viper.GetBool(FlagBDActivityEnabled)
 
 			// Find project root for path resolution
 			projectRoot := daemon.FindProjectRoot("")
@@ -396,6 +397,7 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")
 	startCmd.Flags().String(FlagModel, "opus", "Claude model to use")
 	startCmd.Flags().String(FlagAgentID, "", "Agent bead ID for state reporting (e.g., bd-xxx)")
+	startCmd.Flags().Bool(FlagBDActivityEnabled, true, "Enable BD activity watcher")
 
 	startCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = viper.BindPFlag(f.Name, f)

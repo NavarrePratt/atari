@@ -9,12 +9,13 @@ const (
 	FlagSocketPath = "socket-path"
 
 	// Start command flags
-	FlagTUI      = "tui"
-	FlagMaxTurns = "max-turns"
-	FlagLabel    = "label"
-	FlagPrompt   = "prompt"
-	FlagModel    = "model"
-	FlagAgentID  = "agent-id"
+	FlagTUI               = "tui"
+	FlagMaxTurns          = "max-turns"
+	FlagLabel             = "label"
+	FlagPrompt            = "prompt"
+	FlagModel             = "model"
+	FlagAgentID           = "agent-id"
+	FlagBDActivityEnabled = "bd-activity-enabled"
 
 	// Start command daemon mode flags
 	FlagDaemon = "daemon"
