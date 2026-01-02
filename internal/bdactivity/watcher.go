@@ -95,7 +95,6 @@ func (w *Watcher) Stop() error {
 	// Wait for runLoop to exit
 	<-w.done
 
-	w.running.Store(false)
 	return nil
 }
 
@@ -107,7 +106,10 @@ func (w *Watcher) Running() bool {
 // runLoop is the main reconnection loop. It runs iteratively (not recursively)
 // to prevent goroutine buildup.
 func (w *Watcher) runLoop() {
-	defer close(w.done)
+	defer func() {
+		w.running.Store(false)
+		close(w.done)
+	}()
 
 	for {
 		select {
