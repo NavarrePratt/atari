@@ -32,6 +32,7 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 | `--label` | "" | Filter bd ready by label |
 | `--prompt` | "" | Custom prompt template file |
 | `--model` | opus | Claude model to use |
+| `--agent-id` | "" | Agent bead ID for state reporting (e.g., bd-xxx) |
 
 ## Stop Command Flags
 

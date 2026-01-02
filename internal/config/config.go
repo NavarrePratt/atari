@@ -10,6 +10,7 @@ type Config struct {
 	Backoff   BackoffConfig
 	Paths     PathsConfig
 	Prompt    string
+	AgentID   string // Bead ID for agent state reporting (empty = disabled)
 }
 
 // ClaudeConfig holds Claude Code session settings.

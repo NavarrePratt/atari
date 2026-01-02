@@ -14,6 +14,7 @@ const (
 	FlagLabel    = "label"
 	FlagPrompt   = "prompt"
 	FlagModel    = "model"
+	FlagAgentID  = "agent-id"
 
 	// Stop command flags
 	FlagGraceful = "graceful"

@@ -39,15 +39,16 @@ Usage:
   atari start [flags]
 
 Flags:
-      --daemon         Run as background daemon
-      --tui            Enable terminal UI (default if TTY)
-      --no-tui         Disable terminal UI
-      --log FILE       Log file path (default: .atari/atari.log)
-      --max-turns N    Max turns per Claude session (default: 50)
-      --label LABEL    Filter beads by label
-      --prompt FILE    Custom prompt template file
-      --model MODEL    Claude model (default: opus)
-  -h, --help           Help for start
+      --daemon           Run as background daemon
+      --tui              Enable terminal UI (default if TTY)
+      --no-tui           Disable terminal UI
+      --log FILE         Log file path (default: .atari/atari.log)
+      --max-turns N      Max turns per Claude session (default: 50)
+      --label LABEL      Filter beads by label
+      --prompt FILE      Custom prompt template file
+      --model MODEL      Claude model (default: opus)
+      --agent-id ID      Agent bead ID for state reporting (e.g., bd-xxx)
+  -h, --help             Help for start
 
 Examples:
   # Start in foreground with TUI
@@ -61,6 +62,9 @@ Examples:
 
   # Start with verbose logging
   atari start -v --log /tmp/atari.log
+
+  # Start with agent state reporting enabled
+  atari start --agent-id bd-agent-001
 ```
 
 **Implementation:**

@@ -13,6 +13,9 @@ import (
 	"github.com/npratt/atari/internal/workqueue"
 )
 
+// testAgentID is the agent bead ID used in tests.
+const testAgentID = "test-agent"
+
 // testConfig returns a config suitable for testing with short intervals.
 func testConfig() *config.Config {
 	cfg := config.Default()
@@ -21,13 +24,14 @@ func testConfig() *config.Config {
 	cfg.Backoff.Initial = 10 * time.Millisecond
 	cfg.Backoff.Max = 50 * time.Millisecond
 	cfg.Backoff.MaxFailures = 2
+	cfg.AgentID = testAgentID
 	return cfg
 }
 
 // setupAgentStateMocks configures mock responses for all bd agent state commands.
 func setupAgentStateMocks(runner *testutil.MockRunner) {
 	for _, state := range []string{"idle", "running", "stopped", "dead"} {
-		runner.SetResponse("bd", []string{"agent", "state", "atari", state}, []byte(""))
+		runner.SetResponse("bd", []string{"agent", "state", testAgentID, state}, []byte(""))
 	}
 }
 
@@ -440,10 +444,10 @@ func TestControllerAgentStateReporting(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
 		// Set up errors for agent state commands
-		runner.SetError("bd", []string{"agent", "state", "atari", "idle"}, errors.New("bd not available"))
-		runner.SetError("bd", []string{"agent", "state", "atari", "running"}, errors.New("bd not available"))
-		runner.SetError("bd", []string{"agent", "state", "atari", "stopped"}, errors.New("bd not available"))
-		runner.SetError("bd", []string{"agent", "state", "atari", "dead"}, errors.New("bd not available"))
+		runner.SetError("bd", []string{"agent", "state", testAgentID, "idle"}, errors.New("bd not available"))
+		runner.SetError("bd", []string{"agent", "state", testAgentID, "running"}, errors.New("bd not available"))
+		runner.SetError("bd", []string{"agent", "state", testAgentID, "stopped"}, errors.New("bd not available"))
+		runner.SetError("bd", []string{"agent", "state", testAgentID, "dead"}, errors.New("bd not available"))
 		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)

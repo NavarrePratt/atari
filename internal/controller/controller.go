@@ -411,8 +411,9 @@ func (c *Controller) setState(s State) {
 
 // reportAgentState reports the controller state to beads via bd agent state command.
 // Errors are logged but do not affect controller operation.
+// If config.AgentID is empty, agent state reporting is disabled.
 func (c *Controller) reportAgentState(state State) {
-	if c.runner == nil {
+	if c.runner == nil || c.config.AgentID == "" {
 		return
 	}
 
@@ -424,7 +425,7 @@ func (c *Controller) reportAgentState(state State) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := c.runner.Run(ctx, "bd", "agent", "state", "atari", agentState)
+	_, err := c.runner.Run(ctx, "bd", "agent", "state", c.config.AgentID, agentState)
 	if err != nil {
 		c.logger.Warn("failed to report agent state",
 			"state", agentState,

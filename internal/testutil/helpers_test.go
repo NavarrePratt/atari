@@ -200,9 +200,9 @@ func TestSetupMockBDReady(t *testing.T) {
 
 func TestSetupMockBDAgentState(t *testing.T) {
 	mock := NewMockRunner()
-	SetupMockBDAgentState(mock)
+	SetupMockBDAgentState(mock, "test-agent")
 
-	result, err := mock.Run(context.Background(), "bd", "agent", "state", "atari")
+	result, err := mock.Run(context.Background(), "bd", "agent", "state", "test-agent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

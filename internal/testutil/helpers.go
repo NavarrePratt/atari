@@ -134,8 +134,9 @@ func SetupMockBDReady(mock *MockRunner, response string) {
 }
 
 // SetupMockBDAgentState configures a MockRunner to respond to bd agent state commands.
-func SetupMockBDAgentState(mock *MockRunner) {
-	mock.SetResponse("bd", []string{"agent", "state", "atari"}, []byte(BDAgentStateSuccess))
+// The agentID parameter specifies which agent bead ID to mock responses for.
+func SetupMockBDAgentState(mock *MockRunner, agentID string) {
+	mock.SetResponse("bd", []string{"agent", "state", agentID}, []byte(BDAgentStateSuccess))
 }
 
 // SetupMockBDClose configures a MockRunner to respond to bd close commands.

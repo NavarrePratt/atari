@@ -84,6 +84,7 @@ sessions to work on each bead until completion.`,
 			if label := viper.GetString(FlagLabel); label != "" {
 				cfg.WorkQueue.Label = label
 			}
+			cfg.AgentID = viper.GetString(FlagAgentID)
 
 			// Ensure .atari directory exists
 			if err := os.MkdirAll(".atari", 0755); err != nil {
@@ -95,6 +96,7 @@ sessions to work on each bead until completion.`,
 				"log_file", cfg.Paths.Log,
 				"state_file", cfg.Paths.State,
 				"label", cfg.WorkQueue.Label,
+				"agent_id", cfg.AgentID,
 			)
 
 			// Create event router
@@ -161,6 +163,7 @@ sessions to work on each bead until completion.`,
 	startCmd.Flags().String(FlagLabel, "", "Filter bd ready by label")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")
 	startCmd.Flags().String(FlagModel, "opus", "Claude model to use")
+	startCmd.Flags().String(FlagAgentID, "", "Agent bead ID for state reporting (e.g., bd-xxx)")
 
 	startCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = viper.BindPFlag(f.Name, f)

@@ -114,6 +114,9 @@ func (e *testEnv) countEvents(eventType events.EventType) int {
 	return count
 }
 
+// testAgentID is the agent bead ID used in integration tests.
+const testAgentID = "test-agent"
+
 // testConfig returns a config suitable for fast integration tests.
 func testConfig() *config.Config {
 	cfg := config.Default()
@@ -122,13 +125,14 @@ func testConfig() *config.Config {
 	cfg.Backoff.Initial = 10 * time.Millisecond
 	cfg.Backoff.Max = 50 * time.Millisecond
 	cfg.Backoff.MaxFailures = 3
+	cfg.AgentID = testAgentID
 	return cfg
 }
 
 // setupAgentStateMocks configures mock responses for bd agent state commands.
 func setupAgentStateMocks(runner *testutil.MockRunner) {
 	for _, state := range []string{"idle", "running", "stopped", "dead"} {
-		runner.SetResponse("bd", []string{"agent", "state", "atari", state}, []byte(""))
+		runner.SetResponse("bd", []string{"agent", "state", testAgentID, state}, []byte(""))
 	}
 }
 
