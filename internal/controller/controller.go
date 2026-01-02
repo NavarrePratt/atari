@@ -48,7 +48,10 @@ type Controller struct {
 	state   State
 	stateMu sync.RWMutex
 
-	ctx    context.Context
+	currentBead string
+	beadMu      sync.RWMutex
+
+	ctx context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
@@ -160,6 +163,8 @@ func (c *Controller) runIdle() {
 // runWorkingOnBead executes a Claude session for the given bead.
 func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 	c.setState(StateWorking)
+	c.setCurrentBead(bead.ID)
+	defer c.clearCurrentBead()
 	c.iteration++
 
 	c.logger.Info("starting iteration",
@@ -387,8 +392,9 @@ type Stats struct {
 // Stats returns current statistics.
 func (c *Controller) Stats() Stats {
 	return Stats{
-		Iteration:  c.iteration,
-		QueueStats: c.workQueue.Stats(),
+		Iteration:   c.iteration,
+		QueueStats:  c.workQueue.Stats(),
+		CurrentBead: c.CurrentBead(),
 	}
 }
 
@@ -407,6 +413,26 @@ func (c *Controller) setState(s State) {
 
 	// Report state change to bd agent (best effort, outside lock)
 	c.reportAgentState(s)
+}
+
+// CurrentBead returns the ID of the bead currently being worked on,
+// or an empty string if no bead is active (thread-safe).
+func (c *Controller) CurrentBead() string {
+	c.beadMu.RLock()
+	defer c.beadMu.RUnlock()
+	return c.currentBead
+}
+
+// setCurrentBead updates the current bead ID (thread-safe).
+func (c *Controller) setCurrentBead(beadID string) {
+	c.beadMu.Lock()
+	c.currentBead = beadID
+	c.beadMu.Unlock()
+}
+
+// clearCurrentBead clears the current bead ID (thread-safe).
+func (c *Controller) clearCurrentBead() {
+	c.setCurrentBead("")
 }
 
 // reportAgentState reports the controller state to beads via bd agent state command.
