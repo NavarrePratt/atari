@@ -16,10 +16,17 @@ const (
 	FlagModel    = "model"
 	FlagAgentID  = "agent-id"
 
+	// Start command daemon mode flags
+	FlagDaemon = "daemon"
+
 	// Stop command flags
 	FlagGraceful = "graceful"
+	FlagForce    = "force"
 
 	// Events command flags
 	FlagFollow = "follow"
 	FlagCount  = "count"
+
+	// Output format flags
+	FlagJSON = "json"
 )

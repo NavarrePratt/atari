@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/controller"
+	"github.com/npratt/atari/internal/daemon"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/shutdown"
 	"github.com/npratt/atari/internal/testutil"
@@ -21,6 +25,171 @@ import (
 )
 
 var version = "dev"
+
+// getDaemonClient creates a daemon client by finding daemon.json in the project.
+func getDaemonClient() (*daemon.Client, error) {
+	info, err := daemon.FindDaemonInfo("")
+	if err != nil {
+		return nil, fmt.Errorf("daemon not running: %w", err)
+	}
+	return daemon.NewClient(info.SocketPath), nil
+}
+
+// tailLast reads and prints the last n lines from the log file.
+func tailLast(path string, n int) error {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No events yet (log file does not exist)")
+			return nil
+		}
+		return fmt.Errorf("open log file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// Read all lines into a buffer (simple approach for reasonable file sizes)
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read log file: %w", err)
+	}
+
+	if len(lines) == 0 {
+		fmt.Println("No events yet")
+		return nil
+	}
+
+	// Get last n lines
+	start := 0
+	if len(lines) > n {
+		start = len(lines) - n
+	}
+
+	for _, line := range lines[start:] {
+		printEventLine(line)
+	}
+	return nil
+}
+
+// waitForFile waits for a file to be created and returns the opened file.
+func waitForFile(ctx context.Context, path string) (*os.File, error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+			file, err := os.Open(path)
+			if err == nil {
+				return file, nil
+			}
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("open file: %w", err)
+			}
+			// File still doesn't exist, continue waiting
+		}
+	}
+}
+
+// tailFollow follows the log file and prints new lines as they appear.
+func tailFollow(ctx context.Context, path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("Waiting for log file to be created...")
+			// Wait for file to appear
+			file, err = waitForFile(ctx, path)
+			if err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("open log file: %w", err)
+		}
+	}
+	defer func() { _ = file.Close() }()
+
+	// Seek to end
+	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("seek to end: %w", err)
+	}
+
+	fmt.Println("Following events (Ctrl+C to stop)...")
+	reader := bufio.NewReader(file)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					// No more data, wait a bit
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				return fmt.Errorf("read log: %w", err)
+			}
+			printEventLine(strings.TrimSuffix(line, "\n"))
+		}
+	}
+}
+
+// printEventLine prints a single event line in a human-readable format.
+func printEventLine(line string) {
+	// Try to parse as JSON and format nicely
+	var event map[string]interface{}
+	if err := json.Unmarshal([]byte(line), &event); err != nil {
+		// Not JSON, print as-is
+		fmt.Println(line)
+		return
+	}
+
+	// Format: [timestamp] type: message/data
+	timestamp := ""
+	if ts, ok := event["timestamp"].(string); ok {
+		// Parse and format timestamp for readability
+		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+			timestamp = t.Format("15:04:05")
+		} else {
+			timestamp = ts
+		}
+	}
+
+	eventType := ""
+	if t, ok := event["type"].(string); ok {
+		eventType = t
+	}
+
+	// Build output based on event type
+	var detail string
+	switch eventType {
+	case "session.start", "session.end":
+		if id, ok := event["bead_id"].(string); ok {
+			detail = fmt.Sprintf("bead=%s", id)
+		}
+	case "iteration.start", "iteration.end":
+		if num, ok := event["iteration"].(float64); ok {
+			detail = fmt.Sprintf("iteration=%d", int(num))
+		}
+	case "error":
+		if msg, ok := event["message"].(string); ok {
+			detail = msg
+		}
+	default:
+		// Generic handling
+		if msg, ok := event["message"].(string); ok {
+			detail = msg
+		}
+	}
+
+	if detail != "" {
+		fmt.Printf("[%s] %s: %s\n", timestamp, eventType, detail)
+	} else {
+		fmt.Printf("[%s] %s\n", timestamp, eventType)
+	}
+}
 
 func main() {
 	logLevel := &slog.LevelVar{}
@@ -69,7 +238,9 @@ and persists state for pause/resume capability.`,
 		Long: `Start the atari daemon to process available beads.
 
 The daemon will poll bd ready for available work and spawn Claude Code
-sessions to work on each bead until completion.`,
+sessions to work on each bead until completion.
+
+Use --daemon to run in the background.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if viper.GetBool(FlagVerbose) {
 				logLevel.Set(slog.LevelDebug)
@@ -86,8 +257,37 @@ sessions to work on each bead until completion.`,
 			}
 			cfg.AgentID = viper.GetString(FlagAgentID)
 
+			// Find project root for path resolution
+			projectRoot := daemon.FindProjectRoot("")
+
+			// Resolve all paths to absolute
+			var err error
+			cfg.Paths, err = daemon.ResolvePaths(cfg.Paths, projectRoot)
+			if err != nil {
+				return fmt.Errorf("resolve paths: %w", err)
+			}
+
+			// Check if daemon is already running
+			if viper.GetBool(FlagDaemon) {
+				client := daemon.NewClient(cfg.Paths.Socket)
+				if client.IsRunning() {
+					return fmt.Errorf("daemon already running (socket: %s)", cfg.Paths.Socket)
+				}
+
+				// Daemonize: fork and let parent exit
+				shouldExit, _, err := daemon.Daemonize(cfg)
+				if err != nil {
+					return fmt.Errorf("daemonize: %w", err)
+				}
+				if shouldExit {
+					return nil // Parent exits cleanly
+				}
+				// Child continues below
+			}
+
 			// Ensure .atari directory exists
-			if err := os.MkdirAll(".atari", 0755); err != nil {
+			atariDir := daemon.DaemonInfoPath(projectRoot)
+			if err := os.MkdirAll(atariDir[:len(atariDir)-len("/daemon.json")], 0755); err != nil {
 				return fmt.Errorf("create .atari directory: %w", err)
 			}
 
@@ -97,7 +297,20 @@ sessions to work on each bead until completion.`,
 				"state_file", cfg.Paths.State,
 				"label", cfg.WorkQueue.Label,
 				"agent_id", cfg.AgentID,
+				"daemon_mode", viper.GetBool(FlagDaemon),
 			)
+
+			// Write daemon info for CLI discovery
+			daemonInfo := &daemon.DaemonInfo{
+				SocketPath: cfg.Paths.Socket,
+				PIDPath:    cfg.Paths.PID,
+				LogPath:    cfg.Paths.Log,
+				StartTime:  time.Now(),
+				PID:        os.Getpid(),
+			}
+			if err := daemon.WriteDaemonInfo(daemon.DaemonInfoPath(projectRoot), daemonInfo); err != nil {
+				logger.Warn("failed to write daemon info", "error", err)
+			}
 
 			// Create event router
 			router := events.NewRouter(events.DefaultBufferSize)
@@ -134,7 +347,7 @@ sessions to work on each bead until completion.`,
 			ctrl := controller.New(cfg, wq, router, runner, logger)
 
 			// Run with graceful shutdown handling
-			err := shutdown.RunWithGracefulShutdown(
+			err = shutdown.RunWithGracefulShutdown(
 				ctx,
 				logger,
 				30*time.Second,
@@ -153,11 +366,15 @@ sessions to work on each bead until completion.`,
 			_ = logSink.Stop()
 			_ = stateSink.Stop()
 
+			// Remove daemon info on clean exit
+			_ = daemon.RemoveDaemonInfo(daemon.DaemonInfoPath(projectRoot))
+
 			return err
 		},
 	}
 
 	// Start command specific flags
+	startCmd.Flags().Bool(FlagDaemon, false, "Run as a background daemon")
 	startCmd.Flags().Bool(FlagTUI, false, "Enable terminal UI")
 	startCmd.Flags().Int(FlagMaxTurns, 50, "Max turns per Claude session")
 	startCmd.Flags().String(FlagLabel, "", "Filter bd ready by label")
@@ -169,63 +386,145 @@ sessions to work on each bead until completion.`,
 		_ = viper.BindPFlag(f.Name, f)
 	})
 
-	// Status command (placeholder)
+	// Status command
 	statusCmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show daemon status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement status via socket
-			fmt.Println("atari status - implementation pending")
+			client, err := getDaemonClient()
+			if err != nil {
+				return err
+			}
+
+			status, err := client.Status()
+			if err != nil {
+				return err
+			}
+
+			if viper.GetBool(FlagJSON) {
+				data, err := json.MarshalIndent(status, "", "  ")
+				if err != nil {
+					return fmt.Errorf("marshal status: %w", err)
+				}
+				fmt.Println(string(data))
+				return nil
+			}
+
+			// Human-readable output
+			fmt.Printf("Status: %s\n", status.Status)
+			if status.CurrentBead != "" {
+				fmt.Printf("Current bead: %s\n", status.CurrentBead)
+			}
+			fmt.Printf("Uptime: %s\n", status.Uptime)
+			fmt.Printf("Started: %s\n", status.StartTime)
+			fmt.Printf("Stats:\n")
+			fmt.Printf("  Iteration: %d\n", status.Stats.Iteration)
+			fmt.Printf("  Total seen: %d\n", status.Stats.TotalSeen)
+			fmt.Printf("  Completed: %d\n", status.Stats.Completed)
+			fmt.Printf("  Failed: %d\n", status.Stats.Failed)
+			fmt.Printf("  Abandoned: %d\n", status.Stats.Abandoned)
+			if status.Stats.InBackoff > 0 {
+				fmt.Printf("  In backoff: %d\n", status.Stats.InBackoff)
+			}
 			return nil
 		},
 	}
+	statusCmd.Flags().Bool(FlagJSON, false, "Output status as JSON")
+	_ = viper.BindPFlag(FlagJSON, statusCmd.Flags().Lookup(FlagJSON))
 
-	// Pause command (placeholder)
+	// Pause command
 	pauseCmd := &cobra.Command{
 		Use:   "pause",
 		Short: "Pause the daemon after current bead completes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement pause via socket
-			fmt.Println("atari pause - implementation pending")
+			client, err := getDaemonClient()
+			if err != nil {
+				return err
+			}
+
+			if err := client.Pause(); err != nil {
+				return err
+			}
+
+			fmt.Println("Pause requested - daemon will pause after current bead completes")
 			return nil
 		},
 	}
 
-	// Resume command (placeholder)
+	// Resume command
 	resumeCmd := &cobra.Command{
 		Use:   "resume",
 		Short: "Resume the daemon from paused state",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement resume via socket
-			fmt.Println("atari resume - implementation pending")
+			client, err := getDaemonClient()
+			if err != nil {
+				return err
+			}
+
+			if err := client.Resume(); err != nil {
+				return err
+			}
+
+			fmt.Println("Resume requested - daemon will continue processing")
 			return nil
 		},
 	}
 
-	// Stop command (placeholder)
+	// Stop command
 	stopCmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement stop via socket
-			fmt.Println("atari stop - implementation pending")
+			client, err := getDaemonClient()
+			if err != nil {
+				return err
+			}
+
+			force := viper.GetBool(FlagForce)
+			if err := client.Stop(force); err != nil {
+				return err
+			}
+
+			if force {
+				fmt.Println("Stop requested - daemon stopping immediately")
+			} else {
+				fmt.Println("Stop requested - daemon will stop after current bead completes")
+			}
 			return nil
 		},
 	}
 
-	stopCmd.Flags().Bool(FlagGraceful, true, "Wait for current bead to complete")
+	stopCmd.Flags().Bool(FlagForce, false, "Stop immediately without waiting for current bead")
 	stopCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = viper.BindPFlag(f.Name, f)
 	})
 
-	// Events command (placeholder)
+	// Events command
 	eventsCmd := &cobra.Command{
 		Use:   "events",
 		Short: "View recent events",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement events tail
-			fmt.Println("atari events - implementation pending")
-			return nil
+			// Get log file path from daemon.json or use default
+			logPath := viper.GetString(FlagLogFile)
+			info, err := daemon.FindDaemonInfo("")
+			if err == nil {
+				logPath = info.LogPath
+			} else {
+				// Resolve relative path
+				projectRoot := daemon.FindProjectRoot("")
+				resolved, err := daemon.ResolvePaths(config.PathsConfig{Log: logPath}, projectRoot)
+				if err == nil {
+					logPath = resolved.Log
+				}
+			}
+
+			count := viper.GetInt(FlagCount)
+			follow := viper.GetBool(FlagFollow)
+
+			if follow {
+				return tailFollow(cmd.Context(), logPath)
+			}
+			return tailLast(logPath, count)
 		},
 	}
 
