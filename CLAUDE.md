@@ -65,7 +65,7 @@ See `docs/IMPLEMENTATION.md` for detailed specs.
 | Phase | Focus | Status |
 |-------|-------|--------|
 | 1 | Core Loop (MVP) | Complete - workqueue, session, events, sinks, controller done |
-| 2 | Control & Monitoring | Not started |
+| 2 | Control & Monitoring | Complete - daemon mode, RPC, pause/resume/stop |
 | 3 | BD Activity | Not started |
 | 4 | Terminal UI | Not started |
 | 5 | Notifications | Not started |
@@ -103,8 +103,8 @@ internal/           # Non-exported packages
   workqueue/        # Work discovery and selection (see internal/workqueue/CLAUDE.md)
   controller/       # Main orchestration loop (see internal/controller/CLAUDE.md)
   integration/      # End-to-end tests (see internal/integration/CLAUDE.md)
+  daemon/           # Daemon mode and RPC (see internal/daemon/CLAUDE.md)
   bdactivity/       # [planned] BD activity stream watcher
-  daemon/           # [planned] Daemon mode and RPC
   tui/              # [planned] Terminal UI (bubbletea)
 docs/               # Design and implementation docs
   components/       # Detailed component specifications

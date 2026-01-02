@@ -8,7 +8,9 @@ The daemon package provides:
 - Background process management with PID file tracking
 - flock-based locking to prevent concurrent daemon instances
 - Stale file cleanup for crash recovery
-- Unix socket server for JSON-RPC control (future issues)
+- Unix socket server for JSON-RPC control
+- RPC client for CLI commands
+- Daemonization (fork/setsid) for background mode
 
 ## Key Types
 
@@ -18,6 +20,20 @@ Main orchestrator for daemon mode:
 - Manages controller lifecycle
 - Holds references to config, controller, and socket listener
 - Tracks running state with mutex protection
+
+### Server
+
+Unix socket server for RPC:
+- Listens on `.atari/atari.sock`
+- Handles JSON-RPC requests (status, pause, resume, stop)
+- Thread-safe connection handling
+
+### Client
+
+RPC client for CLI commands:
+- Connects to daemon socket
+- Provides Status(), Pause(), Resume(), Stop() methods
+- Handles connection errors and timeouts
 
 ### PIDFile
 
@@ -31,18 +47,18 @@ Manages the PID file with flock locking:
 ## File Paths
 
 Default locations (in project directory):
-- PID file: `.atari/atari.pid`
+- Daemon info: `.atari/daemon.json`
 - Socket: `.atari/atari.sock`
+- PID file: `.atari/atari.pid` (legacy, now using daemon.json)
 
 ## Usage
 
 ```go
-// Create daemon
+// Create and start daemon
 cfg := config.Default()
 ctrl := controller.New(...)
 d := daemon.New(cfg, ctrl, logger)
 
-// Start (implemented in future issue)
 if err := d.Start(ctx); err != nil {
     log.Fatal(err)
 }
@@ -51,31 +67,41 @@ if err := d.Start(ctx); err != nil {
 if d.Running() {
     fmt.Println("Daemon is running")
 }
+
+// Use client from CLI commands
+client := daemon.NewClient(socketPath)
+status, err := client.Status()
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("State: %s\n", status.Status)
 ```
 
-## PID File Locking
+## Daemonization
 
-Uses flock for process synchronization:
-- Prevents multiple daemon instances
-- Handles crash recovery via stale detection
-- Non-blocking lock acquisition
+Background mode uses fork/setsid:
 
 ```go
-pidFile := daemon.NewPIDFile(".atari/atari.pid")
-
-// Write and lock
-if err := pidFile.Write(); err != nil {
-    // Another daemon is running
+// In start command with --daemon flag
+if daemonize {
+    daemon.Daemonize() // Forks and exits parent
 }
-
-// Check if process is alive
-if pidFile.IsRunning() {
-    // Daemon is active
-}
-
-// Clean up stale files
-pidFile.CleanupStale(".atari/atari.sock")
+// Child continues as daemon
 ```
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| daemon.go | Daemon struct and lifecycle |
+| server.go | Unix socket listener |
+| client.go | RPC client for CLI |
+| handlers.go | RPC command handlers |
+| protocol.go | JSON-RPC types |
+| pid.go | PID file management |
+| daemonize.go | Fork/setsid for background mode |
+| paths.go | Path resolution for daemon files |
+| integration_test.go | Full daemon integration tests |
 
 ## Implementation Status
 
@@ -85,6 +111,8 @@ pidFile.CleanupStale(".atari/atari.sock")
 | PID file management | Done |
 | flock locking | Done |
 | Stale detection | Done |
-| Unix socket server | Planned (bd-drain-0oe) |
-| RPC client | Planned (bd-drain-pjg) |
-| Daemonization | Planned (bd-drain-d20) |
+| Unix socket server | Done |
+| RPC client | Done |
+| Daemonization | Done |
+| Path resolution | Done |
+| Integration tests | Done |

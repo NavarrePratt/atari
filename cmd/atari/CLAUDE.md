@@ -7,12 +7,12 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 | Command | Status | Description |
 |---------|--------|-------------|
 | `version` | Implemented | Print version information |
-| `start` | Implemented | Start the drain loop |
-| `status` | Stubbed | Show daemon status via socket |
-| `pause` | Stubbed | Pause after current bead completes |
-| `resume` | Stubbed | Resume from paused state |
-| `stop` | Stubbed | Stop the daemon |
-| `events` | Stubbed | View recent events |
+| `start` | Implemented | Start the drain loop (foreground or daemon) |
+| `status` | Implemented | Show daemon status via socket |
+| `pause` | Implemented | Pause after current bead completes |
+| `resume` | Implemented | Resume from paused state |
+| `stop` | Implemented | Stop the daemon |
+| `events` | Implemented | View recent events |
 
 ## Global Flags
 
@@ -87,4 +87,4 @@ The `start` command:
 - `internal/workqueue` - Work discovery via bd ready
 - `internal/shutdown` - Graceful shutdown handling
 - `internal/testutil` - ExecRunner for command execution
-- `internal/daemon` (Phase 2) - Socket commands for status/pause/resume/stop
+- `internal/daemon` - Daemon mode, RPC server/client for status/pause/resume/stop
