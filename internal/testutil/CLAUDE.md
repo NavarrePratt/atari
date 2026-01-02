@@ -60,6 +60,46 @@ runner := testutil.NewExecRunner()
 output, err := runner.Run(ctx, "bd", "ready", "--json")
 ```
 
+### MockProcessRunner
+
+Mock implementation of runner.ProcessRunner for testing streaming process scenarios (e.g., bd activity --follow).
+
+```go
+mock := testutil.NewMockProcessRunner()
+
+// Configure output
+mock.SetOutput("line1\nline2\n")
+mock.SetStderr("warning message\n")
+
+// Configure errors
+mock.SetStartError(errors.New("command not found"))
+mock.SetWaitError(errors.New("exit code 1"))
+
+// Start the mock process
+stdout, stderr, err := mock.Start(ctx, "bd", "activity", "--follow")
+data, _ := io.ReadAll(stdout)
+err = mock.Wait()
+
+// State inspection
+mock.StartCount()    // Number of Start calls
+mock.Processes()     // All recorded process starts
+mock.Started()       // Whether currently started
+mock.Killed()        // Whether Kill was called
+mock.WaitCalled()    // Whether Wait was called
+mock.Reset()         // Clear state for reuse
+```
+
+**Dynamic behavior**: For tests needing different responses per attempt:
+
+```go
+mock.OnStart(func(attempt int, name string, args []string) (stdout, stderr string, err error) {
+    if attempt == 1 {
+        return "", "", errors.New("first attempt fails")
+    }
+    return "success on retry", "", nil
+})
+```
+
 ## Fixtures
 
 Pre-defined JSON responses for common scenarios:
