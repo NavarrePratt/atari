@@ -292,9 +292,27 @@ type SessionResult struct {
 func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 	sess := session.New(c.config, c.router)
 
-	// Build prompt with bead context
-	prompt := fmt.Sprintf("%s\n\nWork on bead: %s - %s\n\n%s",
-		c.config.Prompt, bead.ID, bead.Title, bead.Description)
+	// Load prompt template
+	promptTemplate, err := c.config.LoadPrompt()
+	if err != nil {
+		return nil, fmt.Errorf("load prompt: %w", err)
+	}
+
+	// Expand template variables
+	vars := config.PromptVars{
+		BeadID:          bead.ID,
+		BeadTitle:       bead.Title,
+		BeadDescription: bead.Description,
+		Label:           c.config.WorkQueue.Label,
+	}
+	prompt := config.ExpandPrompt(promptTemplate, vars)
+
+	// For default prompt (no custom file or inline), append bead context
+	// Custom prompts should use {{.BeadID}} etc. to include bead info
+	if c.config.PromptFile == "" && c.config.Prompt == "" {
+		prompt = fmt.Sprintf("%s\n\nWork on bead: %s - %s\n\n%s",
+			prompt, bead.ID, bead.Title, bead.Description)
+	}
 
 	c.wg.Add(1)
 	defer c.wg.Done()

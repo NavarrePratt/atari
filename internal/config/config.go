@@ -12,7 +12,8 @@ type Config struct {
 	BDActivity  BDActivityConfig  `yaml:"bdactivity" mapstructure:"bdactivity"`
 	LogRotation LogRotationConfig `yaml:"log_rotation" mapstructure:"log_rotation"`
 	Prompt      string            `yaml:"prompt" mapstructure:"prompt"`
-	AgentID     string            `yaml:"agent_id" mapstructure:"agent_id"` // Bead ID for agent state reporting (empty = disabled)
+	PromptFile  string            `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
+	AgentID     string            `yaml:"agent_id" mapstructure:"agent_id"`       // Bead ID for agent state reporting (empty = disabled)
 }
 
 // ClaudeConfig holds Claude Code session settings.

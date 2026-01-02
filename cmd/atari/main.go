@@ -285,6 +285,9 @@ Use --daemon to run in the background.`,
 			if cmd.Flags().Changed(FlagLabel) {
 				cfg.WorkQueue.Label = viper.GetString(FlagLabel)
 			}
+			if cmd.Flags().Changed(FlagPrompt) {
+				cfg.PromptFile = viper.GetString(FlagPrompt)
+			}
 			if cmd.Flags().Changed(FlagAgentID) {
 				cfg.AgentID = viper.GetString(FlagAgentID)
 			}
