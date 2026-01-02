@@ -367,19 +367,18 @@ Use --daemon to run in the background.`,
 
 			// TUI mode: redirect logger to file before creating controller
 			ctrlLogger := logger
-			var debugLogFile *os.File
+			var tuiLogResult *TUILoggerResult
 			if tuiEnabled {
-				debugLogPath := filepath.Join(filepath.Dir(cfg.Paths.Log), "atari-debug.log")
 				var err error
-				debugLogFile, err = os.OpenFile(debugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				tuiLogResult, err = SetupTUILogger(filepath.Dir(cfg.Paths.Log), logLevel)
 				if err != nil {
 					sinkCancel()
 					router.Close()
 					_ = logSink.Stop()
 					_ = stateSink.Stop()
-					return fmt.Errorf("open debug log file: %w", err)
+					return err
 				}
-				ctrlLogger = slog.New(slog.NewJSONHandler(debugLogFile, &slog.HandlerOptions{Level: logLevel}))
+				ctrlLogger = tuiLogResult.Logger
 				slog.SetDefault(ctrlLogger)
 			}
 
@@ -388,7 +387,7 @@ Use --daemon to run in the background.`,
 
 			// TUI mode: run TUI in foreground with controller in background
 			if tuiEnabled {
-				defer func() { _ = debugLogFile.Close() }()
+				defer func() { _ = tuiLogResult.Close() }()
 
 				// Subscribe TUI to events with buffering
 				tuiEvents := router.SubscribeBuffered(5000)

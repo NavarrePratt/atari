@@ -66,6 +66,8 @@ maxTurns := viper.GetInt(FlagMaxTurns)
 
 - `main.go` - Root command, subcommands, flag definitions
 - `config.go` - Flag name constants for Viper binding
+- `logger.go` - TUI logger setup (writes to file to avoid corrupting TUI)
+- `logger_test.go` - Tests for TUI logger wiring
 
 ## Start Command Flow
 

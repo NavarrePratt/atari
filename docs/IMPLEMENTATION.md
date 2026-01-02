@@ -298,6 +298,8 @@ atari/
 ├── cmd/atari/
 │   ├── main.go              # Root command, all subcommands, flag definitions
 │   ├── config.go            # Flag name constants for Viper binding
+│   ├── logger.go            # TUI logger setup (file-based to avoid TUI corruption)
+│   ├── logger_test.go       # CLI wiring tests for TUI logger
 │   └── CLAUDE.md            # CLI package documentation
 ├── internal/
 │   ├── config/              # Configuration types and defaults
@@ -443,7 +445,22 @@ Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daem
 
 - [x] Real drain on test project with dummy beads (manual testing done)
 - [x] TUI unit tests (view, update, format, fallback) - Phase 4
+- [x] CLI wiring tests (TUI logger configuration) - Phase 4
 - [ ] Long-running stability test
+
+### Future: TUI Integration Testing
+
+More thorough TUI integration testing should be considered. Options include:
+
+1. **Bubbletea's `teatest` package**: Provides headless TUI testing with programmatic key sending and output assertions. Good for testing keyboard handling and view updates in isolation.
+
+2. **CLI integration tests**: Spawn the actual binary, capture stdout/stderr, and verify no spurious output corrupts the display. Can test the full wiring from CLI flags through to TUI rendering.
+
+3. **Screenshot/golden file testing**: Capture TUI output at specific states and compare against known-good snapshots. Useful for catching visual regressions.
+
+4. **Simulated event streams**: Feed a controlled sequence of events through the TUI and verify the display updates correctly. Good for testing edge cases like rapid events, buffer overflow, and scroll behavior.
+
+Implementation priority should be based on bug frequency and impact. The CLI wiring tests added in Phase 4 catch integration issues between main.go and the TUI package.
 
 ---
 
