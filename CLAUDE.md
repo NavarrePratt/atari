@@ -80,9 +80,13 @@ See `docs/IMPLEMENTATION.md` for detailed specs.
 - Add tests for new functionality
 - Use meaningful error messages
 
-## Note: Existing ANSI Contamination
+## ANSI Escape Code Prevention
 
-The `.beads/issues.jsonl` file contains ANSI escape codes in some issue descriptions from earlier sessions. Do not copy text from these issues verbatim - paraphrase instead. See global issue-tracking rules for prevention.
+The `.beads/issues.jsonl` file contains ANSI escape codes in some issue descriptions from earlier sessions. When creating issues or commits:
+
+- **Never copy text directly** from colored terminal output or existing issue descriptions
+- **Write from scratch** - paraphrase rather than copy verbatim
+- ANSI codes (`\x1b[`, `^[[`) appear as garbage characters in git logs
 
 ## Directory Structure
 
