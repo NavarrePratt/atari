@@ -21,8 +21,9 @@ const (
 	EventClaudeToolResult EventType = "claude.tool_result"
 
 	// Drain control events
-	EventDrainStart EventType = "drain.start"
-	EventDrainStop  EventType = "drain.stop"
+	EventDrainStart        EventType = "drain.start"
+	EventDrainStop         EventType = "drain.stop"
+	EventDrainStateChanged EventType = "drain.state_changed"
 
 	// Iteration events
 	EventIterationStart EventType = "iteration.start"
@@ -134,6 +135,14 @@ type DrainStartEvent struct {
 type DrainStopEvent struct {
 	BaseEvent
 	Reason string `json:"reason,omitempty"`
+}
+
+// DrainStateChangedEvent is emitted when the controller state changes.
+// This enables TUI and other observers to track state transitions.
+type DrainStateChangedEvent struct {
+	BaseEvent
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 // IterationStartEvent is emitted when beginning work on a bead.

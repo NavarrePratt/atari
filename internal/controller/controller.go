@@ -445,10 +445,24 @@ func (c *Controller) getState() State {
 }
 
 // setState updates the state and reports to bd agent (thread-safe).
+// Emits DrainStateChangedEvent when the state actually changes.
 func (c *Controller) setState(s State) {
 	c.stateMu.Lock()
+	oldState := c.state
 	c.state = s
 	c.stateMu.Unlock()
+
+	// Only emit and report if state actually changed
+	if oldState == s {
+		return
+	}
+
+	// Emit state change event
+	c.emit(&events.DrainStateChangedEvent{
+		BaseEvent: events.NewInternalEvent(events.EventDrainStateChanged),
+		From:      string(oldState),
+		To:        string(s),
+	})
 
 	// Report state change to bd agent (best effort, outside lock)
 	c.reportAgentState(s)

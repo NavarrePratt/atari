@@ -96,6 +96,10 @@ func (s *StateSink) handleEvent(event Event) {
 		s.state.Status = "running"
 		s.dirty = true
 
+	case *DrainStateChangedEvent:
+		s.state.Status = e.To
+		s.dirty = true
+
 	case *DrainStopEvent:
 		s.state.Status = "stopped"
 		s.dirty = true

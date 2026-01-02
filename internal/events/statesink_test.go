@@ -452,3 +452,63 @@ func TestStateSinkPath(t *testing.T) {
 		t.Errorf("Path() = %q, want %q", sink.Path(), "/path/to/state.json")
 	}
 }
+
+func TestStateSinkTracksDrainStateChanged(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	sink := NewStateSink(path)
+	sink.SetMinDelay(0)
+	events := make(chan Event, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Send drain start first to initialize
+	events <- &DrainStartEvent{
+		BaseEvent: NewInternalEvent(EventDrainStart),
+		WorkDir:   "/test/dir",
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	state := sink.State()
+	if state.Status != "running" {
+		t.Errorf("Status = %q, want %q", state.Status, "running")
+	}
+
+	// Send state change to paused
+	events <- &DrainStateChangedEvent{
+		BaseEvent: NewInternalEvent(EventDrainStateChanged),
+		From:      "idle",
+		To:        "paused",
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	state = sink.State()
+	if state.Status != "paused" {
+		t.Errorf("Status = %q, want %q", state.Status, "paused")
+	}
+
+	// Send state change to working
+	events <- &DrainStateChangedEvent{
+		BaseEvent: NewInternalEvent(EventDrainStateChanged),
+		From:      "paused",
+		To:        "working",
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	state = sink.State()
+	if state.Status != "working" {
+		t.Errorf("Status = %q, want %q", state.Status, "working")
+	}
+
+	cancel()
+	_ = sink.Stop()
+}

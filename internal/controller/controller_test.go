@@ -387,6 +387,93 @@ func TestControllerMultipleSignals(t *testing.T) {
 	})
 }
 
+func TestControllerEmitsDrainStateChangedEvent(t *testing.T) {
+	cfg := testConfig()
+	runner := testutil.NewMockRunner()
+	setupAgentStateMocks(runner)
+	runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+
+	wq := workqueue.New(cfg, runner)
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	sub := router.Subscribe()
+	c := New(cfg, wq, router, runner, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- c.Run(ctx)
+	}()
+
+	// Skip DrainStartEvent
+	<-sub
+
+	// Wait a bit for controller to run
+	time.Sleep(30 * time.Millisecond)
+
+	// Request pause - this should trigger a state change event
+	c.Pause()
+
+	// Wait for DrainStateChangedEvent with To="paused"
+	deadline := time.After(time.Second)
+	foundPausedEvent := false
+	for !foundPausedEvent {
+		select {
+		case evt := <-sub:
+			if evt.Type() == events.EventDrainStateChanged {
+				stateEvt, ok := evt.(*events.DrainStateChangedEvent)
+				if !ok {
+					t.Error("failed to cast to DrainStateChangedEvent")
+					continue
+				}
+				if stateEvt.To == "paused" {
+					foundPausedEvent = true
+					if stateEvt.From != "idle" {
+						t.Errorf("expected From=idle, got %s", stateEvt.From)
+					}
+				}
+			}
+		case <-deadline:
+			t.Error("timeout waiting for DrainStateChangedEvent with To=paused")
+			c.Stop()
+			<-done
+			return
+		}
+	}
+
+	// Resume and look for state change back to idle
+	c.Resume()
+
+	deadline = time.After(time.Second)
+	foundIdleEvent := false
+	for !foundIdleEvent {
+		select {
+		case evt := <-sub:
+			if evt.Type() == events.EventDrainStateChanged {
+				stateEvt, ok := evt.(*events.DrainStateChangedEvent)
+				if !ok {
+					t.Error("failed to cast to DrainStateChangedEvent")
+					continue
+				}
+				if stateEvt.To == "idle" && stateEvt.From == "paused" {
+					foundIdleEvent = true
+				}
+			}
+		case <-deadline:
+			t.Error("timeout waiting for DrainStateChangedEvent with To=idle")
+			c.Stop()
+			<-done
+			return
+		}
+	}
+
+	c.Stop()
+	<-done
+}
+
 func TestControllerAgentStateReporting(t *testing.T) {
 	t.Run("reports agent state on state transitions", func(t *testing.T) {
 		cfg := testConfig()

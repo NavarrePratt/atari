@@ -16,6 +16,7 @@ func TestEventInterfaceCompliance(t *testing.T) {
 	var _ Event = (*ClaudeToolResultEvent)(nil)
 	var _ Event = (*DrainStartEvent)(nil)
 	var _ Event = (*DrainStopEvent)(nil)
+	var _ Event = (*DrainStateChangedEvent)(nil)
 	var _ Event = (*IterationStartEvent)(nil)
 	var _ Event = (*IterationEndEvent)(nil)
 	var _ Event = (*BeadAbandonedEvent)(nil)
@@ -549,6 +550,38 @@ func TestDrainStopEventJSON(t *testing.T) {
 	}
 }
 
+// TestDrainStateChangedEventJSON tests JSON round-trip for DrainStateChangedEvent.
+func TestDrainStateChangedEventJSON(t *testing.T) {
+	original := DrainStateChangedEvent{
+		BaseEvent: NewInternalEvent(EventDrainStateChanged),
+		From:      "idle",
+		To:        "working",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded DrainStateChangedEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.From != original.From {
+		t.Errorf("From = %v, want %v", decoded.From, original.From)
+	}
+	if decoded.To != original.To {
+		t.Errorf("To = %v, want %v", decoded.To, original.To)
+	}
+	if decoded.Type() != EventDrainStateChanged {
+		t.Errorf("Type = %v, want %v", decoded.Type(), EventDrainStateChanged)
+	}
+	if decoded.Source() != SourceInternal {
+		t.Errorf("Source = %v, want %v", decoded.Source(), SourceInternal)
+	}
+}
+
 // TestClaudeTextEventJSON tests JSON round-trip for ClaudeTextEvent.
 func TestClaudeTextEventJSON(t *testing.T) {
 	original := ClaudeTextEvent{
@@ -652,6 +685,7 @@ func TestEventTypeConstants(t *testing.T) {
 		{EventClaudeToolResult, "claude.tool_result"},
 		{EventDrainStart, "drain.start"},
 		{EventDrainStop, "drain.stop"},
+		{EventDrainStateChanged, "drain.state_changed"},
 		{EventIterationStart, "iteration.start"},
 		{EventIterationEnd, "iteration.end"},
 		{EventBeadAbandoned, "bead.abandoned"},
