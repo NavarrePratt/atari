@@ -69,9 +69,21 @@ func WithStatsGetter(sg StatsGetter) Option {
 }
 
 // Run starts the TUI and blocks until it exits.
+// If the environment is non-interactive (no TTY) or the terminal is too small,
+// it falls back to simple line-by-line output.
 func (t *TUI) Run() error {
-	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter)
+	// Fall back to simple mode for non-TTY environments
+	if !isTerminal() {
+		return t.runSimple()
+	}
 
+	// Fall back to simple mode if terminal is too small at startup
+	if terminalTooSmall() {
+		return t.runSimple()
+	}
+
+	// Run the full bubbletea TUI
+	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
