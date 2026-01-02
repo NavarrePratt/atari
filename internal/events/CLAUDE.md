@@ -17,9 +17,23 @@ Type definitions and router for the Atari event system. All components communica
 | `claude.*` | claude | text, tool_use, tool_result |
 | `drain.*` | atari | start, stop |
 | `iteration.*` | atari | start, end |
-| `bead.*` | atari | abandoned |
+| `bead.*` | atari/bd | abandoned (internal), created/status/updated/comment/closed (bd activity) |
 | `error` | any | generic error |
 | `error.parse` | atari | stream-json parse failures |
+
+## BD Activity Events
+
+Events from `bd activity --follow` for real-time bead changes:
+
+| Event Type | Struct | Key Fields |
+|------------|--------|------------|
+| `bead.created` | BeadCreatedEvent | BeadID, Title, Actor |
+| `bead.status` | BeadStatusEvent | BeadID, OldStatus, NewStatus, Actor |
+| `bead.updated` | BeadUpdatedEvent | BeadID, Actor |
+| `bead.comment` | BeadCommentEvent | BeadID, Actor |
+| `bead.closed` | BeadClosedEvent | BeadID, Actor |
+
+All BD activity events use `SourceBD` ("bd") as their source.
 
 ## Creating Events
 

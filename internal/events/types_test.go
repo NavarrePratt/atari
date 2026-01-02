@@ -21,6 +21,13 @@ func TestEventInterfaceCompliance(t *testing.T) {
 	var _ Event = (*BeadAbandonedEvent)(nil)
 	var _ Event = (*ErrorEvent)(nil)
 
+	// BD activity event types
+	var _ Event = (*BeadCreatedEvent)(nil)
+	var _ Event = (*BeadStatusEvent)(nil)
+	var _ Event = (*BeadUpdatedEvent)(nil)
+	var _ Event = (*BeadCommentEvent)(nil)
+	var _ Event = (*BeadClosedEvent)(nil)
+
 	// Also test that BaseEvent itself implements Event
 	var _ Event = (*BaseEvent)(nil)
 }
@@ -307,6 +314,163 @@ func TestBeadAbandonedEventJSON(t *testing.T) {
 	}
 }
 
+// TestBeadCreatedEventJSON tests JSON round-trip for BeadCreatedEvent.
+func TestBeadCreatedEventJSON(t *testing.T) {
+	original := BeadCreatedEvent{
+		BaseEvent: NewBDEvent(EventBeadCreated),
+		BeadID:    "bd-123",
+		Title:     "New feature request",
+		Actor:     "user@example.com",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded BeadCreatedEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.BeadID != original.BeadID {
+		t.Errorf("BeadID = %v, want %v", decoded.BeadID, original.BeadID)
+	}
+	if decoded.Title != original.Title {
+		t.Errorf("Title = %v, want %v", decoded.Title, original.Title)
+	}
+	if decoded.Actor != original.Actor {
+		t.Errorf("Actor = %v, want %v", decoded.Actor, original.Actor)
+	}
+	if decoded.Source() != SourceBD {
+		t.Errorf("Source = %v, want %v", decoded.Source(), SourceBD)
+	}
+}
+
+// TestBeadStatusEventJSON tests JSON round-trip for BeadStatusEvent.
+func TestBeadStatusEventJSON(t *testing.T) {
+	original := BeadStatusEvent{
+		BaseEvent: NewBDEvent(EventBeadStatus),
+		BeadID:    "bd-456",
+		OldStatus: "ready",
+		NewStatus: "in_progress",
+		Actor:     "atari",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded BeadStatusEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.BeadID != original.BeadID {
+		t.Errorf("BeadID = %v, want %v", decoded.BeadID, original.BeadID)
+	}
+	if decoded.OldStatus != original.OldStatus {
+		t.Errorf("OldStatus = %v, want %v", decoded.OldStatus, original.OldStatus)
+	}
+	if decoded.NewStatus != original.NewStatus {
+		t.Errorf("NewStatus = %v, want %v", decoded.NewStatus, original.NewStatus)
+	}
+	if decoded.Actor != original.Actor {
+		t.Errorf("Actor = %v, want %v", decoded.Actor, original.Actor)
+	}
+	if decoded.Source() != SourceBD {
+		t.Errorf("Source = %v, want %v", decoded.Source(), SourceBD)
+	}
+}
+
+// TestBeadUpdatedEventJSON tests JSON round-trip for BeadUpdatedEvent.
+func TestBeadUpdatedEventJSON(t *testing.T) {
+	original := BeadUpdatedEvent{
+		BaseEvent: NewBDEvent(EventBeadUpdated),
+		BeadID:    "bd-789",
+		Actor:     "developer",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded BeadUpdatedEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.BeadID != original.BeadID {
+		t.Errorf("BeadID = %v, want %v", decoded.BeadID, original.BeadID)
+	}
+	if decoded.Actor != original.Actor {
+		t.Errorf("Actor = %v, want %v", decoded.Actor, original.Actor)
+	}
+	if decoded.Source() != SourceBD {
+		t.Errorf("Source = %v, want %v", decoded.Source(), SourceBD)
+	}
+}
+
+// TestBeadCommentEventJSON tests JSON round-trip for BeadCommentEvent.
+func TestBeadCommentEventJSON(t *testing.T) {
+	original := BeadCommentEvent{
+		BaseEvent: NewBDEvent(EventBeadComment),
+		BeadID:    "bd-101",
+		Actor:     "reviewer",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded BeadCommentEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.BeadID != original.BeadID {
+		t.Errorf("BeadID = %v, want %v", decoded.BeadID, original.BeadID)
+	}
+	if decoded.Actor != original.Actor {
+		t.Errorf("Actor = %v, want %v", decoded.Actor, original.Actor)
+	}
+	if decoded.Source() != SourceBD {
+		t.Errorf("Source = %v, want %v", decoded.Source(), SourceBD)
+	}
+}
+
+// TestBeadClosedEventJSON tests JSON round-trip for BeadClosedEvent.
+func TestBeadClosedEventJSON(t *testing.T) {
+	original := BeadClosedEvent{
+		BaseEvent: NewBDEvent(EventBeadClosed),
+		BeadID:    "bd-202",
+		Actor:     "atari",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded BeadClosedEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.BeadID != original.BeadID {
+		t.Errorf("BeadID = %v, want %v", decoded.BeadID, original.BeadID)
+	}
+	if decoded.Actor != original.Actor {
+		t.Errorf("Actor = %v, want %v", decoded.Actor, original.Actor)
+	}
+	if decoded.Source() != SourceBD {
+		t.Errorf("Source = %v, want %v", decoded.Source(), SourceBD)
+	}
+}
+
 // TestErrorEventJSON tests JSON round-trip for ErrorEvent.
 func TestErrorEventJSON(t *testing.T) {
 	original := ErrorEvent{
@@ -491,6 +655,11 @@ func TestEventTypeConstants(t *testing.T) {
 		{EventIterationStart, "iteration.start"},
 		{EventIterationEnd, "iteration.end"},
 		{EventBeadAbandoned, "bead.abandoned"},
+		{EventBeadCreated, "bead.created"},
+		{EventBeadStatus, "bead.status"},
+		{EventBeadUpdated, "bead.updated"},
+		{EventBeadComment, "bead.comment"},
+		{EventBeadClosed, "bead.closed"},
 		{EventError, "error"},
 	}
 

@@ -28,8 +28,15 @@ const (
 	EventIterationStart EventType = "iteration.start"
 	EventIterationEnd   EventType = "iteration.end"
 
-	// Bead events
+	// Bead events (internal)
 	EventBeadAbandoned EventType = "bead.abandoned"
+
+	// BD activity events (from bd activity --follow)
+	EventBeadCreated EventType = "bead.created"
+	EventBeadStatus  EventType = "bead.status"
+	EventBeadUpdated EventType = "bead.updated"
+	EventBeadComment EventType = "bead.comment"
+	EventBeadClosed  EventType = "bead.closed"
 
 	// Error events
 	EventError      EventType = "error"
@@ -156,6 +163,44 @@ type BeadAbandonedEvent struct {
 	Attempts    int    `json:"attempts"`
 	MaxFailures int    `json:"max_failures"`
 	LastError   string `json:"last_error"`
+}
+
+// BeadCreatedEvent is emitted when a new bead is created via bd activity.
+type BeadCreatedEvent struct {
+	BaseEvent
+	BeadID string `json:"bead_id"`
+	Title  string `json:"title"`
+	Actor  string `json:"actor"`
+}
+
+// BeadStatusEvent is emitted when a bead's status changes via bd activity.
+type BeadStatusEvent struct {
+	BaseEvent
+	BeadID    string `json:"bead_id"`
+	OldStatus string `json:"old_status"`
+	NewStatus string `json:"new_status"`
+	Actor     string `json:"actor"`
+}
+
+// BeadUpdatedEvent is emitted when a bead is updated via bd activity.
+type BeadUpdatedEvent struct {
+	BaseEvent
+	BeadID string `json:"bead_id"`
+	Actor  string `json:"actor"`
+}
+
+// BeadCommentEvent is emitted when a comment is added to a bead via bd activity.
+type BeadCommentEvent struct {
+	BaseEvent
+	BeadID string `json:"bead_id"`
+	Actor  string `json:"actor"`
+}
+
+// BeadClosedEvent is emitted when a bead is closed via bd activity.
+type BeadClosedEvent struct {
+	BaseEvent
+	BeadID string `json:"bead_id"`
+	Actor  string `json:"actor"`
 }
 
 // Severity constants for error events.
