@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 type Daemon struct {
 	config     *config.Config
 	controller *controller.Controller
+	listener   net.Listener
 	sockPath   string
 	startTime  time.Time
 	logger     *slog.Logger
