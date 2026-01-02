@@ -80,6 +80,16 @@ See `docs/IMPLEMENTATION.md` for detailed specs.
 - Add tests for new functionality
 - Use meaningful error messages
 
+## ANSI Escape Code Warning
+
+The `.beads/issues.jsonl` database contains ANSI escape codes in issue descriptions (the bd CLI stores colored text). When writing commit messages or documentation:
+
+- **Never copy text directly** from bd command output or issue descriptions
+- **Paraphrase** issue content rather than quoting verbatim
+- **Write commit messages from scratch** describing what changed
+
+Escape codes in commits appear as garbage: `^[[1m^[[30m` or `[0m[35m`
+
 ## Directory Structure
 
 ```
