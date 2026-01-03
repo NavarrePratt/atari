@@ -285,3 +285,9 @@ func (p *Parser) Result() *events.SessionEndEvent {
 func (p *Parser) SetOnTurnComplete(fn func()) {
 	p.onTurnComplete = fn
 }
+
+// TurnCount returns the number of completed turns in the current session.
+// A turn is completed when all tool_use blocks have received their tool_result blocks.
+func (p *Parser) TurnCount() int {
+	return p.turnNumber
+}

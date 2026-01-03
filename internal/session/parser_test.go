@@ -610,6 +610,83 @@ func TestParser_TurnBoundaryNoCallback(t *testing.T) {
 	}
 }
 
+func TestParser_TurnCount(t *testing.T) {
+	// Multiple turns should increment TurnCount()
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"result1"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"result2"}]}}`
+
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	// Before parsing, TurnCount should be 0
+	if parser.TurnCount() != 0 {
+		t.Errorf("expected TurnCount=0 before parsing, got %d", parser.TurnCount())
+	}
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// After parsing 2 turns, TurnCount should be 2
+	if parser.TurnCount() != 2 {
+		t.Errorf("expected TurnCount=2 after parsing, got %d", parser.TurnCount())
+	}
+}
+
+func TestParser_TurnCompleteEventFields(t *testing.T) {
+	// Test that TurnCompleteEvent has correct TurnNumber, ToolCount, and ToolElapsedMs
+	// Use multiple tools in one turn to verify ToolCount
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}},{"type":"tool_use","id":"t2","name":"Read","input":{}},{"type":"tool_use","id":"t3","name":"Edit","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"r1"},{"type":"tool_result","tool_use_id":"t2","content":"r2"},{"type":"tool_result","tool_use_id":"t3","content":"r3"}]}}`
+
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	sub := router.Subscribe()
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router.Close()
+	collected := collectEvents(sub, 100*time.Millisecond)
+
+	// Find the TurnCompleteEvent
+	var turnEvent *events.TurnCompleteEvent
+	for _, e := range collected {
+		if te, ok := e.(*events.TurnCompleteEvent); ok {
+			turnEvent = te
+			break
+		}
+	}
+
+	if turnEvent == nil {
+		t.Fatal("expected TurnCompleteEvent to be emitted")
+	}
+
+	// Verify TurnNumber is 1 (first turn)
+	if turnEvent.TurnNumber != 1 {
+		t.Errorf("expected TurnNumber=1, got %d", turnEvent.TurnNumber)
+	}
+
+	// Verify ToolCount is 3 (three tools used in this turn)
+	if turnEvent.ToolCount != 3 {
+		t.Errorf("expected ToolCount=3, got %d", turnEvent.ToolCount)
+	}
+
+	// Verify ToolElapsedMs is non-negative
+	if turnEvent.ToolElapsedMs < 0 {
+		t.Errorf("expected ToolElapsedMs >= 0, got %d", turnEvent.ToolElapsedMs)
+	}
+}
+
 // TestParser_ActivityUpdateCount verifies UpdateActivity is called for each valid event
 func TestParser_ActivityUpdateCount(t *testing.T) {
 	input := `{"type":"assistant","message":{"content":[{"type":"text","text":"First"}]}}
