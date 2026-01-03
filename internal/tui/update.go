@@ -209,10 +209,12 @@ func (m *model) handleEvent(event events.Event) {
 	case *events.IterationStartEvent:
 		m.status = "working"
 		m.currentBead = &beadInfo{
-			ID:       e.BeadID,
-			Title:    e.Title,
-			Priority: e.Priority,
+			ID:        e.BeadID,
+			Title:     e.Title,
+			Priority:  e.Priority,
+			StartTime: event.Timestamp(),
 		}
+		m.stats.CurrentDurationMs = 0
 
 	case *events.IterationEndEvent:
 		m.currentBead = nil
@@ -224,6 +226,8 @@ func (m *model) handleEvent(event events.Event) {
 		}
 		m.stats.TotalCost += e.TotalCostUSD
 		m.stats.TotalTurns += e.NumTurns
+		m.stats.TotalDurationMs += e.DurationMs
+		m.stats.CurrentDurationMs = 0
 
 	case *events.BeadAbandonedEvent:
 		m.stats.Abandoned++
@@ -261,6 +265,11 @@ func (m *model) handleEvent(event events.Event) {
 
 // handleTick processes periodic tick for stats synchronization.
 func (m *model) handleTick() {
+	// Update current bead elapsed time
+	if m.currentBead != nil && !m.currentBead.StartTime.IsZero() {
+		m.stats.CurrentDurationMs = time.Since(m.currentBead.StartTime).Milliseconds()
+	}
+
 	if m.statsGetter == nil {
 		return
 	}

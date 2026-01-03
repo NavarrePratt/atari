@@ -819,3 +819,76 @@ func TestGetStringValue(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatDurationHuman(t *testing.T) {
+	tests := []struct {
+		name string
+		ms   int64
+		want string
+	}{
+		{
+			name: "zero returns <60s",
+			ms:   0,
+			want: "<60s",
+		},
+		{
+			name: "negative returns <60s",
+			ms:   -1000,
+			want: "<60s",
+		},
+		{
+			name: "under 60s returns <60s",
+			ms:   30000,
+			want: "<60s",
+		},
+		{
+			name: "exactly 60s returns 1m",
+			ms:   60000,
+			want: "1m",
+		},
+		{
+			name: "minutes only",
+			ms:   300000, // 5 minutes
+			want: "5m",
+		},
+		{
+			name: "59 minutes",
+			ms:   3540000, // 59 minutes
+			want: "59m",
+		},
+		{
+			name: "exactly 1 hour",
+			ms:   3600000, // 60 minutes
+			want: "1h",
+		},
+		{
+			name: "hours only",
+			ms:   7200000, // 2 hours
+			want: "2h",
+		},
+		{
+			name: "hours and minutes",
+			ms:   5400000, // 1h 30m
+			want: "1h 30m",
+		},
+		{
+			name: "large duration",
+			ms:   36000000, // 10 hours
+			want: "10h",
+		},
+		{
+			name: "large duration with minutes",
+			ms:   36900000, // 10h 15m
+			want: "10h 15m",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := formatDurationHuman(tc.ms)
+			if result != tc.want {
+				t.Errorf("formatDurationHuman(%d) = %q, want %q", tc.ms, result, tc.want)
+			}
+		})
+	}
+}

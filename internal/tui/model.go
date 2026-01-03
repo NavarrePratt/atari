@@ -21,18 +21,21 @@ const (
 
 // beadInfo holds information about the current bead being processed.
 type beadInfo struct {
-	ID       string
-	Title    string
-	Priority int
+	ID        string
+	Title     string
+	Priority  int
+	StartTime time.Time
 }
 
 // modelStats holds display statistics.
 type modelStats struct {
-	Completed  int
-	Failed     int
-	Abandoned  int
-	TotalCost  float64
-	TotalTurns int
+	Completed         int
+	Failed            int
+	Abandoned         int
+	TotalCost         float64
+	TotalTurns        int
+	TotalDurationMs   int64
+	CurrentDurationMs int64
 }
 
 // eventLine represents a formatted event for display.

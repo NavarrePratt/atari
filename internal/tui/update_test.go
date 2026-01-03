@@ -854,3 +854,113 @@ func TestHandleKey_EventsFocused_NormalBehavior(t *testing.T) {
 		}
 	})
 }
+
+// Duration tracking tests
+
+func TestHandleEvent_IterationStart_SetsDuration(t *testing.T) {
+	m := model{
+		status: "idle",
+		stats:  modelStats{CurrentDurationMs: 5000}, // Some leftover value
+	}
+
+	event := &events.IterationStartEvent{
+		BaseEvent: events.NewInternalEvent(events.EventIterationStart),
+		BeadID:    "bd-123",
+		Title:     "Test bead",
+		Priority:  2,
+	}
+
+	m.handleEvent(event)
+
+	if m.currentBead == nil {
+		t.Fatal("currentBead should be set")
+	}
+	if m.currentBead.StartTime.IsZero() {
+		t.Error("currentBead.StartTime should be set from event timestamp")
+	}
+	if m.stats.CurrentDurationMs != 0 {
+		t.Errorf("CurrentDurationMs should be reset to 0, got %d", m.stats.CurrentDurationMs)
+	}
+}
+
+func TestHandleEvent_IterationEnd_AccumulatesDuration(t *testing.T) {
+	m := model{
+		status: "working",
+		currentBead: &beadInfo{
+			ID:        "bd-123",
+			StartTime: time.Now().Add(-5 * time.Minute),
+		},
+		stats: modelStats{
+			TotalDurationMs:   60000,  // 1 minute accumulated
+			CurrentDurationMs: 300000, // 5 minutes current
+		},
+	}
+
+	event := &events.IterationEndEvent{
+		BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+		BeadID:       "bd-123",
+		Success:      true,
+		NumTurns:     10,
+		DurationMs:   300000, // 5 minutes from event
+		TotalCostUSD: 0.05,
+	}
+
+	m.handleEvent(event)
+
+	if m.stats.TotalDurationMs != 360000 { // 60000 + 300000
+		t.Errorf("TotalDurationMs should be 360000, got %d", m.stats.TotalDurationMs)
+	}
+	if m.stats.CurrentDurationMs != 0 {
+		t.Errorf("CurrentDurationMs should be reset to 0, got %d", m.stats.CurrentDurationMs)
+	}
+}
+
+func TestHandleTick_UpdatesCurrentDuration(t *testing.T) {
+	startTime := time.Now().Add(-2 * time.Minute)
+	m := model{
+		currentBead: &beadInfo{
+			ID:        "bd-123",
+			StartTime: startTime,
+		},
+		stats: modelStats{CurrentDurationMs: 0},
+	}
+
+	m.handleTick()
+
+	// Should be approximately 2 minutes in ms (allow some tolerance)
+	expectedMs := int64(2 * 60 * 1000)
+	tolerance := int64(1000) // 1 second tolerance
+
+	if m.stats.CurrentDurationMs < expectedMs-tolerance || m.stats.CurrentDurationMs > expectedMs+tolerance {
+		t.Errorf("CurrentDurationMs should be ~%d, got %d", expectedMs, m.stats.CurrentDurationMs)
+	}
+}
+
+func TestHandleTick_NoUpdateWithoutBead(t *testing.T) {
+	m := model{
+		currentBead: nil,
+		stats:       modelStats{CurrentDurationMs: 0},
+	}
+
+	m.handleTick()
+
+	if m.stats.CurrentDurationMs != 0 {
+		t.Errorf("CurrentDurationMs should remain 0 without current bead, got %d", m.stats.CurrentDurationMs)
+	}
+}
+
+func TestHandleTick_NoUpdateWithZeroStartTime(t *testing.T) {
+	m := model{
+		currentBead: &beadInfo{
+			ID:        "bd-123",
+			StartTime: time.Time{}, // Zero value
+		},
+		stats: modelStats{CurrentDurationMs: 0},
+	}
+
+	m.handleTick()
+
+	if m.stats.CurrentDurationMs != 0 {
+		t.Errorf("CurrentDurationMs should remain 0 with zero StartTime, got %d", m.stats.CurrentDurationMs)
+	}
+}

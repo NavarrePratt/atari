@@ -187,10 +187,11 @@ func (m model) renderHeaderForWidth(w int) string {
 		cost,
 	)
 
-	// Line 2: Current bead (or idle message)
+	// Line 2: Current bead (or idle message) with elapsed time
 	var beadLine string
 	if m.currentBead != nil {
-		beadText := fmt.Sprintf("bead: %s - %s", m.currentBead.ID, m.currentBead.Title)
+		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
+		beadText := fmt.Sprintf("bead: %s - %s [%s]", m.currentBead.ID, m.currentBead.Title, elapsed)
 		if len(beadText) > w {
 			beadText = beadText[:w-3] + "..."
 		}
@@ -199,10 +200,11 @@ func (m model) renderHeaderForWidth(w int) string {
 		beadLine = styles.Bead.Render("no active bead")
 	}
 
-	// Line 3: Turns and progress stats
+	// Line 3: Turns, total duration, and progress stats
 	turnsText := fmt.Sprintf("turns: %d", m.stats.TotalTurns)
-	statsText := fmt.Sprintf("completed: %d  failed: %d  abandoned: %d",
-		m.stats.Completed, m.stats.Failed, m.stats.Abandoned)
+	totalDur := formatDurationHuman(m.stats.TotalDurationMs)
+	statsText := fmt.Sprintf("total: %s  completed: %d  failed: %d  abandoned: %d",
+		totalDur, m.stats.Completed, m.stats.Failed, m.stats.Abandoned)
 
 	// Style first, then calculate spacing based on visual width
 	styledTurns := styles.Turns.Render(turnsText)
@@ -284,10 +286,11 @@ func (m model) renderHeader() string {
 		cost,
 	)
 
-	// Line 2: Current bead (or idle message)
+	// Line 2: Current bead (or idle message) with elapsed time
 	var beadLine string
 	if m.currentBead != nil {
-		beadText := fmt.Sprintf("bead: %s - %s", m.currentBead.ID, m.currentBead.Title)
+		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
+		beadText := fmt.Sprintf("bead: %s - %s [%s]", m.currentBead.ID, m.currentBead.Title, elapsed)
 		if len(beadText) > w {
 			beadText = beadText[:w-3] + "..."
 		}
@@ -296,10 +299,11 @@ func (m model) renderHeader() string {
 		beadLine = styles.Bead.Render("no active bead")
 	}
 
-	// Line 3: Turns and progress stats
+	// Line 3: Turns, total duration, and progress stats
 	turnsText := fmt.Sprintf("turns: %d", m.stats.TotalTurns)
-	statsText := fmt.Sprintf("completed: %d  failed: %d  abandoned: %d",
-		m.stats.Completed, m.stats.Failed, m.stats.Abandoned)
+	totalDur := formatDurationHuman(m.stats.TotalDurationMs)
+	statsText := fmt.Sprintf("total: %s  completed: %d  failed: %d  abandoned: %d",
+		totalDur, m.stats.Completed, m.stats.Failed, m.stats.Abandoned)
 
 	// Style first, then calculate spacing based on visual width
 	styledTurns := styles.Turns.Render(turnsText)

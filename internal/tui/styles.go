@@ -10,10 +10,11 @@ var styles = struct {
 	Spacer    lipgloss.Style
 
 	// Header styles
-	Status lipgloss.Style
-	Cost   lipgloss.Style
-	Bead   lipgloss.Style
-	Turns  lipgloss.Style
+	Status   lipgloss.Style
+	Cost     lipgloss.Style
+	Duration lipgloss.Style
+	Bead     lipgloss.Style
+	Turns    lipgloss.Style
 
 	// Footer style
 	Footer lipgloss.Style
@@ -50,6 +51,9 @@ var styles = struct {
 		Foreground(lipgloss.Color("212")),
 
 	Cost: lipgloss.NewStyle().
+		Foreground(lipgloss.Color("220")),
+
+	Duration: lipgloss.NewStyle().
 		Foreground(lipgloss.Color("220")),
 
 	Bead: lipgloss.NewStyle().

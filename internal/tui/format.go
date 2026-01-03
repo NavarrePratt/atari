@@ -325,3 +325,29 @@ func statusSymbol(status string) string {
 		return "-"
 	}
 }
+
+// formatDurationHuman formats milliseconds as a human-readable duration.
+// Returns "<60s" for under a minute, "Xm" for minutes, "Xh" for hours only,
+// or "Xh Ym" for hours and minutes.
+func formatDurationHuman(ms int64) string {
+	if ms <= 0 {
+		return "<60s"
+	}
+
+	totalSeconds := ms / 1000
+	if totalSeconds < 60 {
+		return "<60s"
+	}
+
+	totalMinutes := totalSeconds / 60
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
+
+	if hours == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	if minutes == 0 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dh %dm", hours, minutes)
+}
