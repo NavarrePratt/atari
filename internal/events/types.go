@@ -29,6 +29,9 @@ const (
 	EventIterationStart EventType = "iteration.start"
 	EventIterationEnd   EventType = "iteration.end"
 
+	// Turn events
+	EventTurnComplete EventType = "turn.complete"
+
 	// Bead events (internal)
 	EventBeadAbandoned EventType = "bead.abandoned"
 
@@ -163,6 +166,15 @@ type IterationEndEvent struct {
 	DurationMs   int64   `json:"duration_ms"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	Error        string  `json:"error,omitempty"`
+}
+
+// TurnCompleteEvent is emitted when a turn boundary is reached during a session.
+// A turn boundary occurs when all pending tool uses have received their results.
+type TurnCompleteEvent struct {
+	BaseEvent
+	TurnNumber    int   `json:"turn_number"`
+	ToolCount     int   `json:"tool_count"`
+	ToolElapsedMs int64 `json:"tool_elapsed_ms"`
 }
 
 // BeadAbandonedEvent is emitted when a bead hits the max_failures limit.

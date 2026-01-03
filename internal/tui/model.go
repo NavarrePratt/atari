@@ -77,9 +77,10 @@ type model struct {
 	eventChan <-chan events.Event
 
 	// State
-	status      string
-	currentBead *beadInfo
-	stats       modelStats
+	status              string
+	currentBead         *beadInfo
+	stats               modelStats
+	currentSessionTurns int // turns in current session (reset on iteration end)
 
 	// Event log
 	eventLines []eventLine

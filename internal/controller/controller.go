@@ -567,6 +567,11 @@ func (c *Controller) Abandoned() int {
 	return c.workQueue.Stats().Abandoned
 }
 
+// CurrentTurns returns 0 - the TUI tracks session turns via events.
+func (c *Controller) CurrentTurns() int {
+	return 0
+}
+
 // getState returns the current state (thread-safe).
 func (c *Controller) getState() State {
 	c.stateMu.RLock()

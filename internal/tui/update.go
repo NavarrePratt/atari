@@ -219,6 +219,7 @@ func (m *model) handleEvent(event events.Event) {
 	case *events.IterationEndEvent:
 		m.currentBead = nil
 		m.status = "idle"
+		m.currentSessionTurns = 0 // Reset turn count for next session
 		if e.Success {
 			m.stats.Completed++
 		} else {
@@ -228,6 +229,9 @@ func (m *model) handleEvent(event events.Event) {
 		m.stats.TotalTurns += e.NumTurns
 		m.stats.TotalDurationMs += e.DurationMs
 		m.stats.CurrentDurationMs = 0
+
+	case *events.TurnCompleteEvent:
+		m.currentSessionTurns = e.TurnNumber
 
 	case *events.BeadAbandonedEvent:
 		m.stats.Abandoned++
@@ -311,4 +315,7 @@ func (m *model) handleTick() {
 			"controller", "none")
 		m.currentBead = nil
 	}
+
+	// Note: Turn count is tracked via TurnCompleteEvent, not synced from controller.
+	// The TUI is authoritative for session turn tracking.
 }

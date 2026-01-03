@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync/atomic"
+	"time"
 
 	"github.com/npratt/atari/internal/events"
 )
@@ -68,6 +69,9 @@ type Parser struct {
 	result          atomic.Value // stores *events.SessionEndEvent
 	onTurnComplete  func()       // callback when turn boundary is reached
 	pendingToolUses int          // count of tool_use without matching tool_result
+	turnNumber      int          // current turn number (1-indexed)
+	turnToolCount   int          // tools used in current turn
+	turnStartTimeMs int64        // when current turn started (unix ms)
 }
 
 // NewParser creates a Parser for the given reader.
@@ -186,7 +190,12 @@ func (p *Parser) handleAssistantEvent(e *StreamEvent) {
 				Text:      block.Thinking,
 			})
 		case "tool_use":
+			// Start turn timing on first tool use of this turn
+			if p.pendingToolUses == 0 {
+				p.turnStartTimeMs = time.Now().UnixMilli()
+			}
 			p.pendingToolUses++
+			p.turnToolCount++
 			p.router.Emit(&events.ClaudeToolUseEvent{
 				BaseEvent: events.NewClaudeEvent(events.EventClaudeToolUse),
 				ToolID:    block.ID,
@@ -224,8 +233,26 @@ func (p *Parser) handleUserEvent(e *StreamEvent) {
 	}
 
 	// When all tool uses have results, we're at a turn boundary
-	if p.pendingToolUses == 0 && p.onTurnComplete != nil {
-		p.onTurnComplete()
+	if p.pendingToolUses == 0 {
+		p.turnNumber++
+		elapsedMs := time.Now().UnixMilli() - p.turnStartTimeMs
+
+		// Emit TurnCompleteEvent
+		p.router.Emit(&events.TurnCompleteEvent{
+			BaseEvent:     events.NewClaudeEvent(events.EventTurnComplete),
+			TurnNumber:    p.turnNumber,
+			ToolCount:     p.turnToolCount,
+			ToolElapsedMs: elapsedMs,
+		})
+
+		// Reset turn-level counters for next turn
+		p.turnToolCount = 0
+		p.turnStartTimeMs = 0
+
+		// Call the callback if set (used for graceful pause)
+		if p.onTurnComplete != nil {
+			p.onTurnComplete()
+		}
 	}
 }
 

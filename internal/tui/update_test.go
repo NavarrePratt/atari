@@ -10,18 +10,20 @@ import (
 
 // mockStatsGetter is a mock implementation of StatsGetter for testing.
 type mockStatsGetter struct {
-	iteration   int
-	completed   int
-	failed      int
-	abandoned   int
-	currentBead string
+	iteration    int
+	completed    int
+	failed       int
+	abandoned    int
+	currentBead  string
+	currentTurns int
 }
 
-func (m *mockStatsGetter) Iteration() int    { return m.iteration }
-func (m *mockStatsGetter) Completed() int    { return m.completed }
-func (m *mockStatsGetter) Failed() int       { return m.failed }
-func (m *mockStatsGetter) Abandoned() int    { return m.abandoned }
+func (m *mockStatsGetter) Iteration() int      { return m.iteration }
+func (m *mockStatsGetter) Completed() int      { return m.completed }
+func (m *mockStatsGetter) Failed() int         { return m.failed }
+func (m *mockStatsGetter) Abandoned() int      { return m.abandoned }
 func (m *mockStatsGetter) CurrentBead() string { return m.currentBead }
+func (m *mockStatsGetter) CurrentTurns() int   { return m.currentTurns }
 
 func TestHandleKey_Quit(t *testing.T) {
 	tests := []struct {

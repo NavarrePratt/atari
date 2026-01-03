@@ -14,6 +14,7 @@ type StatsGetter interface {
 	Failed() int
 	Abandoned() int
 	CurrentBead() string
+	CurrentTurns() int
 }
 
 // TUI is the terminal UI for monitoring atari.

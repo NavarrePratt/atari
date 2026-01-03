@@ -151,8 +151,9 @@ func TestParser_ToolResultEvent(t *testing.T) {
 	router.Close()
 	collected := collectEvents(sub, 100*time.Millisecond)
 
-	if len(collected) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(collected))
+	// Expect ClaudeToolResultEvent and TurnCompleteEvent
+	if len(collected) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(collected))
 	}
 
 	resultEvent, ok := collected[0].(*events.ClaudeToolResultEvent)
@@ -167,6 +168,15 @@ func TestParser_ToolResultEvent(t *testing.T) {
 	}
 	if resultEvent.IsError {
 		t.Error("expected IsError=false")
+	}
+
+	// Verify TurnCompleteEvent
+	turnEvent, ok := collected[1].(*events.TurnCompleteEvent)
+	if !ok {
+		t.Fatalf("expected TurnCompleteEvent, got %T", collected[1])
+	}
+	if turnEvent.TurnNumber != 1 {
+		t.Errorf("expected TurnNumber=1, got %d", turnEvent.TurnNumber)
 	}
 }
 
@@ -470,9 +480,9 @@ func TestParser_FullSession(t *testing.T) {
 	router.Close()
 	collected := collectEvents(sub, 100*time.Millisecond)
 
-	// Expected events: text, tool_use, tool_result, text, session_end = 5
-	if len(collected) != 5 {
-		t.Fatalf("expected 5 events, got %d", len(collected))
+	// Expected events: text, tool_use, tool_result, turn_complete, text, session_end = 6
+	if len(collected) != 6 {
+		t.Fatalf("expected 6 events, got %d", len(collected))
 	}
 
 	// Verify event types in order
@@ -480,6 +490,7 @@ func TestParser_FullSession(t *testing.T) {
 		events.EventClaudeText,
 		events.EventClaudeToolUse,
 		events.EventClaudeToolResult,
+		events.EventTurnComplete,
 		events.EventClaudeText,
 		events.EventSessionEnd,
 	}

@@ -45,6 +45,8 @@ func Format(event events.Event) string {
 		return formatIterationStart(e)
 	case *events.IterationEndEvent:
 		return formatIterationEnd(e)
+	case *events.TurnCompleteEvent:
+		return formatTurnComplete(e)
 	case *events.BeadAbandonedEvent:
 		return formatBeadAbandoned(e)
 	case *events.BeadCreatedEvent:
@@ -150,6 +152,10 @@ func formatIterationEnd(e *events.IterationEndEvent) string {
 		return fmt.Sprintf("[%s] %s %s: %d turns, $%.4f", symbol, beadID, status, e.NumTurns, e.TotalCostUSD)
 	}
 	return fmt.Sprintf("[%s] %s %s: %d turns", symbol, beadID, status, e.NumTurns)
+}
+
+func formatTurnComplete(e *events.TurnCompleteEvent) string {
+	return fmt.Sprintf("turn %d complete (%d tools, %dms)", e.TurnNumber, e.ToolCount, e.ToolElapsedMs)
 }
 
 func formatBeadAbandoned(e *events.BeadAbandonedEvent) string {

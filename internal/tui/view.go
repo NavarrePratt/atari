@@ -187,11 +187,18 @@ func (m model) renderHeaderForWidth(w int) string {
 		cost,
 	)
 
-	// Line 2: Current bead (or idle message) with elapsed time
+	// Line 2: Current bead (or idle message) with elapsed time and turn count
 	var beadLine string
 	if m.currentBead != nil {
 		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
-		beadText := fmt.Sprintf("bead: %s - %s [%s]", m.currentBead.ID, m.currentBead.Title, elapsed)
+		var beadText string
+		if m.currentSessionTurns > 0 {
+			beadText = fmt.Sprintf("bead: %s - %s [%s, turn %d]",
+				m.currentBead.ID, m.currentBead.Title, elapsed, m.currentSessionTurns)
+		} else {
+			beadText = fmt.Sprintf("bead: %s - %s [%s]",
+				m.currentBead.ID, m.currentBead.Title, elapsed)
+		}
 		if len(beadText) > w {
 			beadText = beadText[:w-3] + "..."
 		}
@@ -286,11 +293,18 @@ func (m model) renderHeader() string {
 		cost,
 	)
 
-	// Line 2: Current bead (or idle message) with elapsed time
+	// Line 2: Current bead (or idle message) with elapsed time and turn count
 	var beadLine string
 	if m.currentBead != nil {
 		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
-		beadText := fmt.Sprintf("bead: %s - %s [%s]", m.currentBead.ID, m.currentBead.Title, elapsed)
+		var beadText string
+		if m.currentSessionTurns > 0 {
+			beadText = fmt.Sprintf("bead: %s - %s [%s, turn %d]",
+				m.currentBead.ID, m.currentBead.Title, elapsed, m.currentSessionTurns)
+		} else {
+			beadText = fmt.Sprintf("bead: %s - %s [%s]",
+				m.currentBead.ID, m.currentBead.Title, elapsed)
+		}
 		if len(beadText) > w {
 			beadText = beadText[:w-3] + "..."
 		}
@@ -469,7 +483,7 @@ func StyleForEvent(event events.Event) lipgloss.Style {
 		return styles.Session
 	case *events.SessionStartEvent, *events.SessionEndEvent, *events.SessionTimeoutEvent:
 		return styles.Session
-	case *events.IterationStartEvent, *events.IterationEndEvent:
+	case *events.IterationStartEvent, *events.IterationEndEvent, *events.TurnCompleteEvent:
 		return styles.BeadStatus
 	case *events.BeadCreatedEvent, *events.BeadStatusEvent, *events.BeadUpdatedEvent,
 		*events.BeadCommentEvent, *events.BeadClosedEvent, *events.BeadAbandonedEvent:
