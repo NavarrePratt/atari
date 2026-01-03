@@ -1,0 +1,429 @@
+package observer
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/npratt/atari/internal/config"
+	"github.com/npratt/atari/internal/runner"
+)
+
+// mockRunner implements runner.ProcessRunner for testing.
+type mockRunner struct {
+	startFn func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error)
+	waitFn  func() error
+	killFn  func() error
+}
+
+func (m *mockRunner) Start(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+	if m.startFn != nil {
+		return m.startFn(ctx, name, args...)
+	}
+	return io.NopCloser(strings.NewReader("")), io.NopCloser(strings.NewReader("")), nil
+}
+
+func (m *mockRunner) Wait() error {
+	if m.waitFn != nil {
+		return m.waitFn()
+	}
+	return nil
+}
+
+func (m *mockRunner) Kill() error {
+	if m.killFn != nil {
+		return m.killFn()
+	}
+	return nil
+}
+
+// mockStateProvider implements DrainStateProvider for testing.
+type mockStateProvider struct {
+	state DrainState
+}
+
+func (m *mockStateProvider) GetDrainState() DrainState {
+	return m.state
+}
+
+func TestNewObserver(t *testing.T) {
+	cfg := &config.ObserverConfig{
+		Enabled: true,
+		Model:   "haiku",
+	}
+	broker := NewSessionBroker()
+
+	// Create a minimal log reader and context builder
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	if obs == nil {
+		t.Fatal("expected non-nil observer")
+	}
+	if obs.config != cfg {
+		t.Error("expected config to be set")
+	}
+	if obs.broker != broker {
+		t.Error("expected broker to be set")
+	}
+	if obs.builder != builder {
+		t.Error("expected builder to be set")
+	}
+}
+
+func TestObserver_Ask_Success(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	// Mock runner that returns expected output
+	expectedOutput := "This is the answer to your question."
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				// Verify claude was called
+				if name != "claude" {
+					t.Errorf("expected 'claude', got %q", name)
+				}
+
+				// Verify -p flag is present
+				hasPrompt := false
+				for i, arg := range args {
+					if arg == "-p" && i+1 < len(args) {
+						hasPrompt = true
+						break
+					}
+				}
+				if !hasPrompt {
+					t.Error("expected -p flag in args")
+				}
+
+				return io.NopCloser(strings.NewReader(expectedOutput)), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	result, err := obs.Ask(context.Background(), "What is happening?")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != expectedOutput {
+		t.Errorf("expected %q, got %q", expectedOutput, result)
+	}
+}
+
+func TestObserver_Ask_BrokerTimeout(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	// Acquire the broker first to simulate it being held
+	err := broker.Acquire(context.Background(), "drain", time.Second)
+	if err != nil {
+		t.Fatalf("failed to acquire broker: %v", err)
+	}
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	// Ask should timeout waiting for broker
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, err = obs.Ask(ctx, "What is happening?")
+
+	if err == nil {
+		t.Error("expected error when broker is held")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "timeout") {
+		t.Errorf("expected timeout error, got: %v", err)
+	}
+
+	broker.Release()
+}
+
+func TestObserver_Ask_OutputTruncation(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	// Create output larger than maxOutputBytes
+	largeOutput := strings.Repeat("a", maxOutputBytes+1000)
+
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(largeOutput)), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	result, err := obs.Ask(context.Background(), "What is happening?")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, outputTruncationMarker) {
+		t.Error("expected truncation marker in output")
+	}
+	if len(result) > maxOutputBytes+len(outputTruncationMarker)+100 {
+		t.Errorf("output too large: %d bytes", len(result))
+	}
+}
+
+func TestObserver_Cancel(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	killCalled := false
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				// Block until context is cancelled
+				<-ctx.Done()
+				return io.NopCloser(strings.NewReader("")), io.NopCloser(strings.NewReader("")), ctx.Err()
+			},
+			killFn: func() error {
+				killCalled = true
+				return nil
+			},
+		}
+	})
+
+	// Start query in goroutine
+	done := make(chan struct{})
+	go func() {
+		_, _ = obs.Ask(context.Background(), "What is happening?")
+		close(done)
+	}()
+
+	// Give the goroutine time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Cancel the query
+	obs.Cancel()
+
+	// Wait for completion with timeout
+	select {
+	case <-done:
+		// Success
+	case <-time.After(time.Second):
+		t.Fatal("query did not complete after cancel")
+	}
+
+	if !killCalled {
+		t.Error("expected Kill to be called")
+	}
+}
+
+func TestObserver_Reset(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	// Set a session ID
+	obs.mu.Lock()
+	obs.sessionID = "test-session-123"
+	obs.mu.Unlock()
+
+	// Reset should clear it
+	obs.Reset()
+
+	obs.mu.Lock()
+	if obs.sessionID != "" {
+		t.Errorf("expected empty sessionID after reset, got %q", obs.sessionID)
+	}
+	obs.mu.Unlock()
+}
+
+func TestObserver_BuildArgs(t *testing.T) {
+	tests := []struct {
+		name      string
+		model     string
+		sessionID string
+		prompt    string
+		wantArgs  []string
+	}{
+		{
+			name:      "default model",
+			model:     "haiku",
+			sessionID: "",
+			prompt:    "test prompt",
+			wantArgs:  []string{"-p", "test prompt", "--output-format", "text"},
+		},
+		{
+			name:      "custom model",
+			model:     "sonnet",
+			sessionID: "",
+			prompt:    "test prompt",
+			wantArgs:  []string{"-p", "test prompt", "--output-format", "text", "--model", "sonnet"},
+		},
+		{
+			name:      "with session ID",
+			model:     "haiku",
+			sessionID: "session-123",
+			prompt:    "test prompt",
+			wantArgs:  []string{"--resume", "session-123", "-p", "test prompt", "--output-format", "text"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.ObserverConfig{Model: tt.model}
+			broker := NewSessionBroker()
+			logReader := NewLogReader("/tmp/test.log")
+			builder := NewContextBuilder(logReader, cfg)
+
+			obs := NewObserver(cfg, broker, builder, nil)
+			obs.mu.Lock()
+			obs.sessionID = tt.sessionID
+			obs.mu.Unlock()
+
+			args := obs.buildArgs(tt.prompt)
+
+			// Check all expected args are present
+			for _, want := range tt.wantArgs {
+				found := false
+				for _, got := range args {
+					if got == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected arg %q not found in %v", want, args)
+				}
+			}
+		})
+	}
+}
+
+func TestObserver_WithStateProvider(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	provider := &mockStateProvider{
+		state: DrainState{
+			Status:    "working",
+			TotalCost: 1.23,
+		},
+	}
+
+	obs := NewObserver(cfg, broker, builder, provider)
+
+	// Mock runner to verify context is passed
+	var capturedPrompt string
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				for i, arg := range args {
+					if arg == "-p" && i+1 < len(args) {
+						capturedPrompt = args[i+1]
+						break
+					}
+				}
+				return io.NopCloser(strings.NewReader("response")), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	_, err := obs.Ask(context.Background(), "What is happening?")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the context includes drain status
+	if !strings.Contains(capturedPrompt, "working") {
+		t.Error("expected prompt to contain drain status 'working'")
+	}
+}
+
+func TestLimitedWriter(t *testing.T) {
+	tests := []struct {
+		name        string
+		limit       int
+		writes      []string
+		wantOutput  string
+		wantTrunc   bool
+		wantWritten int
+	}{
+		{
+			name:        "under limit",
+			limit:       100,
+			writes:      []string{"hello", " world"},
+			wantOutput:  "hello world",
+			wantTrunc:   false,
+			wantWritten: 11,
+		},
+		{
+			name:        "exact limit",
+			limit:       10,
+			writes:      []string{"1234567890"},
+			wantOutput:  "1234567890",
+			wantTrunc:   false,
+			wantWritten: 10,
+		},
+		{
+			name:        "over limit single write",
+			limit:       5,
+			writes:      []string{"1234567890"},
+			wantOutput:  "12345",
+			wantTrunc:   true,
+			wantWritten: 5,
+		},
+		{
+			name:        "over limit multiple writes",
+			limit:       10,
+			writes:      []string{"hello", " world", "!"},
+			wantOutput:  "hello worl",
+			wantTrunc:   true,
+			wantWritten: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			lw := &limitedWriter{w: &buf, limit: tt.limit}
+
+			for _, s := range tt.writes {
+				_, err := lw.Write([]byte(s))
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+
+			if got := buf.String(); got != tt.wantOutput {
+				t.Errorf("output = %q, want %q", got, tt.wantOutput)
+			}
+			if lw.truncated != tt.wantTrunc {
+				t.Errorf("truncated = %v, want %v", lw.truncated, tt.wantTrunc)
+			}
+			if lw.written != tt.wantWritten {
+				t.Errorf("written = %d, want %d", lw.written, tt.wantWritten)
+			}
+		})
+	}
+}
