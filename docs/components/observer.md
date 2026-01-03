@@ -20,37 +20,51 @@ Post-hoc investigation is better done in a normal Claude Code session since rele
 ## Interface
 
 ```go
+// Observer handles interactive Q&A queries using Claude CLI.
 type Observer struct {
-    config     *config.ObserverConfig
-    logPath    string
-    sessionID  string
-    stats      StatsGetter
-    mu         sync.Mutex
-    cost       float64
+    config        *config.ObserverConfig
+    broker        *SessionBroker
+    builder       *ContextBuilder
+    stateProvider DrainStateProvider
+    runnerFactory func() runner.ProcessRunner
+
+    mu        sync.Mutex
+    sessionID string // Claude session ID for --resume
+    runner    runner.ProcessRunner
+    cancel    context.CancelFunc
 }
 
 type ObserverConfig struct {
-    Model         string  // Default: "haiku"
-    RecentEvents  int     // Events for current bead context (default: 20)
-    ShowCost      bool    // Display cost tracking (default: true)
-    Layout        string  // "horizontal" (default) or "vertical"
+    Enabled      bool    // Default: false
+    Model        string  // Default: "haiku"
+    RecentEvents int     // Events for current bead context (default: 20)
+    ShowCost     bool    // Display cost tracking (default: true)
+    Layout       string  // "horizontal" (default) or "vertical"
 }
 
-// StatsGetter provides drain state for context building
-type StatsGetter interface {
-    State() string
-    Stats() controller.Stats
-    CurrentBead() *workqueue.Bead
-    Uptime() time.Duration
+// DrainStateProvider provides drain state for context building
+type DrainStateProvider interface {
+    GetDrainState() DrainState
+}
+
+type DrainState struct {
+    Status      string
+    Uptime      time.Duration
+    TotalCost   float64
+    CurrentBead *CurrentBeadInfo
+}
+
+type CurrentBeadInfo struct {
+    ID        string
+    Title     string
+    StartedAt time.Time
 }
 
 // Public API
-func New(cfg *ObserverConfig, logPath string, stats StatsGetter) *Observer
-func (o *Observer) Ask(ctx context.Context, question string) (<-chan string, error)
-func (o *Observer) RefreshContext() error
-func (o *Observer) Close() error
-func (o *Observer) SessionCost() float64
-func (o *Observer) IsActive() bool
+func NewObserver(cfg *ObserverConfig, broker *SessionBroker, builder *ContextBuilder, stateProvider DrainStateProvider) *Observer
+func (o *Observer) Ask(ctx context.Context, question string) (string, error)
+func (o *Observer) Cancel()   // Cancel in-progress query
+func (o *Observer) Reset()    // Clear session for fresh start
 ```
 
 ## Dependencies
@@ -58,8 +72,10 @@ func (o *Observer) IsActive() bool
 | Component | Usage |
 |-----------|-------|
 | config.ObserverConfig | Model, event count, display settings |
-| StatsGetter | Current drain state and statistics |
-| Log file | Event history (`.atari/atari.log`) |
+| SessionBroker | Coordinates access to Claude CLI (one session at a time) |
+| ContextBuilder | Builds structured prompts from log events |
+| LogReader | Reads events from `.atari/atari.log` |
+| DrainStateProvider | Current drain state and statistics |
 
 External:
 - `claude` CLI binary (haiku model by default)
@@ -132,74 +148,70 @@ Full event details can be retrieved via grep using the tool_id.
 
 ## Implementation
 
+Context building is handled by `ContextBuilder`, which reads events from `LogReader` and combines them with drain state from `DrainStateProvider`.
+
 ### Building Context
 
 ```go
-func (o *Observer) buildContext() (string, error) {
-    var b strings.Builder
+// ContextBuilder assembles structured prompts from log events and drain state.
+type ContextBuilder struct {
+    logReader *LogReader
+    config    *config.ObserverConfig
+}
+
+func (b *ContextBuilder) Build(state DrainState) (string, error) {
+    var out strings.Builder
 
     // System prompt
-    b.WriteString(`You are an observer assistant helping the user understand what's happening in an automated bead processing session (Atari drain).
-
-Your role:
-- Answer questions about current activity
-- Help identify issues or unexpected behavior
-- Suggest when manual intervention might be needed
-- Explain Claude's decision-making based on visible events
-
-You have access to tools. If you need more details about an event, you can use grep to look it up in the log file.
-
-`)
+    out.WriteString(systemPrompt)
 
     // Drain status section
-    b.WriteString("## Drain Status\n")
-    b.WriteString(fmt.Sprintf("State: %s | Uptime: %s | Total cost: $%.2f\n\n",
-        o.stats.State(),
-        formatDuration(o.stats.Uptime()),
-        o.stats.Stats().TotalCost))
+    out.WriteString("## Drain Status\n")
+    out.WriteString(fmt.Sprintf("State: %s | Uptime: %s | Total cost: $%.2f\n\n",
+        state.Status,
+        formatDuration(state.Uptime),
+        state.TotalCost))
 
-    // Session history section
-    history := o.loadSessionHistory()
+    // Session history from log events
+    history := b.logReader.ReadSessionHistory()
     if len(history) > 0 {
-        b.WriteString("## Session History\n")
-        b.WriteString("| Bead | Title | Outcome | Cost | Turns |\n")
-        b.WriteString("|------|-------|---------|------|-------|\n")
+        out.WriteString("## Session History\n")
+        out.WriteString("| Bead | Title | Outcome | Cost | Turns |\n")
+        out.WriteString("|------|-------|---------|------|-------|\n")
         for _, h := range history {
-            b.WriteString(fmt.Sprintf("| %s | %s | %s | $%.2f | %d |\n",
+            out.WriteString(fmt.Sprintf("| %s | %s | %s | $%.2f | %d |\n",
                 h.BeadID, truncate(h.Title, 30), h.Outcome, h.Cost, h.Turns))
         }
-        b.WriteString("\n")
+        out.WriteString("\n")
     }
 
     // Current bead section
-    if bead := o.stats.CurrentBead(); bead != nil {
-        b.WriteString(fmt.Sprintf("## Current Bead: %s\n", bead.ID))
-        b.WriteString(fmt.Sprintf("Title: %s\n", bead.Title))
-        b.WriteString(fmt.Sprintf("Started: %s ago\n\n", formatDuration(time.Since(bead.StartedAt))))
+    if state.CurrentBead != nil {
+        out.WriteString(fmt.Sprintf("## Current Bead: %s\n", state.CurrentBead.ID))
+        out.WriteString(fmt.Sprintf("Title: %s\n", state.CurrentBead.Title))
+        out.WriteString(fmt.Sprintf("Started: %s ago\n\n", formatDuration(time.Since(state.CurrentBead.StartedAt))))
 
         // Recent events for current bead
-        events := o.loadRecentEvents(bead.ID, o.config.RecentEvents)
+        events := b.logReader.ReadRecentEvents(state.CurrentBead.ID, b.config.RecentEvents)
         if len(events) > 0 {
-            b.WriteString("### Recent Activity\n")
+            out.WriteString("### Recent Activity\n")
             for _, e := range events {
-                b.WriteString(o.formatEvent(e))
-                b.WriteString("\n")
+                out.WriteString(formatEvent(e))
+                out.WriteString("\n")
             }
-            b.WriteString("\n")
+            out.WriteString("\n")
         }
     }
 
     // Tips section
-    b.WriteString("## Retrieving Full Event Details\n")
-    b.WriteString("Events are stored in `.atari/atari.log` as JSON lines.\n")
-    b.WriteString("To see full event details:\n")
-    b.WriteString("  grep '<tool_id>' .atari/atari.log | jq .\n")
-    b.WriteString("To see recent events:\n")
-    b.WriteString("  tail -50 .atari/atari.log | jq -s .\n")
-    b.WriteString("To get bead details:\n")
-    b.WriteString("  bd show <bead-id>\n")
+    out.WriteString("## Retrieving Full Event Details\n")
+    out.WriteString("Events are stored in `.atari/atari.log` as JSON lines.\n")
+    out.WriteString("To see full event details:\n")
+    out.WriteString("  grep '<tool_id>' .atari/atari.log | jq .\n")
+    out.WriteString("To get bead details:\n")
+    out.WriteString("  bd show <bead-id>\n")
 
-    return b.String(), nil
+    return out.String(), nil
 }
 ```
 
@@ -281,105 +293,142 @@ func shortID(toolID string) string {
 ### Asking Questions
 
 ```go
-func (o *Observer) Ask(ctx context.Context, question string) (<-chan string, error) {
-    o.mu.Lock()
-    defer o.mu.Unlock()
+// Ask executes a query and returns the response synchronously.
+// It acquires the session broker, builds context, and runs claude CLI.
+func (o *Observer) Ask(ctx context.Context, question string) (string, error) {
+    // Acquire session broker with timeout (coordinates with drain session)
+    err := o.broker.Acquire(ctx, holderName, defaultAcquireTimeout)
+    if err != nil {
+        return "", fmt.Errorf("failed to acquire session: %w", err)
+    }
+    defer o.broker.Release()
 
-    responses := make(chan string, 100)
+    // Build context from drain state and log events
+    state := DrainState{}
+    if o.stateProvider != nil {
+        state = o.stateProvider.GetDrainState()
+    }
 
-    go func() {
-        defer close(responses)
+    contextStr, err := o.builder.Build(state)
+    if err != nil {
+        return "", fmt.Errorf("%w: %v", ErrNoContext, err)
+    }
 
-        var args []string
+    // Build prompt with context and question
+    prompt := fmt.Sprintf("%s\n\nQuestion: %s", contextStr, question)
 
-        if o.sessionID == "" {
-            // First question - build full context
-            context, err := o.buildContext()
-            if err != nil {
-                responses <- fmt.Sprintf("Error building context: %v", err)
-                return
-            }
+    // Execute query with retry on resume failure
+    response, err := o.executeQuery(ctx, prompt)
+    if err != nil && o.sessionID != "" {
+        // Retry once with fresh session
+        o.sessionID = ""
+        response, err = o.executeQuery(ctx, prompt)
+    }
 
-            prompt := fmt.Sprintf("%s\n\n---\n\nUser question: %s", context, question)
-            args = []string{
-                "-p", prompt,
-                "--model", o.config.Model,
-                "--output-format", "json",
-            }
-        } else {
-            // Follow-up question - resume session
-            args = []string{
-                "-p", question,
-                "--resume", o.sessionID,
-                "--output-format", "json",
-            }
-        }
-
-        cmd := exec.CommandContext(ctx, "claude", args...)
-        output, err := cmd.Output()
-        if err != nil {
-            responses <- fmt.Sprintf("Error: %v", err)
-            return
-        }
-
-        // Parse JSON response
-        var result struct {
-            SessionID    string  `json:"session_id"`
-            Result       string  `json:"result"`
-            TotalCostUSD float64 `json:"total_cost_usd"`
-        }
-        if err := json.Unmarshal(output, &result); err != nil {
-            responses <- fmt.Sprintf("Parse error: %v", err)
-            return
-        }
-
-        // Store session ID for follow-up questions
-        if o.sessionID == "" {
-            o.sessionID = result.SessionID
-        }
-
-        o.cost += result.TotalCostUSD
-        responses <- result.Result
-    }()
-
-    return responses, nil
+    return response, err
 }
 
-func (o *Observer) RefreshContext() error {
-    o.mu.Lock()
-    defer o.mu.Unlock()
+// executeQuery runs the claude CLI and captures output.
+func (o *Observer) executeQuery(ctx context.Context, prompt string) (string, error) {
+    queryCtx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
+    defer cancel()
 
-    // Clear session to force context rebuild on next question
-    o.sessionID = ""
-    return nil
+    o.mu.Lock()
+    o.cancel = cancel
+    o.runner = o.runnerFactory()
+    o.mu.Unlock()
+
+    // Build command arguments
+    args := o.buildArgs(prompt)
+
+    // Start the process using ProcessRunner
+    stdout, stderr, err := o.runner.Start(queryCtx, "claude", args...)
+    if err != nil {
+        return "", fmt.Errorf("failed to start claude: %w", err)
+    }
+
+    // Read output with size limit (100KB max)
+    output, _ := o.readOutput(stdout, stderr)
+
+    // Wait for process to complete
+    _ = o.runner.Wait()
+
+    // Handle context cancellation
+    if queryCtx.Err() == context.Canceled {
+        return "", ErrCancelled
+    }
+    if queryCtx.Err() == context.DeadlineExceeded {
+        _ = o.runner.Kill()
+        return output, ErrQueryTimeout
+    }
+
+    return output, nil
 }
 
-func (o *Observer) Close() error {
+// buildArgs constructs the claude CLI arguments.
+func (o *Observer) buildArgs(prompt string) []string {
+    args := []string{"-p", prompt, "--output-format", "text"}
+
+    // Add --resume if we have a session ID
+    if o.sessionID != "" {
+        args = append([]string{"--resume", o.sessionID}, args...)
+    }
+
+    // Add model if specified and not default
+    if o.config != nil && o.config.Model != "" && o.config.Model != "haiku" {
+        args = append(args, "--model", o.config.Model)
+    }
+
+    return args
+}
+
+// Cancel terminates the current query if one is running.
+func (o *Observer) Cancel() {
     o.mu.Lock()
     defer o.mu.Unlock()
 
+    if o.cancel != nil {
+        o.cancel()
+    }
+    if o.runner != nil {
+        _ = o.runner.Kill()
+    }
+}
+
+// Reset clears the session state for a fresh start.
+func (o *Observer) Reset() {
+    o.mu.Lock()
+    defer o.mu.Unlock()
     o.sessionID = ""
-    return nil
 }
 ```
 
 ### Loading Events from Log
 
+LogReader handles reading events from `.atari/atari.log` with log rotation detection.
+
 ```go
-func (o *Observer) loadRecentEvents(beadID string, limit int) []events.Event {
-    file, err := os.Open(o.logPath)
+// LogReader reads events from the atari log file.
+type LogReader struct {
+    logPath string
+}
+
+func NewLogReader(logPath string) *LogReader {
+    return &LogReader{logPath: logPath}
+}
+
+// ReadRecentEvents returns the last N events for the specified bead.
+func (r *LogReader) ReadRecentEvents(beadID string, limit int) []events.Event {
+    file, err := os.Open(r.logPath)
     if err != nil {
         return nil
     }
     defer file.Close()
 
-    var allEvents []events.Event
-    scanner := bufio.NewScanner(file)
-
-    // Find events for current bead (events after last iteration.start for this bead)
     var currentBeadEvents []events.Event
     inCurrentBead := false
 
+    scanner := bufio.NewScanner(file)
     for scanner.Scan() {
         line := scanner.Bytes()
 
@@ -398,7 +447,6 @@ func (o *Observer) loadRecentEvents(beadID string, limit int) []events.Event {
         }
 
         if inCurrentBead {
-            // Parse full event
             evt := parseEvent(line)
             if evt != nil {
                 currentBeadEvents = append(currentBeadEvents, evt)
@@ -413,15 +461,16 @@ func (o *Observer) loadRecentEvents(beadID string, limit int) []events.Event {
     return currentBeadEvents
 }
 
-func (o *Observer) loadSessionHistory() []BeadHistory {
-    file, err := os.Open(o.logPath)
+// ReadSessionHistory returns completed bead sessions from the log.
+func (r *LogReader) ReadSessionHistory() []SessionHistory {
+    file, err := os.Open(r.logPath)
     if err != nil {
         return nil
     }
     defer file.Close()
 
-    var history []BeadHistory
-    beadMap := make(map[string]*BeadHistory)
+    var history []SessionHistory
+    beadMap := make(map[string]*SessionHistory)
 
     scanner := bufio.NewScanner(file)
     for scanner.Scan() {
@@ -441,7 +490,7 @@ func (o *Observer) loadSessionHistory() []BeadHistory {
 
         switch base.Type {
         case "iteration.start":
-            beadMap[base.BeadID] = &BeadHistory{
+            beadMap[base.BeadID] = &SessionHistory{
                 BeadID: base.BeadID,
                 Title:  base.Title,
             }
@@ -463,7 +512,7 @@ func (o *Observer) loadSessionHistory() []BeadHistory {
     return history
 }
 
-type BeadHistory struct {
+type SessionHistory struct {
     BeadID  string
     Title   string
     Outcome string
@@ -623,21 +672,37 @@ Users might ask:
 
 ## Testing
 
-### Unit Tests
+### Unit Tests (`internal/observer/observer_test.go`)
 
-- Context building from log file
-- Event formatting for all event types
-- Session history extraction
-- Tool summary formatting
-- Truncation behavior
+- `TestNewObserver`: Observer construction with configuration
+- `TestObserver_Ask_Success`: Basic query execution
+- `TestObserver_Ask_BrokerTimeout`: Session broker coordination
+- `TestObserver_Ask_OutputTruncation`: Output limit enforcement (100KB)
+- `TestObserver_Cancel`: Query cancellation via Cancel()
+- `TestObserver_Reset`: Session state reset
+- `TestObserver_BuildArgs`: CLI argument construction
+- `TestObserver_WithStateProvider`: DrainState integration
+- `TestLimitedWriter`: Output size limiting
 
-### Integration Tests
+### E2E Tests (`internal/integration/observer_test.go`)
 
-- Full Q&A flow with mock claude
-- Session resumption (follow-up questions)
-- Context refresh behavior
-- TUI pane toggle and focus handling
-- Cost tracking accuracy
+- `TestObserverBasicQuery`: Full Q&A flow with mock claude
+- `TestObserverBrokerCoordination`: Session broker mutex behavior
+- `TestObserverCancel`: Query cancellation mid-execution
+- `TestObserverTimeout`: Context timeout handling
+- `TestObserverContextIncludesLogEvents`: Log event integration
+- `TestObserverSessionHistory`: Multi-bead history tracking
+- `TestObserverFailedBead`: Failed bead context
+- `TestObserverErrorFromClaude`: Claude CLI error handling
+- `TestObserverReset`: Session reset behavior
+- `TestObserverModelConfiguration`: Model override testing
+- `TestObserverEmptyLog`: Empty log file handling
+- `TestObserverNoLogFile`: Missing log file handling
+
+### Test Infrastructure
+
+- `internal/testutil/mock_claude.go`: Mock claude script generation
+- `internal/testutil/observer_fixtures.go`: Log event fixtures
 
 ## Error Handling
 

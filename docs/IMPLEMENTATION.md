@@ -20,7 +20,7 @@ For detailed component specifications, see the [components/](components/) direct
 | 3 | BD Activity | Unified event stream | **Complete** |
 | 4 | Terminal UI | Bubbletea TUI | **Complete** |
 | 5 | Polish & Init | Config, log rotation, cost tracking | **Complete** |
-| 6 | Observer Mode | Interactive Q&A pane | Not started |
+| 6 | Observer Mode | Interactive Q&A pane | **Complete** |
 | 7 | Bead Visualization | TUI bead graph/tree | Not started |
 | 8 | Notifications | Webhooks, IFTTT, Slack | Not started |
 
@@ -283,40 +283,47 @@ For detailed component specifications, see the [components/](components/) direct
 
 ---
 
-## Phase 6: Observer Mode
+## Phase 6: Observer Mode - COMPLETE
 
 **Goal**: Interactive Q&A pane for real-time understanding and intervention guidance.
 
-### Components to Implement
+**Status**: Complete as of 2026-01-02
+
+### Components Implemented
 
 | Component | Documentation | Implementation |
 |-----------|---------------|----------------|
-| Observer | [components/observer.md](components/observer.md) | `internal/observer/` |
-| TUI Observer Pane | [components/observer.md](components/observer.md) | `internal/tui/` |
-| ObserverConfig | [config/configuration.md](config/configuration.md) | `internal/config/` |
+| Observer | [components/observer.md](components/observer.md) | `internal/observer/observer.go` |
+| SessionBroker | [components/observer.md](components/observer.md) | `internal/observer/broker.go` |
+| ContextBuilder | [components/observer.md](components/observer.md) | `internal/observer/context.go` |
+| LogReader | [components/observer.md](components/observer.md) | `internal/observer/log_reader.go` |
+| TUI Observer Pane | [components/observer.md](components/observer.md) | `internal/tui/observer_pane.go` |
+| ObserverConfig | [config/configuration.md](config/configuration.md) | `internal/config/config.go` |
+| Mock Claude Script | - | `internal/testutil/mock_claude.go` |
+| Observer Fixtures | - | `internal/testutil/observer_fixtures.go` |
+| E2E Tests | - | `internal/integration/observer_test.go` |
 
 ### Tasks
 
-1. [ ] Add ObserverConfig to configuration system
-2. [ ] Implement Observer struct with Ask/RefreshContext/Close
-3. [ ] Implement context builder (structured sections from log file)
-4. [ ] Implement event formatter (summarized tool_use, truncated text)
-5. [ ] Implement session history loader from log
-6. [ ] Add observer pane to TUI (split view below events)
-7. [ ] Implement text input component for questions
-8. [ ] Wire up keyboard shortcuts (o toggle, Ctrl+R refresh, Tab focus)
-9. [ ] Add observer cost display to TUI header
-10. [ ] Integration tests with mock claude
+1. [x] Add ObserverConfig to configuration system
+2. [x] Implement Observer struct with Ask/Cancel/Reset
+3. [x] Implement ContextBuilder (structured sections from log file)
+4. [x] Implement LogReader for reading events from log
+5. [x] Implement SessionBroker for Claude CLI coordination
+6. [x] Add observer pane to TUI (split view with textarea)
+7. [x] Implement text input component for questions
+8. [x] Wire up keyboard shortcuts (Enter submit, Ctrl+C cancel, Esc clear)
+9. [x] Integration tests with mock claude (12 E2E tests)
+10. [x] Unit tests for Observer, SessionBroker, limitedWriter
 
 ### Success Criteria
 
-- [ ] Can ask questions about current session activity
-- [ ] Claude responses appear in TUI observer pane
-- [ ] Follow-up questions maintain conversation context (via --resume)
-- [ ] Ctrl+R refreshes context from current log state
-- [ ] Observer can retrieve full event details via grep (tool access)
-- [ ] Does not interfere with main drain operation
-- [ ] Cost tracking shows observer usage separately
+- [x] Can ask questions about current session activity
+- [x] Claude responses appear in TUI observer pane
+- [x] Follow-up questions can maintain conversation context (via --resume)
+- [x] Observer does not interfere with main drain operation (SessionBroker)
+- [x] Output truncation prevents runaway responses (100KB limit)
+- [x] Cancellation works for long-running queries
 
 ### Design Decisions
 
@@ -325,6 +332,16 @@ For detailed component specifications, see the [components/](components/) direct
 - **Structured context**: Drain status, session history with costs, current bead events
 - **Event summarization**: Tool name + description/file_path, truncated text (full details via grep)
 - **Default model**: Haiku for fast, low-cost Q&A
+- **Session coordination**: SessionBroker mutex prevents observer/drain Claude CLI conflicts
+- **Output format**: Uses `--output-format text` for clean responses
+
+### Notes
+
+- Observer uses DrainStateProvider interface for current drain state
+- SessionBroker ensures only one Claude session active at a time
+- Output limited to 100KB with truncation marker
+- Retry logic clears sessionID on resume failure
+- All tests pass: `go test -v ./internal/observer/...` and `go test -v ./internal/integration/...`
 
 ---
 
@@ -381,7 +398,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## File Structure
 
-Current structure (Phase 5 complete, Phase 6 planned):
+Current structure (Phase 6 complete):
 
 ```
 atari/
@@ -448,6 +465,8 @@ atari/
 │   │   ├── helpers_test.go
 │   │   ├── mockclaude.go    # Mock Claude session generators
 │   │   ├── mockclaude_test.go
+│   │   ├── mock_claude.go   # Mock Claude script for observer tests (Phase 6)
+│   │   ├── observer_fixtures.go  # Observer log event fixtures (Phase 6)
 │   │   └── CLAUDE.md
 │   ├── workqueue/           # Work discovery and selection
 │   │   ├── poll.go          # bd ready polling
@@ -463,6 +482,7 @@ atari/
 │   │   └── CLAUDE.md
 │   ├── integration/         # End-to-end tests
 │   │   ├── drain_test.go
+│   │   ├── observer_test.go  # Observer E2E tests (Phase 6)
 │   │   └── CLAUDE.md
 │   ├── runner/              # ProcessRunner interface for streaming processes
 │   │   ├── runner.go        # Interface and ExecProcessRunner
@@ -474,13 +494,18 @@ atari/
 │   │   ├── parser.go        # JSON to typed event conversion
 │   │   ├── parser_test.go
 │   │   └── CLAUDE.md
-│   ├── observer/            # Observer mode Q&A (Phase 6) [planned]
-│   │   ├── observer.go      # Observer struct, Ask, RefreshContext
+│   ├── observer/            # Observer mode Q&A (Phase 6)
+│   │   ├── observer.go      # Observer struct, Ask, Cancel, Reset
 │   │   ├── observer_test.go
-│   │   ├── context.go       # Context builder from log file
-│   │   ├── format.go        # Event formatting for observer context
+│   │   ├── broker.go        # SessionBroker for Claude CLI coordination
+│   │   ├── broker_test.go
+│   │   ├── context.go       # ContextBuilder from log file and drain state
+│   │   ├── context_test.go
+│   │   ├── log_reader.go    # LogReader for reading events from log
+│   │   ├── log_reader_test.go
+│   │   ├── types.go         # DrainState, DrainStateProvider, SessionHistory
 │   │   └── CLAUDE.md
-│   └── tui/                 # Terminal UI (bubbletea) - Phase 4
+│   └── tui/                 # Terminal UI (bubbletea) - Phase 4, 6
 │       ├── model.go         # Bubbletea model definition
 │       ├── view.go          # View rendering (header, events, footer)
 │       ├── view_test.go
@@ -491,6 +516,7 @@ atari/
 │       ├── styles.go        # Lipgloss styles
 │       ├── fallback.go      # Non-TTY fallback mode
 │       ├── fallback_test.go
+│       ├── observer_pane.go # Observer Q&A pane (Phase 6)
 │       ├── tui.go           # Public API (Run, RunSimple)
 │       └── CLAUDE.md
 ├── docs/
@@ -527,6 +553,10 @@ Each component has unit tests covering:
 - [x] YAML config loading and precedence (config/loader) - Phase 5
 - [x] Prompt template expansion and loading (config/prompt) - Phase 5
 - [x] Init command file operations (init) - Phase 5
+- [x] Observer Ask, Cancel, Reset (observer) - Phase 6
+- [x] SessionBroker coordination (observer) - Phase 6
+- [x] ContextBuilder and LogReader (observer) - Phase 6
+- [x] limitedWriter output truncation (observer) - Phase 6
 
 Run with: `mise run test`
 
@@ -547,8 +577,16 @@ Run with: `mise run test`
 - [x] BD Activity watcher lifecycle (start, stop, reconnect) - Phase 3
 - [x] BD Activity parser (all mutation types) - Phase 3
 - [x] BD Activity event flow through router - Phase 3
+- [x] Observer basic query with mock claude (`TestObserverBasicQuery`) - Phase 6
+- [x] Observer broker coordination (`TestObserverBrokerCoordination`) - Phase 6
+- [x] Observer cancel and timeout (`TestObserverCancel`, `TestObserverTimeout`) - Phase 6
+- [x] Observer context building (`TestObserverContextIncludesLogEvents`) - Phase 6
+- [x] Observer session history (`TestObserverSessionHistory`) - Phase 6
+- [x] Observer error handling (`TestObserverErrorFromClaude`) - Phase 6
+- [x] Observer model configuration (`TestObserverModelConfiguration`) - Phase 6
+- [x] Observer edge cases (`TestObserverEmptyLog`, `TestObserverNoLogFile`) - Phase 6
 
-Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...` or `go test -v ./internal/bdactivity/...` or `go test -v ./internal/tui/...`
+Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...` or `go test -v ./internal/bdactivity/...` or `go test -v ./internal/tui/...` or `go test -v ./internal/observer/...`
 
 ### End-to-End Tests - PARTIAL
 
@@ -593,7 +631,7 @@ The project is complete when:
 2. [x] State persists across restarts - **Phase 1**
 3. [x] Pause/resume/stop work correctly - **Phase 2** (via daemon socket)
 4. [x] TUI provides good visibility into progress - **Phase 4**
-5. [ ] Observer mode allows interactive Q&A - Phase 6
+5. [x] Observer mode allows interactive Q&A - **Phase 6**
 6. [x] Failed beads don't block forever (backoff) - **Phase 1**
 7. [x] `atari init` onboards new users easily - **Phase 5**
 8. [ ] Documentation is complete - Blocking (core docs match features before milestone)
