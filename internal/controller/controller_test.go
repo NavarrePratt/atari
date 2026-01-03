@@ -242,6 +242,41 @@ func TestControllerStats(t *testing.T) {
 	if stats.Iteration != 0 {
 		t.Errorf("expected iteration 0, got %d", stats.Iteration)
 	}
+	if stats.CurrentTurns != 0 {
+		t.Errorf("expected CurrentTurns 0, got %d", stats.CurrentTurns)
+	}
+}
+
+func TestControllerCurrentTurns(t *testing.T) {
+	t.Run("initial value is 0", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		if c.CurrentTurns() != 0 {
+			t.Errorf("expected CurrentTurns 0, got %d", c.CurrentTurns())
+		}
+	})
+
+	t.Run("thread-safe access", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		var wg sync.WaitGroup
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = c.CurrentTurns()
+				_ = c.Stats().CurrentTurns
+			}()
+		}
+		wg.Wait()
+		// Should not panic
+	})
 }
 
 func TestControllerEventEmission(t *testing.T) {

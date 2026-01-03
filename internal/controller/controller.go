@@ -78,6 +78,10 @@ type Controller struct {
 	iteration    int
 	totalCostUSD float64
 	startTime    time.Time
+
+	// Session progress tracking
+	currentTurnCount int
+	currentTurnMu    sync.RWMutex
 }
 
 // ControllerOption configures a Controller.
@@ -321,6 +325,11 @@ type SessionResult struct {
 
 // runSession executes a single Claude session for the bead.
 func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
+	// Reset turn count at session start
+	c.currentTurnMu.Lock()
+	c.currentTurnCount = 0
+	c.currentTurnMu.Unlock()
+
 	sess := session.New(c.config, c.router)
 
 	// Load prompt template
@@ -378,8 +387,14 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 	// Parse stream in goroutine
 	parser := session.NewParser(sess.Stdout(), c.router, sess)
 
-	// Set up turn boundary callback for graceful pause
+	// Set up turn boundary callback for graceful pause and turn tracking
 	parser.SetOnTurnComplete(func() {
+		// Update controller's turn count
+		c.currentTurnMu.Lock()
+		c.currentTurnCount = parser.TurnCount()
+		c.currentTurnMu.Unlock()
+
+		// Check for graceful pause request
 		if sess.PauseRequested() {
 			c.logger.Info("stopping session at turn boundary", "bead_id", bead.ID)
 			sess.Stop()
@@ -533,17 +548,23 @@ func (c *Controller) State() State {
 
 // Stats returns current queue statistics.
 type Stats struct {
-	Iteration   int
-	QueueStats  workqueue.QueueStats
-	CurrentBead string
+	Iteration    int
+	QueueStats   workqueue.QueueStats
+	CurrentBead  string
+	CurrentTurns int // turns completed in current session (0 if idle)
 }
 
 // Stats returns current statistics.
 func (c *Controller) Stats() Stats {
+	c.currentTurnMu.RLock()
+	turns := c.currentTurnCount
+	c.currentTurnMu.RUnlock()
+
 	return Stats{
-		Iteration:   c.iteration,
-		QueueStats:  c.workQueue.Stats(),
-		CurrentBead: c.CurrentBead(),
+		Iteration:    c.iteration,
+		QueueStats:   c.workQueue.Stats(),
+		CurrentBead:  c.CurrentBead(),
+		CurrentTurns: turns,
 	}
 }
 
@@ -567,9 +588,12 @@ func (c *Controller) Abandoned() int {
 	return c.workQueue.Stats().Abandoned
 }
 
-// CurrentTurns returns 0 - the TUI tracks session turns via events.
+// CurrentTurns returns the number of turns completed in the current session.
+// Returns 0 if no session is active.
 func (c *Controller) CurrentTurns() int {
-	return 0
+	c.currentTurnMu.RLock()
+	defer c.currentTurnMu.RUnlock()
+	return c.currentTurnCount
 }
 
 // getState returns the current state (thread-safe).
