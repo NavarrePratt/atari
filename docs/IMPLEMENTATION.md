@@ -19,7 +19,7 @@ For detailed component specifications, see the [components/](components/) direct
 | 2 | Control & Monitoring | Daemon mode, pause/resume/stop | **Complete** |
 | 3 | BD Activity | Unified event stream | **Complete** |
 | 4 | Terminal UI | Bubbletea TUI | **Complete** |
-| 5 | Polish & Init | Config, log rotation, cost tracking | Partial |
+| 5 | Polish & Init | Config, log rotation, cost tracking | **Complete** |
 | 6 | Observer Mode | Interactive Q&A pane | Not started |
 | 7 | Bead Visualization | TUI bead graph/tree | Not started |
 | 8 | Notifications | Webhooks, IFTTT, Slack | Not started |
@@ -230,41 +230,56 @@ For detailed component specifications, see the [components/](components/) direct
 
 ---
 
-## Phase 5: Polish & Init
+## Phase 5: Polish & Init - COMPLETE
 
 **Goal**: Production-ready reliability, cost tracking, and onboarding.
 
-**Status**: Partial (backoff and env vars done in Phase 1)
+**Status**: Complete as of 2026-01-02
 
-### Components to Implement
+### Components Implemented
 
-| Component | Documentation |
-|-----------|---------------|
-| Init Command | [cli/init-command.md](cli/init-command.md) |
-| Configuration | [config/configuration.md](config/configuration.md) |
-| Cost Tracking | - |
-| Log Rotation | - |
+| Component | Documentation | Implementation |
+|-----------|---------------|----------------|
+| Init Command | [cli/init-command.md](cli/init-command.md) | `internal/init/` |
+| Configuration | [config/configuration.md](config/configuration.md) | `internal/config/loader.go` |
+| Cost Tracking | - | `internal/session/parser.go` (atomic.Value result capture) |
+| Log Rotation | - | `internal/events/logsink.go`, `cmd/atari/logger.go` |
+| Prompt Templates | - | `internal/config/prompt.go` |
+
+### CLI Commands
+
+- `atari init` - **Implemented** (with --dry-run, --force, --minimal, --global flags)
 
 ### Tasks
 
 1. [x] Exponential backoff for failed beads - **Done in Phase 1**
-2. [ ] YAML config file parsing
+2. [x] YAML config file parsing
 3. [x] Environment variable overrides - **Done in Phase 1** (via Viper)
-4. [ ] Custom prompt templates
-5. [ ] `atari init` command
-6. [ ] Log rotation for `.atari/atari.log` and `.atari/atari-debug.log`
-7. [ ] Cost/usage tracking - integrate with [ccusage-go](https://github.com/ryanmac/ccusage-go) for session cost aggregation
+4. [x] Custom prompt templates
+5. [x] `atari init` command
+6. [x] Log rotation for `.atari/atari.log` and `.atari/atari-debug.log`
+7. [x] Cost/usage tracking - SessionEndEvent is authoritative source (via atomic.Value)
 8. [ ] User guide documentation
 9. [ ] Error messages and suggestions
 
 ### Success Criteria
 
 - [x] Failed beads don't block drain indefinitely (backoff + max failures)
-- [ ] Configuration works from file and env
-- [ ] `atari init` sets up Claude Code correctly
-- [ ] Log files don't grow unbounded
-- [ ] Cost tracking shows usage per session and cumulative totals
+- [x] Configuration works from file and env
+- [x] `atari init` sets up Claude Code correctly
+- [x] Log files don't grow unbounded
+- [x] Cost tracking shows usage per session (SessionEndEvent with TotalCostUSD)
 - [ ] Documentation is complete
+
+### Notes
+
+- **YAML config precedence**: Default() < ~/.config/atari/config.yaml < .atari/config.yaml < --config flag < env vars < CLI flags
+- **Log rotation strategies**:
+  - Event log (atari.log): Startup rotation with timestamp suffix (preserves tail -f compatibility)
+  - Debug log (atari-debug.log): Continuous lumberjack rotation (MaxSizeMB, MaxBackups, MaxAgeDays, Compress)
+- **Prompt templates**: Single-pass string replacement via `strings.Replacer` prevents template injection
+- **Cost tracking**: Parser.Result() uses atomic.Value for thread-safe access to SessionEndEvent
+- **Init command**: Embedded templates via `//go:embed`, backup with --force, append mode for CLAUDE.md
 
 ---
 
@@ -350,7 +365,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## File Structure
 
-Current structure (Phase 4 complete):
+Current structure (Phase 5 complete):
 
 ```
 atari/
@@ -364,6 +379,10 @@ atari/
 │   ├── config/              # Configuration types and defaults
 │   │   ├── config.go
 │   │   ├── config_test.go
+│   │   ├── loader.go         # YAML config file loading (Phase 5)
+│   │   ├── loader_test.go
+│   │   ├── prompt.go         # Prompt template expansion (Phase 5)
+│   │   ├── prompt_test.go
 │   │   └── CLAUDE.md
 │   ├── controller/          # Main orchestration loop
 │   │   ├── controller.go
@@ -419,6 +438,12 @@ atari/
 │   │   ├── poll_test.go
 │   │   ├── queue.go         # Selection, backoff, history
 │   │   ├── queue_test.go
+│   │   └── CLAUDE.md
+│   ├── init/                # Init command (Phase 5)
+│   │   ├── init.go           # File installation logic
+│   │   ├── init_test.go
+│   │   ├── templates.go      # Embedded template loading
+│   │   ├── templates/        # Embedded template files
 │   │   └── CLAUDE.md
 │   ├── integration/         # End-to-end tests
 │   │   ├── drain_test.go
@@ -477,6 +502,9 @@ Each component has unit tests covering:
 - [x] BD Activity parsing and watcher lifecycle (bdactivity) - Phase 3
 - [x] ProcessRunner interface and mock (runner) - Phase 3
 - [x] TUI view rendering, update logic, event formatting (tui) - Phase 4
+- [x] YAML config loading and precedence (config/loader) - Phase 5
+- [x] Prompt template expansion and loading (config/prompt) - Phase 5
+- [x] Init command file operations (init) - Phase 5
 
 Run with: `mise run test`
 
@@ -545,7 +573,7 @@ The project is complete when:
 4. [x] TUI provides good visibility into progress - **Phase 4**
 5. [ ] Observer mode allows interactive Q&A - Phase 6
 6. [x] Failed beads don't block forever (backoff) - **Phase 1**
-7. [ ] `atari init` onboards new users easily - Phase 5
+7. [x] `atari init` onboards new users easily - **Phase 5**
 8. [ ] Documentation is complete - Blocking (core docs match features before milestone)
 9. [x] Works on macOS and Linux - **Phase 1** (tested on macOS)
 10. [ ] Notifications alert on key events - Phase 8 (optional)
