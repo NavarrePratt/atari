@@ -616,3 +616,223 @@ func TestWaitForEvent_ReceivesEvent(t *testing.T) {
 		t.Errorf("should return eventMsg, got %T", msg)
 	}
 }
+
+// Focus management tests
+
+func TestCycleFocus(t *testing.T) {
+	tests := []struct {
+		name        string
+		startFocus  FocusedPane
+		expectFocus FocusedPane
+	}{
+		{"events to observer", FocusEvents, FocusObserver},
+		{"observer to events", FocusObserver, FocusEvents},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := model{focusedPane: tt.startFocus}
+			m.cycleFocus()
+			if m.focusedPane != tt.expectFocus {
+				t.Errorf("cycleFocus() from %v: got %v, want %v",
+					tt.startFocus, m.focusedPane, tt.expectFocus)
+			}
+		})
+	}
+}
+
+func TestIsObserverFocused(t *testing.T) {
+	tests := []struct {
+		name   string
+		focus  FocusedPane
+		expect bool
+	}{
+		{"events focused", FocusEvents, false},
+		{"observer focused", FocusObserver, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := model{focusedPane: tt.focus}
+			if got := m.isObserverFocused(); got != tt.expect {
+				t.Errorf("isObserverFocused() = %v, want %v", got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestHandleKey_Tab_CyclesFocus(t *testing.T) {
+	tests := []struct {
+		name        string
+		startFocus  FocusedPane
+		expectFocus FocusedPane
+	}{
+		{"events to observer", FocusEvents, FocusObserver},
+		{"observer to events", FocusObserver, FocusEvents},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := model{focusedPane: tt.startFocus, status: "idle"}
+			newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+			resultM := newM.(model)
+
+			if resultM.focusedPane != tt.expectFocus {
+				t.Errorf("Tab should cycle focus to %v, got %v",
+					tt.expectFocus, resultM.focusedPane)
+			}
+			if cmd != nil {
+				t.Error("Tab should return nil command")
+			}
+		})
+	}
+}
+
+func TestHandleKey_Esc_ReturnsFocusToEvents(t *testing.T) {
+	t.Run("from observer to events", func(t *testing.T) {
+		m := model{focusedPane: FocusObserver, status: "idle"}
+		newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+		resultM := newM.(model)
+
+		if resultM.focusedPane != FocusEvents {
+			t.Errorf("Esc from observer should return focus to events, got %v",
+				resultM.focusedPane)
+		}
+		if cmd != nil {
+			t.Error("Esc should return nil command")
+		}
+	})
+
+	t.Run("from events stays at events", func(t *testing.T) {
+		m := model{focusedPane: FocusEvents, status: "idle"}
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+		resultM := newM.(model)
+
+		if resultM.focusedPane != FocusEvents {
+			t.Errorf("Esc from events should stay at events, got %v",
+				resultM.focusedPane)
+		}
+	})
+}
+
+func TestHandleKey_CtrlC_AlwaysQuits(t *testing.T) {
+	tests := []struct {
+		name  string
+		focus FocusedPane
+	}{
+		{"from events", FocusEvents},
+		{"from observer", FocusObserver},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			quitCalled := false
+			m := model{
+				focusedPane: tt.focus,
+				status:      "idle",
+				onQuit:      func() { quitCalled = true },
+			}
+
+			_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+			if !quitCalled {
+				t.Error("Ctrl+C should always call onQuit")
+			}
+			if cmd == nil {
+				t.Error("Ctrl+C should return tea.Quit")
+			}
+		})
+	}
+}
+
+func TestHandleKey_ObserverFocused_SuppressesGlobalKeys(t *testing.T) {
+	// Keys that should be suppressed when observer is focused
+	keys := []string{"q", "p", "r", "up", "down", "k", "j", "home", "end", "g", "G"}
+
+	for _, key := range keys {
+		t.Run(key, func(t *testing.T) {
+			callbackCalled := false
+			m := model{
+				focusedPane: FocusObserver,
+				status:      "idle",
+				onQuit:      func() { callbackCalled = true },
+				onPause:     func() { callbackCalled = true },
+				onResume:    func() { callbackCalled = true },
+				scrollPos:   5,
+				autoScroll:  true,
+				height:      20,
+				eventLines:  make([]eventLine, 30),
+			}
+
+			newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+			resultM := newM.(model)
+
+			if callbackCalled {
+				t.Errorf("key %q should not trigger callback when observer focused", key)
+			}
+			if cmd != nil {
+				t.Errorf("key %q should return nil command when observer focused", key)
+			}
+			// Scroll position should not change
+			if resultM.scrollPos != 5 {
+				t.Errorf("key %q should not change scroll when observer focused", key)
+			}
+		})
+	}
+}
+
+func TestHandleKey_EventsFocused_NormalBehavior(t *testing.T) {
+	// Verify that normal keys work when events pane is focused
+	t.Run("q quits", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			focusedPane: FocusEvents,
+			status:      "idle",
+			onQuit:      func() { quitCalled = true },
+		}
+
+		_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+
+		if !quitCalled {
+			t.Error("q should call onQuit when events focused")
+		}
+		if cmd == nil {
+			t.Error("q should return quit command when events focused")
+		}
+	})
+
+	t.Run("p pauses", func(t *testing.T) {
+		pauseCalled := false
+		m := model{
+			focusedPane: FocusEvents,
+			status:      "idle",
+			onPause:     func() { pauseCalled = true },
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+		resultM := newM.(model)
+
+		if !pauseCalled {
+			t.Error("p should call onPause when events focused")
+		}
+		if resultM.status != "pausing..." {
+			t.Error("p should set status to pausing...")
+		}
+	})
+
+	t.Run("up scrolls", func(t *testing.T) {
+		m := model{
+			focusedPane: FocusEvents,
+			scrollPos:   5,
+			autoScroll:  true,
+			height:      20,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("up")})
+		resultM := newM.(model)
+
+		if resultM.scrollPos != 4 {
+			t.Errorf("up should decrement scroll, got %d", resultM.scrollPos)
+		}
+	})
+}

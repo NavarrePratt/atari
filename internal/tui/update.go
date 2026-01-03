@@ -73,8 +73,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey processes keyboard input and returns the updated model and command.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "ctrl+c":
+	key := msg.String()
+
+	// Global keys: always work regardless of focus
+	switch key {
+	case "ctrl+c":
+		if m.onQuit != nil {
+			m.onQuit()
+		}
+		return m, tea.Quit
+
+	case "tab":
+		m.cycleFocus()
+		return m, nil
+
+	case "esc":
+		// When observer is focused, Esc returns focus to events pane
+		if m.isObserverFocused() {
+			m.focusedPane = FocusEvents
+		}
+		return m, nil
+	}
+
+	// When observer is focused, suppress global keybinds
+	// to allow text input in the observer pane
+	if m.isObserverFocused() {
+		// Observer pane will handle its own keys
+		// For now just return without processing
+		return m, nil
+	}
+
+	// Events pane focused: normal key handling
+	switch key {
+	case "q":
 		if m.onQuit != nil {
 			m.onQuit()
 		}

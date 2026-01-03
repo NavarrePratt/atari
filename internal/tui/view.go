@@ -34,14 +34,26 @@ func (m model) View() string {
 
 	content := strings.Join(sections, "\n")
 
+	// Get focus-aware container style
+	containerStyle := m.containerStyleForFocus(FocusEvents)
+
 	// Render content in container without setting Height
 	// Height() can cause clipping issues; let content determine size
-	rendered := styles.Container.
+	rendered := containerStyle.
 		Width(safeWidth(m.width - 2)).
 		Render(content)
 
 	// Place container at top-left of terminal
 	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, rendered)
+}
+
+// containerStyleForFocus returns the appropriate container style based on
+// whether the specified pane is currently focused.
+func (m model) containerStyleForFocus(pane FocusedPane) lipgloss.Style {
+	if m.focusedPane == pane {
+		return styles.FocusedBorder
+	}
+	return styles.UnfocusedBorder
 }
 
 // renderTooSmall renders a minimal message for terminals that are too small.
@@ -183,13 +195,20 @@ func (m model) renderEventLine(el eventLine, maxWidth int) string {
 // renderFooter renders keyboard shortcuts help text.
 func (m model) renderFooter() string {
 	var help string
-	switch m.status {
-	case "paused", "pausing...", "pausing":
-		help = "r: resume  q: quit  ↑/↓: scroll  g/G: top/bottom"
-	case "stopped":
-		help = "q: quit  ↑/↓: scroll  g/G: top/bottom"
-	default:
-		help = "p: pause  q: quit  ↑/↓: scroll  g/G: top/bottom"
+
+	// Show different help based on focus
+	if m.isObserverFocused() {
+		help = "tab: switch pane  esc: back  ctrl+c: quit"
+	} else {
+		// Events pane focused
+		switch m.status {
+		case "paused", "pausing...", "pausing":
+			help = "r: resume  q: quit  tab: switch pane  ↑/↓: scroll  g/G: top/bottom"
+		case "stopped":
+			help = "q: quit  tab: switch pane  ↑/↓: scroll  g/G: top/bottom"
+		default:
+			help = "p: pause  q: quit  tab: switch pane  ↑/↓: scroll  g/G: top/bottom"
+		}
 	}
 	return styles.Footer.Render(help)
 }

@@ -8,6 +8,16 @@ import (
 	"github.com/npratt/atari/internal/events"
 )
 
+// FocusedPane represents which pane currently has keyboard focus.
+type FocusedPane int
+
+const (
+	// FocusEvents means the events pane has focus (default).
+	FocusEvents FocusedPane = iota
+	// FocusObserver means the observer pane has focus.
+	FocusObserver
+)
+
 // beadInfo holds information about the current bead being processed.
 type beadInfo struct {
 	ID       string
@@ -45,10 +55,11 @@ type model struct {
 	eventLines []eventLine
 
 	// UI state
-	width      int
-	height     int
-	scrollPos  int
-	autoScroll bool
+	width       int
+	height      int
+	scrollPos   int
+	autoScroll  bool
+	focusedPane FocusedPane
 
 	// Callbacks
 	onPause  func()
@@ -95,4 +106,19 @@ func (m model) Init() tea.Cmd {
 func (m model) visibleLines() int {
 	// Height minus: border (2), header (3), dividers (2), footer (1) = 8
 	return max(1, m.height-8)
+}
+
+// cycleFocus advances focus to the next pane.
+func (m *model) cycleFocus() {
+	switch m.focusedPane {
+	case FocusEvents:
+		m.focusedPane = FocusObserver
+	case FocusObserver:
+		m.focusedPane = FocusEvents
+	}
+}
+
+// isObserverFocused returns true if the observer pane has focus.
+func (m model) isObserverFocused() bool {
+	return m.focusedPane == FocusObserver
 }
