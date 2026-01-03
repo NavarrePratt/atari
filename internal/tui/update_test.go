@@ -142,7 +142,7 @@ func TestHandleKey_ScrollDown(t *testing.T) {
 	}{
 		{"down key in middle", "down", 5, 6, false},
 		{"j key in middle", "j", 5, 6, false},
-		{"down at bottom enables autoscroll", "down", 15, 16, true}, // maxScroll = 30 - 14 = 16
+		{"down at bottom enables autoscroll", "down", 17, 18, true}, // maxScroll = 30 - 12 = 18
 	}
 
 	for _, tt := range tests {
@@ -150,7 +150,7 @@ func TestHandleKey_ScrollDown(t *testing.T) {
 			m := model{
 				scrollPos:  tt.startPos,
 				autoScroll: false,
-				height:     20, // visibleLines = 14
+				height:     20, // visibleLines = 12
 				eventLines: eventLines,
 			}
 
@@ -215,14 +215,14 @@ func TestHandleKey_End(t *testing.T) {
 			m := model{
 				scrollPos:  0,
 				autoScroll: false,
-				height:     20, // visibleLines = 14
+				height:     20, // visibleLines = 12
 				eventLines: eventLines,
 			}
 
 			newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
 			resultM := newM.(model)
 
-			expectedPos := 30 - 14 // maxScroll
+			expectedPos := 30 - 12 // maxScroll
 			if resultM.scrollPos != expectedPos {
 				t.Errorf("scrollPos should be %d, got %d", expectedPos, resultM.scrollPos)
 			}
@@ -449,7 +449,7 @@ func TestHandleEvent_AutoScrollToBottom(t *testing.T) {
 	m := model{
 		eventLines: make([]eventLine, 10),
 		autoScroll: true,
-		height:     20, // visibleLines = 14
+		height:     20, // visibleLines = 12
 		scrollPos:  0,
 	}
 
@@ -460,13 +460,13 @@ func TestHandleEvent_AutoScrollToBottom(t *testing.T) {
 	}
 	m.handleEvent(event)
 
-	// With 11 events and 14 visible lines, no scroll needed (all fit)
+	// With 11 events and 12 visible lines, no scroll needed (all fit)
 	// But if we add more, scroll should follow
 	for i := 0; i < 20; i++ {
 		m.handleEvent(event)
 	}
 
-	// Now we have 31 events, maxScroll = 31 - 14 = 17
+	// Now we have 31 events, maxScroll = 31 - 12 = 19
 	expectedPos := len(m.eventLines) - m.visibleLines()
 	if m.scrollPos != expectedPos {
 		t.Errorf("scrollPos should be %d for autoscroll, got %d", expectedPos, m.scrollPos)

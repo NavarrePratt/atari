@@ -64,11 +64,11 @@ func TestVisibleLines(t *testing.T) {
 		height   int
 		expected int
 	}{
-		{"normal height", 20, 14},   // 20 - 6 = 14
-		{"minimum height", 15, 9},   // 15 - 6 = 9
-		{"small height", 7, 1},      // max(1, 7-6) = 1
-		{"very small", 3, 1},        // max(1, 3-6) = 1 (negative clamped)
-		{"zero height", 0, 1},       // max(1, 0-6) = 1
+		{"normal height", 20, 12},   // 20 - 8 = 12
+		{"minimum height", 15, 7},   // 15 - 8 = 7
+		{"small height", 9, 1},      // max(1, 9-8) = 1
+		{"very small", 3, 1},        // max(1, 3-8) = 1 (negative clamped)
+		{"zero height", 0, 1},       // max(1, 0-8) = 1
 	}
 
 	for _, tt := range tests {
@@ -270,7 +270,7 @@ func TestRenderEvents(t *testing.T) {
 
 		m := model{
 			width:      80,
-			height:     15, // visibleLines = 9
+			height:     15, // visibleLines = 7
 			scrollPos:  10,
 			eventLines: eventLines,
 		}

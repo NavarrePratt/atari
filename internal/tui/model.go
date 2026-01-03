@@ -93,6 +93,6 @@ func (m model) Init() tea.Cmd {
 
 // visibleLines returns the number of event lines that fit in the viewport.
 func (m model) visibleLines() int {
-	// Height minus header (3 lines), dividers (2), footer (1)
-	return max(1, m.height-6)
+	// Height minus: border (2), header (3), dividers (2), footer (1) = 8
+	return max(1, m.height-8)
 }

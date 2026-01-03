@@ -34,10 +34,14 @@ func (m model) View() string {
 
 	content := strings.Join(sections, "\n")
 
-	return styles.Container.
-		Width(safeWidth(m.width)).
-		Height(m.height).
+	// Render content in container without setting Height
+	// Height() can cause clipping issues; let content determine size
+	rendered := styles.Container.
+		Width(safeWidth(m.width - 2)).
 		Render(content)
+
+	// Place container at top-left of terminal
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, rendered)
 }
 
 // renderTooSmall renders a minimal message for terminals that are too small.
@@ -79,11 +83,14 @@ func (m model) renderHeader() string {
 	statsText := fmt.Sprintf("completed: %d  failed: %d  abandoned: %d",
 		m.stats.Completed, m.stats.Failed, m.stats.Abandoned)
 
+	// Style first, then calculate spacing based on visual width
+	styledTurns := styles.Turns.Render(turnsText)
+	styledStats := styles.Turns.Render(statsText)
 	statsLine := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		styles.Turns.Render(turnsText),
-		strings.Repeat(" ", max(1, w-len(turnsText)-len(statsText))),
-		styles.Turns.Render(statsText),
+		styledTurns,
+		strings.Repeat(" ", max(1, w-lipgloss.Width(styledTurns)-lipgloss.Width(styledStats))),
+		styledStats,
 	)
 
 	return strings.Join([]string{statusLine, beadLine, statsLine}, "\n")
