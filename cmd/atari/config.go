@@ -31,4 +31,9 @@ const (
 
 	// Output format flags
 	FlagJSON = "json"
+
+	// Init command flags
+	FlagDryRun  = "dry-run"
+	FlagMinimal = "minimal"
+	FlagGlobal  = "global"
 )

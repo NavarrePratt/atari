@@ -21,6 +21,7 @@ import (
 	"github.com/npratt/atari/internal/controller"
 	"github.com/npratt/atari/internal/daemon"
 	"github.com/npratt/atari/internal/events"
+	initcmd "github.com/npratt/atari/internal/init"
 	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/shutdown"
 	"github.com/npratt/atari/internal/testutil"
@@ -646,6 +647,42 @@ Use --daemon to run in the background.`,
 		_ = viper.BindPFlag(f.Name, f)
 	})
 
+	// Init command
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize Claude Code configuration for atari",
+		Long: `Initialize Claude Code with rules, skills, and settings
+for use with atari and the bd issue tracking system.
+
+Creates the following structure:
+  .claude/
+    rules/
+      issue-tracking.md
+      session-protocol.md (unless --minimal)
+    skills/
+      bd-issue-tracking.md (unless --minimal)
+    CLAUDE.md (appended, not overwritten)`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := initcmd.Options{
+				DryRun:  viper.GetBool(FlagDryRun),
+				Force:   viper.GetBool(FlagForce),
+				Minimal: viper.GetBool(FlagMinimal),
+				Global:  viper.GetBool(FlagGlobal),
+			}
+
+			_, err := initcmd.Run(opts)
+			return err
+		},
+	}
+
+	initCmd.Flags().Bool(FlagDryRun, false, "Show what would be changed without making changes")
+	initCmd.Flags().Bool(FlagForce, false, "Overwrite existing files (creates timestamped backups)")
+	initCmd.Flags().Bool(FlagMinimal, false, "Install only essential rules")
+	initCmd.Flags().Bool(FlagGlobal, false, "Install to ~/.claude/ instead of ./.claude/")
+	initCmd.Flags().VisitAll(func(f *pflag.Flag) {
+		_ = viper.BindPFlag(f.Name, f)
+	})
+
 	// Register all commands
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(startCmd)
@@ -654,6 +691,7 @@ Use --daemon to run in the background.`,
 	rootCmd.AddCommand(resumeCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(eventsCmd)
+	rootCmd.AddCommand(initCmd)
 
 	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
 		logger.Error("command failed", "error", err)
