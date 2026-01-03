@@ -80,7 +80,7 @@ type GraphConfig struct {
 }
 
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
-const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
+const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. CRITICAL: When you have fully completed the work and verified it passes lint and tests, you MUST close the bead with "bd close <bead-id> --reason <description>" before ending your session - this is required for the work to be tracked as complete. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
 
 // Default returns a Config with sensible defaults for Phase 1 MVP.
 func Default() *Config {
