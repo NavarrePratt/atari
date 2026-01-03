@@ -4,6 +4,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -283,12 +284,12 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 			DurationMs: duration.Milliseconds(),
 			Error:      err.Error(),
 		})
-	} else {
-		c.logger.Info("session completed",
+	} else if result.GracefulPause {
+		// Graceful pause: session was paused mid-work, don't update history
+		c.logger.Info("session paused gracefully",
 			"bead_id", bead.ID,
 			"duration", duration,
 		)
-		c.workQueue.RecordSuccess(bead.ID)
 
 		// Accumulate total cost
 		c.totalCostUSD += result.TotalCostUSD
@@ -296,11 +297,56 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 		c.emit(&events.IterationEndEvent{
 			BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
 			BeadID:       bead.ID,
-			Success:      true,
+			Success:      false,
 			NumTurns:     result.NumTurns,
 			DurationMs:   duration.Milliseconds(),
 			TotalCostUSD: result.TotalCostUSD,
+			Error:        "session paused gracefully",
 		})
+	} else {
+		// Session completed normally - verify the bead was actually closed
+		beadClosed := c.isBeadClosed(bead.ID)
+
+		if beadClosed {
+			c.logger.Info("session completed and bead closed",
+				"bead_id", bead.ID,
+				"duration", duration,
+			)
+			c.workQueue.RecordSuccess(bead.ID)
+
+			// Accumulate total cost
+			c.totalCostUSD += result.TotalCostUSD
+
+			c.emit(&events.IterationEndEvent{
+				BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+				BeadID:       bead.ID,
+				Success:      true,
+				NumTurns:     result.NumTurns,
+				DurationMs:   duration.Milliseconds(),
+				TotalCostUSD: result.TotalCostUSD,
+			})
+		} else {
+			// Session completed but bead was not closed - treat as incomplete
+			c.logger.Warn("session completed but bead not closed",
+				"bead_id", bead.ID,
+				"duration", duration,
+			)
+			incompleteErr := fmt.Errorf("session completed but bead was not closed in bd")
+			c.workQueue.RecordFailure(bead.ID, incompleteErr)
+
+			// Accumulate total cost
+			c.totalCostUSD += result.TotalCostUSD
+
+			c.emit(&events.IterationEndEvent{
+				BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+				BeadID:       bead.ID,
+				Success:      false,
+				NumTurns:     result.NumTurns,
+				DurationMs:   duration.Milliseconds(),
+				TotalCostUSD: result.TotalCostUSD,
+				Error:        incompleteErr.Error(),
+			})
+		}
 	}
 
 	// Transition based on pending signals
@@ -319,8 +365,9 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 
 // SessionResult holds the outcome of a Claude session.
 type SessionResult struct {
-	NumTurns     int
-	TotalCostUSD float64
+	NumTurns      int
+	TotalCostUSD  float64
+	GracefulPause bool // true if session was paused gracefully (work not complete)
 }
 
 // runSession executes a single Claude session for the bead.
@@ -419,8 +466,8 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		case c.pauseSignal <- struct{}{}:
 		default:
 		}
-		// Graceful pause stops are not errors
-		result := &SessionResult{}
+		// Graceful pause stops are not errors, but work is not complete
+		result := &SessionResult{GracefulPause: true}
 		if parserResult := parser.Result(); parserResult != nil {
 			result.NumTurns = parserResult.NumTurns
 			result.TotalCostUSD = parserResult.TotalCostUSD
@@ -711,6 +758,44 @@ func (c *Controller) reportAgentState(state State) {
 			"state", agentState,
 			"error", err)
 	}
+}
+
+// isBeadClosed checks if a bead has been closed in bd.
+// Returns true if the bead status is "closed" or "completed", false otherwise.
+func (c *Controller) isBeadClosed(beadID string) bool {
+	if c.runner == nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	output, err := c.runner.Run(ctx, "bd", "show", beadID, "--json")
+	if err != nil {
+		c.logger.Warn("failed to check bead status",
+			"bead_id", beadID,
+			"error", err)
+		return false
+	}
+
+	// Parse the JSON output to get status
+	// bd show --json returns an array with one element
+	var beads []struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(output, &beads); err != nil {
+		c.logger.Warn("failed to parse bead status",
+			"bead_id", beadID,
+			"error", err)
+		return false
+	}
+
+	if len(beads) == 0 {
+		return false
+	}
+
+	status := beads[0].Status
+	return status == "closed" || status == "completed"
 }
 
 // emit sends an event to the router if available.
