@@ -2,12 +2,57 @@
 
 Use the bd CLI to track work across sessions.
 
-## Commands
+See detailed rules in:
+- @rules/issue-tracking.md - bd CLI patterns and issue management
+- @rules/session-protocol.md - Session procedures and quality gates
 
-- `bd ready --json` - Find available work
-- `bd update <id> --status in_progress` - Claim an issue
-- `bd close <id> --reason "..."` - Complete an issue
+## Quick Reference
 
-## Rules
+### Session Startup (User-Initiated Only)
 
-See `.claude/rules/` for issue tracking and session protocol documentation.
+Run these commands ONLY when the user explicitly requests session initialization (e.g., "start session", "check for work", "what's ready?"). Do NOT run automatically after context compaction - if you were working on something before compaction, continue that work.
+
+```bash
+pwd && bd prime && bd ready --json && git log --oneline -5 && git status
+```
+
+### Issue Workflow
+
+```bash
+bd ready --json                           # Find work
+bd update bd-xxx --status in_progress     # Claim it
+# ... do work ...
+bd close bd-xxx --reason "Completed..."   # Close with reason
+```
+
+### Git Commits
+
+Use `/commit` slash command for all commits - creates atomic, well-formatted commits matching project style.
+
+## Issue Tracking Summary
+
+Track all work with `bd`. Create issues for test failures and bugs. Record meticulous notes for history.
+
+**Priority levels**: 0=critical, 1=high, 2=normal, 3=low, 4=backlog
+
+**Creating issues**: Title 50 chars max, imperative voice. Verbose descriptions with relevant files and snippets.
+
+**Closing issues**: Always provide `--reason` with what was done and how verified. Never close if tests fail or implementation is partial.
+
+**Dependencies**: `bd dep add A B --type blocks` means A must complete before B.
+
+## Session Protocol Summary
+
+**Startup (user-initiated only)**: `bd prime` -> `bd ready` -> review git state. Do NOT run after context compaction.
+
+**Work**: One issue at a time. Commit after each. Verify end-to-end.
+
+**Completion**: File remaining work as issues. Close completed issues. Push to remote.
+
+## Quality Gates
+
+Before committing:
+- Code compiles/lints without errors
+- All tests pass
+- No hardcoded secrets
+- Changes are minimal and focused

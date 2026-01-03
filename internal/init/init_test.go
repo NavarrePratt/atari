@@ -11,8 +11,8 @@ import (
 func TestBuildFileList(t *testing.T) {
 	t.Run("full install", func(t *testing.T) {
 		files := BuildFileList(false)
-		if len(files) != 4 {
-			t.Errorf("expected 4 files, got %d", len(files))
+		if len(files) != 6 {
+			t.Errorf("expected 6 files, got %d", len(files))
 		}
 
 		// Check expected files are present
@@ -25,6 +25,8 @@ func TestBuildFileList(t *testing.T) {
 			"rules/issue-tracking.md",
 			"rules/session-protocol.md",
 			"skills/bd-issue-tracking.md",
+			"commands/bd-plan.md",
+			"commands/bd-plan-ultra.md",
 			"CLAUDE.md",
 		}
 		for _, p := range expectedPaths {
@@ -58,6 +60,8 @@ func TestMustReadTemplate(t *testing.T) {
 		"issue-tracking.md",
 		"session-protocol.md",
 		"bd-issue-tracking.md",
+		"bd-plan.md",
+		"bd-plan-ultra.md",
 		"claude-md-append.md",
 	}
 
@@ -133,6 +137,8 @@ func TestRun_Install(t *testing.T) {
 		".claude/rules/issue-tracking.md",
 		".claude/rules/session-protocol.md",
 		".claude/skills/bd-issue-tracking.md",
+		".claude/commands/bd-plan.md",
+		".claude/commands/bd-plan-ultra.md",
 		".claude/CLAUDE.md",
 	}
 
@@ -144,8 +150,8 @@ func TestRun_Install(t *testing.T) {
 	}
 
 	// Check result
-	if len(result.Created) != 3 {
-		t.Errorf("expected 3 created files, got %d", len(result.Created))
+	if len(result.Created) != 5 {
+		t.Errorf("expected 5 created files, got %d", len(result.Created))
 	}
 	if len(result.Appended) != 1 {
 		t.Errorf("expected 1 appended file, got %d", len(result.Appended))

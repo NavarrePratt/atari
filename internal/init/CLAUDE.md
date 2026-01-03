@@ -41,6 +41,9 @@ result, err := initcmd.Run(opts)
     session-protocol.md    # Unless --minimal
   skills/
     bd-issue-tracking.md   # Unless --minimal
+  commands/
+    bd-plan.md             # Unless --minimal
+    bd-plan-ultra.md       # Unless --minimal
   CLAUDE.md                # Appended, never overwritten
 ```
 

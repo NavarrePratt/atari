@@ -54,6 +54,14 @@ func BuildFileList(minimal bool) []InstallFile {
 				Content: MustReadTemplate("bd-issue-tracking.md"),
 			},
 			InstallFile{
+				Path:    "commands/bd-plan.md",
+				Content: MustReadTemplate("bd-plan.md"),
+			},
+			InstallFile{
+				Path:    "commands/bd-plan-ultra.md",
+				Content: MustReadTemplate("bd-plan-ultra.md"),
+			},
+			InstallFile{
 				Path:     "CLAUDE.md",
 				Content:  MustReadTemplate("claude-md-append.md"),
 				IsAppend: true,
