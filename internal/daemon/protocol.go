@@ -25,12 +25,13 @@ type StatusResponse struct {
 
 // StatusStats contains queue statistics for the status response.
 type StatusStats struct {
-	Iteration int `json:"iteration"`
-	TotalSeen int `json:"total_seen"`
-	Completed int `json:"completed"`
-	Failed    int `json:"failed"`
-	Abandoned int `json:"abandoned"`
-	InBackoff int `json:"in_backoff"`
+	Iteration    int `json:"iteration"`
+	CurrentTurns int `json:"current_turns"`
+	TotalSeen    int `json:"total_seen"`
+	Completed    int `json:"completed"`
+	Failed       int `json:"failed"`
+	Abandoned    int `json:"abandoned"`
+	InBackoff    int `json:"in_backoff"`
 }
 
 // StopParams contains parameters for the stop method.

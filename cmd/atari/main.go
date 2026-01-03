@@ -566,6 +566,9 @@ Use --daemon to run in the background.`,
 			fmt.Printf("Status: %s\n", status.Status)
 			if status.CurrentBead != "" {
 				fmt.Printf("Current bead: %s\n", status.CurrentBead)
+				if status.Stats.CurrentTurns > 0 {
+					fmt.Printf("Current turns: %d\n", status.Stats.CurrentTurns)
+				}
 			}
 			fmt.Printf("Uptime: %s\n", status.Uptime)
 			fmt.Printf("Started: %s\n", status.StartTime)
