@@ -143,6 +143,11 @@ func (m *Manager) filterEligible(beads []Bead) []Bead {
 	now := time.Now()
 
 	for _, bead := range beads {
+		// Skip epics - they are containers, not work items
+		if bead.IssueType == "epic" {
+			continue
+		}
+
 		history := m.history[bead.ID]
 		if history == nil {
 			// Never seen before - eligible

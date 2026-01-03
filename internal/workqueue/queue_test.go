@@ -346,6 +346,36 @@ func TestFilterEligible_NewBeads(t *testing.T) {
 	}
 }
 
+func TestFilterEligible_ExcludesEpics(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, testutil.NewMockRunner())
+
+	beads := []Bead{
+		{ID: "bd-001", Priority: 1, IssueType: "task"},
+		{ID: "bd-002", Priority: 2, IssueType: "epic"},
+		{ID: "bd-003", Priority: 3, IssueType: "bug"},
+	}
+
+	eligible := m.filterEligible(beads)
+	if len(eligible) != 2 {
+		t.Errorf("expected 2 eligible beads (excluding epic), got %d", len(eligible))
+	}
+
+	// Verify the epic is excluded
+	for _, b := range eligible {
+		if b.IssueType == "epic" {
+			t.Errorf("epic should have been filtered out, but found %s", b.ID)
+		}
+	}
+	// Verify task and bug are included
+	if eligible[0].ID != "bd-001" {
+		t.Errorf("expected bd-001, got %s", eligible[0].ID)
+	}
+	if eligible[1].ID != "bd-003" {
+		t.Errorf("expected bd-003, got %s", eligible[1].ID)
+	}
+}
+
 func TestFilterEligible_ExcludesCompleted(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, testutil.NewMockRunner())
