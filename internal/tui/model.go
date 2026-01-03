@@ -111,6 +111,9 @@ type model struct {
 	graphOpen bool
 	focusMode FocusedPane // FocusModeNone for normal, or pane index for fullscreen
 
+	// Modal state
+	detailModal *DetailModal
+
 	// Callbacks
 	onPause  func()
 	onResume func()
@@ -129,6 +132,7 @@ func newModel(
 	onPause, onResume, onQuit func(),
 	statsGetter StatsGetter,
 	obs *observer.Observer,
+	graphFetcher BeadFetcher,
 ) model {
 	return model{
 		eventChan:    eventChan,
@@ -141,6 +145,7 @@ func newModel(
 		observerPane: NewObserverPane(obs),
 		layout:       LayoutHorizontal,
 		focusMode:    FocusModeNone,
+		detailModal:  NewDetailModal(graphFetcher),
 	}
 }
 

@@ -13,8 +13,10 @@ import (
 type mockFetcher struct {
 	activeBeads  []GraphBead
 	backlogBeads []GraphBead
+	beadByID     map[string]GraphBead
 	activeErr    error
 	backlogErr   error
+	beadErr      error
 }
 
 func (m *mockFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
@@ -29,6 +31,30 @@ func (m *mockFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 		return nil, m.backlogErr
 	}
 	return m.backlogBeads, nil
+}
+
+func (m *mockFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
+	if m.beadErr != nil {
+		return nil, m.beadErr
+	}
+	if m.beadByID != nil {
+		if bead, ok := m.beadByID[id]; ok {
+			return &bead, nil
+		}
+	}
+	// Search in active beads
+	for _, b := range m.activeBeads {
+		if b.ID == id {
+			return &b, nil
+		}
+	}
+	// Search in backlog beads
+	for _, b := range m.backlogBeads {
+		if b.ID == id {
+			return &b, nil
+		}
+	}
+	return nil, errors.New("bead not found")
 }
 
 func defaultGraphConfig() *config.GraphConfig {

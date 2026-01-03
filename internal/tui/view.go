@@ -24,18 +24,40 @@ func (m model) View() string {
 		return m.renderTooSmall()
 	}
 
+	// Get base content
+	var baseContent string
+
 	// Check for fullscreen focus mode
 	if m.focusMode != FocusModeNone {
-		return m.renderFullscreenPane()
+		baseContent = m.renderFullscreenPane()
+	} else if m.anyPaneOpen() {
+		// If any secondary pane is open, render split layout
+		baseContent = m.renderSplitView()
+	} else {
+		// Single pane view (events only)
+		baseContent = m.renderEventsOnlyView()
 	}
 
-	// If any secondary pane is open, render split layout
-	if m.anyPaneOpen() {
-		return m.renderSplitView()
+	// Overlay modal if open
+	if m.detailModal != nil && m.detailModal.IsOpen() {
+		return m.renderWithModalOverlay(baseContent)
 	}
 
-	// Single pane view (events only)
-	return m.renderEventsOnlyView()
+	return baseContent
+}
+
+// renderWithModalOverlay renders the modal centered over the base content.
+func (m model) renderWithModalOverlay(baseContent string) string {
+	// Get modal content
+	modalContent := m.detailModal.View(m.width, m.height)
+	if modalContent == "" {
+		return baseContent
+	}
+
+	// Center the modal on screen
+	centeredModal := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modalContent)
+
+	return centeredModal
 }
 
 // renderFullscreenPane renders a single pane in fullscreen mode.

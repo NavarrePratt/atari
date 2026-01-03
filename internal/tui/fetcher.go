@@ -14,6 +14,8 @@ type BeadFetcher interface {
 	FetchActive(ctx context.Context) ([]GraphBead, error)
 	// FetchBacklog retrieves beads with deferred status.
 	FetchBacklog(ctx context.Context) ([]GraphBead, error)
+	// FetchBead retrieves full details for a single bead by ID.
+	FetchBead(ctx context.Context, id string) (*GraphBead, error)
 }
 
 // BDFetcher implements BeadFetcher using the bd CLI.
@@ -47,6 +49,35 @@ func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 	}
 
 	return parseBeads(output)
+}
+
+// FetchBead retrieves full details for a single bead by ID.
+func (f *BDFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
+	output, err := f.cmdRunner.Run(ctx, "bd", "show", id, "--json")
+	if err != nil {
+		return nil, fmt.Errorf("bd show %s failed: %w", id, err)
+	}
+
+	return parseBead(output)
+}
+
+// parseBead parses JSON output from bd show into a single GraphBead.
+func parseBead(data []byte) (*GraphBead, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty response")
+	}
+
+	// bd show --json returns an array with one element
+	var beads []GraphBead
+	if err := json.Unmarshal(data, &beads); err != nil {
+		return nil, fmt.Errorf("failed to parse bead data: %w", err)
+	}
+
+	if len(beads) == 0 {
+		return nil, fmt.Errorf("bead not found")
+	}
+
+	return &beads[0], nil
 }
 
 // parseBeads parses JSON output from bd list into GraphBead slice.

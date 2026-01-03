@@ -93,8 +93,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case GraphOpenModalMsg:
 		// Graph pane requested to open a modal
-		// For now, just log - modal implementation is in bd-drain-shc
+		if m.detailModal != nil && msg.NodeID != "" {
+			node := m.graphPane.GetSelectedNode()
+			if node != nil {
+				cmd := m.detailModal.Open(node)
+				return m, cmd
+			}
+		}
 		return m, nil
+
+	case modalFetchResultMsg:
+		// Forward modal fetch result to modal
+		if m.detailModal != nil {
+			cmd := m.detailModal.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
 
 	default:
 		// Forward unknown messages to focused secondary pane
@@ -117,6 +133,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey processes keyboard input and returns the updated model and command.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If modal is open, forward all keys to modal
+	if m.detailModal != nil && m.detailModal.IsOpen() {
+		cmd := m.detailModal.Update(msg)
+		return m, cmd
+	}
+
 	key := msg.String()
 
 	// Global keys: always work regardless of focus
@@ -291,6 +313,8 @@ func (m *model) handleEvent(event events.Event) {
 			StartTime: event.Timestamp(),
 		}
 		m.stats.CurrentDurationMs = 0
+		// Update graph pane with current bead for highlighting
+		m.graphPane.SetCurrentBead(e.BeadID)
 
 	case *events.IterationEndEvent:
 		m.currentBead = nil
@@ -305,6 +329,8 @@ func (m *model) handleEvent(event events.Event) {
 		m.stats.TotalTurns += e.NumTurns
 		m.stats.TotalDurationMs += e.DurationMs
 		m.stats.CurrentDurationMs = 0
+		// Clear current bead highlighting in graph pane
+		m.graphPane.SetCurrentBead("")
 
 	case *events.TurnCompleteEvent:
 		m.currentSessionTurns = e.TurnNumber

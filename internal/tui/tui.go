@@ -19,12 +19,13 @@ type StatsGetter interface {
 
 // TUI is the terminal UI for monitoring atari.
 type TUI struct {
-	eventChan   <-chan events.Event
-	onPause     func()
-	onResume    func()
-	onQuit      func()
-	statsGetter StatsGetter
-	observer    *observer.Observer
+	eventChan    <-chan events.Event
+	onPause      func()
+	onResume     func()
+	onQuit       func()
+	statsGetter  StatsGetter
+	observer     *observer.Observer
+	graphFetcher BeadFetcher
 }
 
 // Option configures the TUI.
@@ -78,6 +79,13 @@ func WithObserver(obs *observer.Observer) Option {
 	}
 }
 
+// WithGraphFetcher sets the bead fetcher for graph visualization.
+func WithGraphFetcher(fetcher BeadFetcher) Option {
+	return func(t *TUI) {
+		t.graphFetcher = fetcher
+	}
+}
+
 // Run starts the TUI and blocks until it exits.
 // If the environment is non-interactive (no TTY) or the terminal is too small,
 // it falls back to simple line-by-line output.
@@ -93,7 +101,7 @@ func (t *TUI) Run() error {
 	}
 
 	// Run the full bubbletea TUI
-	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer)
+	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
