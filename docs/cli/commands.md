@@ -43,7 +43,7 @@ Flags:
       --tui              Enable terminal UI (default if TTY)
       --no-tui           Disable terminal UI
       --log FILE         Log file path (default: .atari/atari.log)
-      --max-turns N      Max turns per Claude session (default: 50)
+      --max-turns N      Max turns per Claude session (default: 0 = unlimited)
       --label LABEL      Filter beads by label
       --prompt FILE      Custom prompt template file
       --model MODEL      Claude model (default: opus)
@@ -82,7 +82,7 @@ func init() {
     startCmd.Flags().Bool("tui", true, "Enable terminal UI")
     startCmd.Flags().Bool("no-tui", false, "Disable terminal UI")
     startCmd.Flags().String("log", "", "Log file path")
-    startCmd.Flags().Int("max-turns", 50, "Max turns per session")
+    startCmd.Flags().Int("max-turns", 0, "Max turns per session (0 = unlimited)")
     startCmd.Flags().String("label", "", "Filter beads by label")
     startCmd.Flags().String("prompt", "", "Custom prompt template")
     startCmd.Flags().String("model", "opus", "Claude model")

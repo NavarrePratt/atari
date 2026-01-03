@@ -296,6 +296,13 @@ Use --daemon to run in the background.`,
 				cfg.BDActivity.Enabled = viper.GetBool(FlagBDActivityEnabled)
 			}
 
+			// Handle max-turns: only add to ExtraArgs if non-zero
+			maxTurns := viper.GetInt(FlagMaxTurns)
+			if maxTurns > 0 {
+				cfg.Claude.ExtraArgs = append(cfg.Claude.ExtraArgs,
+					"--max-turns", fmt.Sprintf("%d", maxTurns))
+			}
+
 			// Find project root for path resolution
 			projectRoot := daemon.FindProjectRoot("")
 
@@ -488,7 +495,7 @@ Use --daemon to run in the background.`,
 	// Start command specific flags
 	startCmd.Flags().Bool(FlagDaemon, false, "Run as a background daemon")
 	startCmd.Flags().Bool(FlagTUI, false, "Enable terminal UI")
-	startCmd.Flags().Int(FlagMaxTurns, 50, "Max turns per Claude session")
+	startCmd.Flags().Int(FlagMaxTurns, 0, "Max turns per Claude session (0 = unlimited)")
 	startCmd.Flags().String(FlagLabel, "", "Filter bd ready by label")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")
 	startCmd.Flags().String(FlagModel, "opus", "Claude model to use")
