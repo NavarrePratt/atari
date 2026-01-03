@@ -623,17 +623,24 @@ func TestWaitForEvent_ReceivesEvent(t *testing.T) {
 
 func TestCycleFocus(t *testing.T) {
 	tests := []struct {
-		name        string
-		startFocus  FocusedPane
-		expectFocus FocusedPane
+		name         string
+		startFocus   FocusedPane
+		observerOpen bool
+		expectFocus  FocusedPane
 	}{
-		{"events to observer", FocusEvents, FocusObserver},
-		{"observer to events", FocusObserver, FocusEvents},
+		{"events to observer", FocusEvents, true, FocusObserver},
+		{"observer to events", FocusObserver, true, FocusEvents},
+		{"events stays on events when no panes open", FocusEvents, false, FocusEvents},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := model{focusedPane: tt.startFocus}
+			m := model{
+				focusedPane:  tt.startFocus,
+				observerOpen: tt.observerOpen,
+				observerPane: NewObserverPane(nil),
+				graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			}
 			m.cycleFocus()
 			if m.focusedPane != tt.expectFocus {
 				t.Errorf("cycleFocus() from %v: got %v, want %v",
@@ -697,15 +704,17 @@ func TestHandleKey_Tab_CyclesFocus(t *testing.T) {
 
 func TestHandleKey_Esc_ReturnsFocusToEvents(t *testing.T) {
 	t.Run("from observer to events", func(t *testing.T) {
-		// Create observer pane and set it as focused
+		// Create observer pane with focus set
 		obsPane := NewObserverPane(nil)
-		obsPane.SetFocused(true)
+		obsPane.focused = true // Set directly to avoid cursor init issues
 
 		m := model{
 			focusedPane:  FocusObserver,
 			observerOpen: true,
 			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
 			status:       "idle",
+			focusMode:    FocusModeNone, // Not in fullscreen mode
 		}
 		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
 		resultM := newM.(model)
@@ -721,7 +730,13 @@ func TestHandleKey_Esc_ReturnsFocusToEvents(t *testing.T) {
 	})
 
 	t.Run("from events stays at events", func(t *testing.T) {
-		m := model{focusedPane: FocusEvents, status: "idle"}
+		m := model{
+			focusedPane:  FocusEvents,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			status:       "idle",
+			focusMode:    FocusModeNone, // Not in fullscreen mode
+		}
 		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
 		resultM := newM.(model)
 

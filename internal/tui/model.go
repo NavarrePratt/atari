@@ -17,7 +17,12 @@ const (
 	FocusEvents FocusedPane = iota
 	// FocusObserver means the observer pane has focus.
 	FocusObserver
+	// FocusGraph means the graph pane has focus.
+	FocusGraph
 )
+
+// FocusModeNone indicates no pane is in fullscreen focus mode.
+const FocusModeNone FocusedPane = -1
 
 // beadInfo holds information about the current bead being processed.
 type beadInfo struct {
@@ -69,6 +74,10 @@ const (
 	minObserverCols = 30
 	// minObserverRows is the minimum height for observer pane.
 	minObserverRows = 8
+	// minGraphCols is the minimum width for graph pane.
+	minGraphCols = 30
+	// minGraphRows is the minimum height for graph pane.
+	minGraphRows = 10
 )
 
 // model is the bubbletea model for the TUI.
@@ -96,6 +105,11 @@ type model struct {
 	observerPane ObserverPane
 	observerOpen bool
 	layout       LayoutMode
+
+	// Graph state
+	graphPane GraphPane
+	graphOpen bool
+	focusMode FocusedPane // FocusModeNone for normal, or pane index for fullscreen
 
 	// Callbacks
 	onPause  func()
@@ -126,6 +140,7 @@ func newModel(
 		statsGetter:  statsGetter,
 		observerPane: NewObserverPane(obs),
 		layout:       LayoutHorizontal,
+		focusMode:    FocusModeNone,
 	}
 }
 
@@ -135,6 +150,7 @@ func (m *model) toggleObserver() {
 	if m.observerOpen {
 		m.focusedPane = FocusObserver
 		m.observerPane.SetFocused(true)
+		m.graphPane.SetFocused(false)
 	} else {
 		m.focusedPane = FocusEvents
 		m.observerPane.SetFocused(false)
@@ -142,35 +158,145 @@ func (m *model) toggleObserver() {
 	m.updatePaneSizes()
 }
 
+// toggleGraph toggles the graph pane visibility.
+func (m *model) toggleGraph() {
+	m.graphOpen = !m.graphOpen
+	if m.graphOpen {
+		m.focusedPane = FocusGraph
+		m.graphPane.SetFocused(true)
+		m.observerPane.SetFocused(false)
+	} else {
+		m.focusedPane = FocusEvents
+		m.graphPane.SetFocused(false)
+	}
+	m.updatePaneSizes()
+}
+
 // updatePaneSizes recalculates pane dimensions based on current layout.
 func (m *model) updatePaneSizes() {
-	if !m.observerOpen {
-		// Observer closed - events pane gets full width/height
+	// Count visible panes (events is always visible)
+	numPanes := 1
+	if m.observerOpen {
+		numPanes++
+	}
+	if m.graphOpen {
+		numPanes++
+	}
+
+	if numPanes == 1 {
+		// Only events pane - gets full size
 		return
 	}
 
-	// Calculate observer pane size based on layout
+	// Calculate sizes based on layout mode
 	if m.layout == LayoutHorizontal {
-		observerWidth := m.width * (100 - eventsWidthPercent) / 100
+		m.updateHorizontalPaneSizes(numPanes)
+	} else {
+		m.updateVerticalPaneSizes(numPanes)
+	}
+}
+
+// updateHorizontalPaneSizes calculates pane sizes for horizontal layout.
+func (m *model) updateHorizontalPaneSizes(numPanes int) {
+	// Events always takes eventsWidthPercent
+	eventsWidth := m.width * eventsWidthPercent / 100
+	remainingWidth := m.width - eventsWidth
+
+	if numPanes == 2 {
+		// Two panes: events + (observer OR graph)
+		paneWidth := remainingWidth
+		if m.observerOpen {
+			if paneWidth < minObserverCols {
+				paneWidth = minObserverCols
+			}
+			m.observerPane.SetSize(paneWidth-2, m.height-2)
+		} else {
+			if paneWidth < minGraphCols {
+				paneWidth = minGraphCols
+			}
+			m.graphPane.SetSize(paneWidth-2, m.height-2)
+		}
+	} else {
+		// Three panes: split remaining width between observer and graph
+		halfWidth := remainingWidth / 2
+		observerWidth := halfWidth
+		graphWidth := remainingWidth - halfWidth
+
 		if observerWidth < minObserverCols {
 			observerWidth = minObserverCols
 		}
-		m.observerPane.SetSize(observerWidth-2, m.height-2) // Account for borders
+		if graphWidth < minGraphCols {
+			graphWidth = minGraphCols
+		}
+
+		m.observerPane.SetSize(observerWidth-2, m.height-2)
+		m.graphPane.SetSize(graphWidth-2, m.height-2)
+	}
+}
+
+// updateVerticalPaneSizes calculates pane sizes for vertical layout.
+func (m *model) updateVerticalPaneSizes(numPanes int) {
+	// Events always takes eventsHeightPercent
+	eventsHeight := m.height * eventsHeightPercent / 100
+	remainingHeight := m.height - eventsHeight
+
+	if numPanes == 2 {
+		// Two panes: events + (observer OR graph)
+		paneHeight := remainingHeight
+		if m.observerOpen {
+			if paneHeight < minObserverRows {
+				paneHeight = minObserverRows
+			}
+			m.observerPane.SetSize(m.width-2, paneHeight-2)
+		} else {
+			if paneHeight < minGraphRows {
+				paneHeight = minGraphRows
+			}
+			m.graphPane.SetSize(m.width-2, paneHeight-2)
+		}
 	} else {
-		observerHeight := m.height * (100 - eventsHeightPercent) / 100
+		// Three panes: split remaining height between observer and graph
+		halfHeight := remainingHeight / 2
+		observerHeight := halfHeight
+		graphHeight := remainingHeight - halfHeight
+
 		if observerHeight < minObserverRows {
 			observerHeight = minObserverRows
 		}
-		m.observerPane.SetSize(m.width-2, observerHeight-2) // Account for borders
+		if graphHeight < minGraphRows {
+			graphHeight = minGraphRows
+		}
+
+		m.observerPane.SetSize(m.width-2, observerHeight-2)
+		m.graphPane.SetSize(m.width-2, graphHeight-2)
 	}
 }
 
 // canShowSplitLayout returns true if terminal is large enough for split view.
 func (m model) canShowSplitLayout() bool {
-	if m.layout == LayoutHorizontal {
-		return m.width >= minEventsCols+minObserverCols+4 // +4 for borders
+	// Calculate minimum required size based on which panes are open
+	minWidth := minEventsCols + 4 // events + borders
+	minHeight := minEventsRows + 4
+
+	if m.observerOpen {
+		if m.layout == LayoutHorizontal {
+			minWidth += minObserverCols
+		} else {
+			minHeight += minObserverRows
+		}
 	}
-	return m.height >= minEventsRows+minObserverRows+4
+	if m.graphOpen {
+		if m.layout == LayoutHorizontal {
+			minWidth += minGraphCols
+		} else {
+			minHeight += minGraphRows
+		}
+	}
+
+	if m.layout == LayoutHorizontal {
+		return m.width >= minWidth
+	}
+	return m.height >= minHeight
 }
 
 // Init implements tea.Model.
@@ -191,12 +317,30 @@ func (m model) visibleLines() int {
 	return max(1, m.height-8)
 }
 
-// cycleFocus advances focus to the next pane.
+// cycleFocus advances focus to the next visible pane.
+// Order: Events -> Observer (if open) -> Graph (if open) -> Events
 func (m *model) cycleFocus() {
+	m.observerPane.SetFocused(false)
+	m.graphPane.SetFocused(false)
+
 	switch m.focusedPane {
 	case FocusEvents:
-		m.focusedPane = FocusObserver
+		if m.observerOpen {
+			m.focusedPane = FocusObserver
+			m.observerPane.SetFocused(true)
+		} else if m.graphOpen {
+			m.focusedPane = FocusGraph
+			m.graphPane.SetFocused(true)
+		}
+		// If neither is open, stay on events
 	case FocusObserver:
+		if m.graphOpen {
+			m.focusedPane = FocusGraph
+			m.graphPane.SetFocused(true)
+		} else {
+			m.focusedPane = FocusEvents
+		}
+	case FocusGraph:
 		m.focusedPane = FocusEvents
 	}
 }
@@ -204,4 +348,14 @@ func (m *model) cycleFocus() {
 // isObserverFocused returns true if the observer pane has focus.
 func (m model) isObserverFocused() bool {
 	return m.focusedPane == FocusObserver
+}
+
+// isGraphFocused returns true if the graph pane has focus.
+func (m model) isGraphFocused() bool {
+	return m.focusedPane == FocusGraph
+}
+
+// anyPaneOpen returns true if observer or graph pane is open.
+func (m model) anyPaneOpen() bool {
+	return m.observerOpen || m.graphOpen
 }

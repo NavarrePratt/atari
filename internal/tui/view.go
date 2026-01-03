@@ -24,13 +24,30 @@ func (m model) View() string {
 		return m.renderTooSmall()
 	}
 
-	// If observer is open, render split layout
-	if m.observerOpen {
+	// Check for fullscreen focus mode
+	if m.focusMode != FocusModeNone {
+		return m.renderFullscreenPane()
+	}
+
+	// If any secondary pane is open, render split layout
+	if m.anyPaneOpen() {
 		return m.renderSplitView()
 	}
 
 	// Single pane view (events only)
 	return m.renderEventsOnlyView()
+}
+
+// renderFullscreenPane renders a single pane in fullscreen mode.
+func (m model) renderFullscreenPane() string {
+	switch m.focusMode {
+	case FocusObserver:
+		return m.renderObserverPane(m.width, m.height)
+	case FocusGraph:
+		return m.renderGraphPane(m.width, m.height)
+	default:
+		return m.renderEventsOnlyView()
+	}
 }
 
 // renderEventsOnlyView renders the full-width events view when observer is closed.
@@ -58,7 +75,7 @@ func (m model) renderEventsOnlyView() string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, rendered)
 }
 
-// renderSplitView renders the split layout with events and observer panes.
+// renderSplitView renders the split layout with events and secondary panes.
 func (m model) renderSplitView() string {
 	// Check if we can fit split layout
 	if !m.canShowSplitLayout() {
@@ -72,56 +89,114 @@ func (m model) renderSplitView() string {
 	return m.renderVerticalSplit()
 }
 
-// renderHorizontalSplit renders events left, observer right.
+// renderHorizontalSplit renders events left, secondary panes right.
 func (m model) renderHorizontalSplit() string {
 	// Calculate pane widths
 	eventsWidth := m.width * eventsWidthPercent / 100
-	observerWidth := m.width - eventsWidth
+	remainingWidth := m.width - eventsWidth
 
-	// Enforce minimums
+	// Enforce minimums for events
 	if eventsWidth < minEventsCols {
 		eventsWidth = minEventsCols
-		observerWidth = m.width - eventsWidth
-	}
-	if observerWidth < minObserverCols {
-		observerWidth = minObserverCols
-		eventsWidth = m.width - observerWidth
+		remainingWidth = m.width - eventsWidth
 	}
 
 	// Render events pane
 	eventsPane := m.renderEventsPane(eventsWidth, m.height)
 
-	// Render observer pane
-	observerPane := m.renderObserverPane(observerWidth, m.height)
+	// Determine secondary panes based on what's open
+	var secondaryPanes []string
 
-	// Join horizontally
-	return lipgloss.JoinHorizontal(lipgloss.Top, eventsPane, observerPane)
+	if m.observerOpen && m.graphOpen {
+		// Both open - split remaining width
+		halfWidth := remainingWidth / 2
+		observerWidth := halfWidth
+		graphWidth := remainingWidth - halfWidth
+
+		if observerWidth < minObserverCols {
+			observerWidth = minObserverCols
+		}
+		if graphWidth < minGraphCols {
+			graphWidth = minGraphCols
+		}
+
+		secondaryPanes = append(secondaryPanes, m.renderObserverPane(observerWidth, m.height))
+		secondaryPanes = append(secondaryPanes, m.renderGraphPane(graphWidth, m.height))
+	} else if m.observerOpen {
+		// Only observer
+		observerWidth := remainingWidth
+		if observerWidth < minObserverCols {
+			observerWidth = minObserverCols
+		}
+		secondaryPanes = append(secondaryPanes, m.renderObserverPane(observerWidth, m.height))
+	} else if m.graphOpen {
+		// Only graph
+		graphWidth := remainingWidth
+		if graphWidth < minGraphCols {
+			graphWidth = minGraphCols
+		}
+		secondaryPanes = append(secondaryPanes, m.renderGraphPane(graphWidth, m.height))
+	}
+
+	// Join all panes horizontally
+	allPanes := []string{eventsPane}
+	allPanes = append(allPanes, secondaryPanes...)
+	return lipgloss.JoinHorizontal(lipgloss.Top, allPanes...)
 }
 
-// renderVerticalSplit renders events top, observer bottom.
+// renderVerticalSplit renders events top, secondary panes bottom.
 func (m model) renderVerticalSplit() string {
 	// Calculate pane heights
 	eventsHeight := m.height * eventsHeightPercent / 100
-	observerHeight := m.height - eventsHeight
+	remainingHeight := m.height - eventsHeight
 
-	// Enforce minimums
+	// Enforce minimums for events
 	if eventsHeight < minEventsRows {
 		eventsHeight = minEventsRows
-		observerHeight = m.height - eventsHeight
-	}
-	if observerHeight < minObserverRows {
-		observerHeight = minObserverRows
-		eventsHeight = m.height - observerHeight
+		remainingHeight = m.height - eventsHeight
 	}
 
 	// Render events pane
 	eventsPane := m.renderEventsPane(m.width, eventsHeight)
 
-	// Render observer pane
-	observerPane := m.renderObserverPane(m.width, observerHeight)
+	// Determine secondary panes based on what's open
+	var secondaryPanes []string
 
-	// Join vertically
-	return lipgloss.JoinVertical(lipgloss.Left, eventsPane, observerPane)
+	if m.observerOpen && m.graphOpen {
+		// Both open - split remaining height
+		halfHeight := remainingHeight / 2
+		observerHeight := halfHeight
+		graphHeight := remainingHeight - halfHeight
+
+		if observerHeight < minObserverRows {
+			observerHeight = minObserverRows
+		}
+		if graphHeight < minGraphRows {
+			graphHeight = minGraphRows
+		}
+
+		secondaryPanes = append(secondaryPanes, m.renderObserverPane(m.width, observerHeight))
+		secondaryPanes = append(secondaryPanes, m.renderGraphPane(m.width, graphHeight))
+	} else if m.observerOpen {
+		// Only observer
+		observerHeight := remainingHeight
+		if observerHeight < minObserverRows {
+			observerHeight = minObserverRows
+		}
+		secondaryPanes = append(secondaryPanes, m.renderObserverPane(m.width, observerHeight))
+	} else if m.graphOpen {
+		// Only graph
+		graphHeight := remainingHeight
+		if graphHeight < minGraphRows {
+			graphHeight = minGraphRows
+		}
+		secondaryPanes = append(secondaryPanes, m.renderGraphPane(m.width, graphHeight))
+	}
+
+	// Join all panes vertically
+	allPanes := []string{eventsPane}
+	allPanes = append(allPanes, secondaryPanes...)
+	return lipgloss.JoinVertical(lipgloss.Left, allPanes...)
 }
 
 // renderEventsPane renders the events pane within the given dimensions.
@@ -167,6 +242,27 @@ func (m model) renderObserverPane(width, height int) string {
 
 	// Get focus-aware container style
 	containerStyle := m.containerStyleForFocus(FocusObserver)
+
+	return containerStyle.
+		Width(innerWidth).
+		Height(innerHeight).
+		Render(content)
+}
+
+// renderGraphPane renders the graph pane within the given dimensions.
+func (m model) renderGraphPane(width, height int) string {
+	// Account for borders
+	innerWidth := safeWidth(width - 2)
+	innerHeight := height - 2
+
+	// Update graph pane size
+	m.graphPane.SetSize(innerWidth, innerHeight)
+
+	// Get graph pane content
+	content := m.graphPane.View()
+
+	// Get focus-aware container style
+	containerStyle := m.containerStyleForFocus(FocusGraph)
 
 	return containerStyle.
 		Width(innerWidth).
@@ -420,31 +516,52 @@ func (m model) renderEventLine(el eventLine, maxWidth int) string {
 func (m model) renderFooter() string {
 	var help string
 
-	// Show different help based on focus and observer state
-	if m.observerOpen && m.isObserverFocused() {
+	// Show different help based on focus and pane states
+	switch {
+	case m.isObserverFocused() && m.observerOpen:
 		help = "enter: ask  tab: switch  esc: close  ctrl+c: quit"
-	} else if m.observerOpen {
-		// Events pane focused, observer open
-		switch m.status {
-		case "paused", "pausing...", "pausing":
-			help = "r: resume  tab: switch  q: quit  ↑/↓: scroll"
-		case "stopped":
-			help = "tab: switch  q: quit  ↑/↓: scroll  g/G: top/bottom"
-		default:
-			help = "p: pause  tab: switch  q: quit  ↑/↓: scroll"
-		}
-	} else {
-		// Observer closed - show 'o' to open
-		switch m.status {
-		case "paused", "pausing...", "pausing":
-			help = "r: resume  o: observer  q: quit  ↑/↓: scroll  g/G: top/bottom"
-		case "stopped":
-			help = "o: observer  q: quit  ↑/↓: scroll  g/G: top/bottom"
-		default:
-			help = "p: pause  o: observer  q: quit  ↑/↓: scroll  g/G: top/bottom"
-		}
+
+	case m.isGraphFocused() && m.graphOpen:
+		help = "↑/↓/←/→: nav  d: density  a: view  R: refresh  tab: switch  esc: close"
+
+	case m.focusedPane == FocusEvents:
+		help = m.renderEventsFooter()
 	}
+
 	return styles.Footer.Render(help)
+}
+
+// renderEventsFooter returns footer help when events pane is focused.
+func (m model) renderEventsFooter() string {
+	var parts []string
+
+	// Pause/resume based on status
+	switch m.status {
+	case "paused", "pausing...", "pausing":
+		parts = append(parts, "r: resume")
+	case "stopped":
+		// No pause/resume for stopped state
+	default:
+		parts = append(parts, "p: pause")
+	}
+
+	// Panel toggles based on what's open
+	if !m.observerOpen {
+		parts = append(parts, "o: observer")
+	}
+	if !m.graphOpen {
+		parts = append(parts, "b: beads")
+	}
+
+	// Tab switch if any secondary pane is open
+	if m.anyPaneOpen() {
+		parts = append(parts, "tab: switch")
+	}
+
+	// Common controls
+	parts = append(parts, "q: quit", "↑/↓: scroll")
+
+	return strings.Join(parts, "  ")
 }
 
 // safeWidth returns a width that is at least 1 to prevent negative values.

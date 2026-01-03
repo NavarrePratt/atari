@@ -80,11 +80,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case graphTickMsg, graphResultMsg, graphStartLoadingMsg:
+		// Forward graph messages to graph pane
+		if m.graphOpen {
+			var cmd tea.Cmd
+			m.graphPane, cmd = m.graphPane.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case GraphOpenModalMsg:
+		// Graph pane requested to open a modal
+		// For now, just log - modal implementation is in bd-drain-shc
+		return m, nil
+
 	default:
-		// Forward unknown messages to observer pane if focused
+		// Forward unknown messages to focused secondary pane
 		if m.observerOpen && m.isObserverFocused() {
 			var cmd tea.Cmd
 			m.observerPane, cmd = m.observerPane.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else if m.graphOpen && m.isGraphFocused() {
+			var cmd tea.Cmd
+			m.graphPane, cmd = m.graphPane.Update(msg)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -112,14 +134,18 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "tab":
-		// Only cycle focus if observer is open
-		if m.observerOpen {
+		// Cycle focus if any secondary pane is open
+		if m.anyPaneOpen() {
 			m.cycleFocus()
-			m.observerPane.SetFocused(m.isObserverFocused())
 		}
 		return m, nil
 
 	case "esc":
+		// Exit fullscreen mode if active
+		if m.focusMode != FocusModeNone {
+			m.focusMode = FocusModeNone
+			return m, nil
+		}
 		// When observer is focused, first try to clear input/error
 		if m.isObserverFocused() && m.observerOpen {
 			var cmd tea.Cmd
@@ -131,6 +157,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
+		// When graph is focused, close it
+		if m.isGraphFocused() && m.graphOpen {
+			var cmd tea.Cmd
+			m.graphPane, cmd = m.graphPane.Update(msg)
+			// If graph unfocused itself, close the pane
+			if !m.graphPane.IsFocused() {
+				m.toggleGraph()
+			}
+			return m, cmd
+		}
 		return m, nil
 	}
 
@@ -138,6 +174,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.observerOpen && m.isObserverFocused() {
 		var cmd tea.Cmd
 		m.observerPane, cmd = m.observerPane.Update(msg)
+		return m, cmd
+	}
+
+	// When graph is focused, forward keys to graph pane
+	if m.graphOpen && m.isGraphFocused() {
+		var cmd tea.Cmd
+		m.graphPane, cmd = m.graphPane.Update(msg)
 		return m, cmd
 	}
 
@@ -152,6 +195,39 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "o":
 		// Toggle observer pane
 		m.toggleObserver()
+		return m, nil
+
+	case "b":
+		// Toggle graph pane
+		m.toggleGraph()
+		return m, m.graphPane.Init()
+
+	case "B":
+		// Toggle fullscreen graph mode
+		if m.graphOpen {
+			if m.focusMode == FocusGraph {
+				m.focusMode = FocusModeNone
+			} else {
+				m.focusMode = FocusGraph
+				m.focusedPane = FocusGraph
+				m.graphPane.SetFocused(true)
+				m.observerPane.SetFocused(false)
+			}
+		}
+		return m, nil
+
+	case "O":
+		// Toggle fullscreen observer mode
+		if m.observerOpen {
+			if m.focusMode == FocusObserver {
+				m.focusMode = FocusModeNone
+			} else {
+				m.focusMode = FocusObserver
+				m.focusedPane = FocusObserver
+				m.observerPane.SetFocused(true)
+				m.graphPane.SetFocused(false)
+			}
+		}
 		return m, nil
 
 	case "p":
