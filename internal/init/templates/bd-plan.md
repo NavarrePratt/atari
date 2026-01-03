@@ -52,7 +52,7 @@ Stop searching a category once you find an authoritative source.
 ### Codex Discovery
 Use the codex MCP tool for additional discovery:
 ```
-mcp__codex__codex
+mcp__codex__codex with model: "gpt-5.1-codex-mini"
 prompt: "Explore [topic]. Find all relevant code, patterns, edge cases, and potential issues. Report findings comprehensively."
 ```
 Cross-reference Codex findings with Explore results to ensure nothing is missed.
@@ -75,27 +75,27 @@ Use multi-round refinement for thorough planning:
 Use the Plan subagent with **model: "haiku"** to design implementation approach based on discovery synthesis.
 
 ### Step 2: Collaborative Debate (2-4 rounds, until consensus or escalation)
-Claude and Codex debate back-and-forth to refine the plan:
+Claude (Haiku) and Codex (gpt-5.1-codex-mini) debate back-and-forth to refine the plan:
 
 **Round 1 - Dual Critique**:
-- **Claude**: List 5-10 specific gaps, risks, or edge cases in the plan. For each, explain why it matters.
-- **Codex**: Use `mcp__codex__codex`:
+- **Claude (Haiku)**: List 5-10 specific gaps, risks, or edge cases in the plan. For each, explain why it matters.
+- **Codex**: Use `mcp__codex__codex` with model "gpt-5.1-codex-mini":
   ```
   prompt: "Review this implementation plan: [plan]. List 5-10 specific gaps, conflicts, or risks. For each issue: (1) What could break? (2) What assumption might be wrong? (3) Suggest a concrete mitigation."
   ```
 - Synthesize both critiques. If >3 critical issues overlap, they are high-priority fixes.
 
 **Round 2 - Address & Counter**:
-- **Claude**: Propose specific revisions for each Round 1 concern. State which you accept, reject (with rationale), or defer.
-- **Codex**: Use `mcp__codex__codex`:
+- **Claude (Haiku)**: Propose specific revisions for each Round 1 concern. State which you accept, reject (with rationale), or defer.
+- **Codex**: Use `mcp__codex__codex` with model "gpt-5.1-codex-mini":
   ```
   prompt: "Claude proposes these revisions: [revisions]. For each: (1) Does it actually solve the concern? (2) What breaks if Claude's assumption is wrong? (3) Suggest 1-2 concrete alternatives for weak points."
   ```
 - Integrate valid counterpoints. If fundamental disagreement on architecture, pause and re-examine discovery findings.
 
 **Round 3 - Final Consensus** (skip if Round 2 achieved consensus):
-- **Claude**: Present refined plan with all incorporated feedback. List any unresolved disagreements.
-- **Codex**: Use `mcp__codex__codex`:
+- **Claude (Haiku)**: Present refined plan with all incorporated feedback. List any unresolved disagreements.
+- **Codex**: Use `mcp__codex__codex` with model "gpt-5.1-codex-mini":
   ```
   prompt: "Final plan review: [plan]. Verify: (1) All discovered edge cases addressed or explicitly deferred? (2) Error/failure paths defined? (3) Testing strategy clear? (4) Dependencies sequenced correctly? List any gaps."
   ```
