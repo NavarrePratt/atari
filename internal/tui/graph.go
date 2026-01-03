@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/npratt/atari/internal/config"
 )
 
@@ -569,4 +571,391 @@ func pluralize(count int, singular, plural string) string {
 		return "1 " + singular
 	}
 	return fmt.Sprintf("%d %s", count, plural)
+}
+
+// statusIcon returns a single-character icon for the given status.
+func statusIcon(status string) string {
+	switch status {
+	case "open":
+		return "o"
+	case "in_progress":
+		return "*"
+	case "blocked":
+		return "x"
+	case "deferred":
+		return "-"
+	case "closed":
+		return "."
+	default:
+		return "?"
+	}
+}
+
+// priorityLabel returns a short priority label (P0-P4).
+func priorityLabel(priority int) string {
+	if priority < 0 || priority > 4 {
+		return "P?"
+	}
+	return fmt.Sprintf("P%d", priority)
+}
+
+// CycleDensity cycles through density levels and updates config.
+func (g *Graph) CycleDensity() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	current := ParseDensity(g.config.Density)
+	var next NodeDensity
+	switch current {
+	case DensityCompact:
+		next = DensityStandard
+	case DensityStandard:
+		next = DensityDetailed
+	case DensityDetailed:
+		next = DensityCompact
+	}
+	g.config.Density = next.String()
+
+	// Recompute layout with new dimensions
+	if len(g.nodes) > 0 {
+		g.positionNodes()
+	}
+}
+
+// GetDensity returns the current density level.
+func (g *Graph) GetDensity() NodeDensity {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return ParseDensity(g.config.Density)
+}
+
+// Render renders the graph to a string for the given viewport dimensions.
+func (g *Graph) Render(width, height int) string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.computed == nil || len(g.nodes) == 0 {
+		return g.renderEmpty(width, height)
+	}
+
+	// Create a 2D character grid
+	grid := newGrid(width, height)
+
+	// Collect visible nodes (not children of collapsed epics)
+	visibleNodes := g.getVisibleNodes()
+
+	// Render edges first (so nodes draw on top)
+	g.renderEdges(grid, visibleNodes)
+
+	// Render nodes
+	for _, nodeID := range visibleNodes {
+		g.renderNodeToGrid(grid, nodeID)
+	}
+
+	return grid.String()
+}
+
+// renderEmpty renders a placeholder for an empty graph.
+func (g *Graph) renderEmpty(width, height int) string {
+	msg := "No beads to display"
+	if width < len(msg) {
+		msg = "Empty"
+	}
+	// Center the message
+	padLeft := (width - len(msg)) / 2
+	if padLeft < 0 {
+		padLeft = 0
+	}
+	line := strings.Repeat(" ", padLeft) + msg
+	if len(line) < width {
+		line += strings.Repeat(" ", width-len(line))
+	}
+	// Put in middle vertically
+	var lines []string
+	midY := height / 2
+	for y := 0; y < height; y++ {
+		if y == midY {
+			lines = append(lines, line)
+		} else {
+			lines = append(lines, strings.Repeat(" ", width))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// getVisibleNodes returns IDs of nodes that should be rendered.
+// Excludes children of collapsed epics.
+func (g *Graph) getVisibleNodes() []string {
+	var visible []string
+	for _, nodeID := range g.allNodeIDs() {
+		if g.isNodeVisible(nodeID) {
+			visible = append(visible, nodeID)
+		}
+	}
+	return visible
+}
+
+// allNodeIDs returns all node IDs in layer order.
+func (g *Graph) allNodeIDs() []string {
+	var ids []string
+	if g.computed != nil {
+		for _, layer := range g.computed.Layers {
+			ids = append(ids, layer...)
+		}
+	}
+	return ids
+}
+
+// isNodeVisible returns true if the node should be rendered.
+// Returns false if any ancestor is collapsed.
+func (g *Graph) isNodeVisible(nodeID string) bool {
+	// Check if any parent in hierarchy is collapsed
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy && edge.To == nodeID {
+			if g.collapsed[edge.From] {
+				return false
+			}
+			// Recursively check grandparents
+			if !g.isNodeVisible(edge.From) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// renderNodeToGrid renders a single node to the grid.
+func (g *Graph) renderNodeToGrid(grid *charGrid, nodeID string) {
+	node := g.nodes[nodeID]
+	if node == nil {
+		return
+	}
+
+	pos, ok := g.computed.Positions[nodeID]
+	if !ok {
+		return
+	}
+
+	// Adjust for viewport offset
+	x := pos.X - g.viewport.OffsetX
+	y := pos.Y - g.viewport.OffsetY
+
+	// Skip if completely outside viewport
+	if x+pos.W < 0 || x >= grid.width || y+pos.H < 0 || y >= grid.height {
+		return
+	}
+
+	// Determine style
+	isCurrent := nodeID == g.currentBead
+	isSelected := nodeID == g.selected
+	isCollapsedEpic := node.IsEpic && g.collapsed[nodeID]
+	childCount := 0
+	if isCollapsedEpic {
+		childCount = g.countChildren(nodeID)
+	}
+
+	// Render the node content
+	content := g.formatNode(node, pos.W, isCurrent, isSelected, isCollapsedEpic, childCount)
+
+	// Write to grid
+	lines := strings.Split(content, "\n")
+	for dy, line := range lines {
+		if y+dy >= 0 && y+dy < grid.height {
+			grid.writeString(x, y+dy, line)
+		}
+	}
+}
+
+// countChildren counts hierarchy children of a node.
+func (g *Graph) countChildren(nodeID string) int {
+	count := 0
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy && edge.From == nodeID {
+			count++
+		}
+	}
+	return count
+}
+
+// formatNode formats a node for display based on density.
+func (g *Graph) formatNode(node *GraphNode, width int, isCurrent, isSelected, isCollapsed bool, childCount int) string {
+	density := ParseDensity(g.config.Density)
+
+	// Build node text based on density
+	var text string
+	switch density {
+	case DensityCompact:
+		text = g.formatNodeCompact(node, isCollapsed, childCount)
+	case DensityDetailed:
+		text = g.formatNodeDetailed(node, isCollapsed, childCount)
+	default: // DensityStandard
+		text = g.formatNodeStandard(node, isCollapsed, childCount)
+	}
+
+	// Apply styling
+	style := graphStyles.Node
+	if isCurrent {
+		style = graphStyles.NodeCurrent
+	} else if isSelected {
+		style = graphStyles.NodeSelected
+	}
+
+	return style.Render(text)
+}
+
+// formatNodeCompact formats a node in compact density: "bd-xxx o"
+func (g *Graph) formatNodeCompact(node *GraphNode, isCollapsed bool, childCount int) string {
+	icon := statusIcon(node.Status)
+	text := fmt.Sprintf("%s %s", node.ID, icon)
+	if isCollapsed && childCount > 0 {
+		text += fmt.Sprintf(" +%d", childCount)
+	}
+	return text
+}
+
+// formatNodeStandard formats a node in standard density: "bd-xxx o Title..."
+func (g *Graph) formatNodeStandard(node *GraphNode, isCollapsed bool, childCount int) string {
+	icon := statusIcon(node.Status)
+	title := truncate(node.Title, 12)
+	text := fmt.Sprintf("%s %s %s", node.ID, icon, title)
+	if isCollapsed && childCount > 0 {
+		text += fmt.Sprintf(" +%d", childCount)
+	}
+	return text
+}
+
+// formatNodeDetailed formats a node in detailed density with cost/attempts.
+func (g *Graph) formatNodeDetailed(node *GraphNode, isCollapsed bool, childCount int) string {
+	icon := statusIcon(node.Status)
+	priority := priorityLabel(node.Priority)
+	title := truncate(node.Title, 10)
+	details := ""
+	if node.Attempts > 0 || node.Cost > 0 {
+		details = fmt.Sprintf(" [%d $%.2f]", node.Attempts, node.Cost)
+	}
+	text := fmt.Sprintf("%s %s %s %s%s", node.ID, icon, priority, title, details)
+	if isCollapsed && childCount > 0 {
+		text += fmt.Sprintf(" +%d", childCount)
+	}
+	return text
+}
+
+// renderEdges renders all edges between visible nodes.
+func (g *Graph) renderEdges(grid *charGrid, visibleNodes []string) {
+	visibleSet := make(map[string]bool)
+	for _, id := range visibleNodes {
+		visibleSet[id] = true
+	}
+
+	for _, edge := range g.edges {
+		// Only render if both endpoints are visible
+		if !visibleSet[edge.From] || !visibleSet[edge.To] {
+			continue
+		}
+
+		fromPos, fromOK := g.computed.Positions[edge.From]
+		toPos, toOK := g.computed.Positions[edge.To]
+		if !fromOK || !toOK {
+			continue
+		}
+
+		g.renderEdge(grid, fromPos, toPos, edge.Type)
+	}
+}
+
+// renderEdge renders a single edge between two positions.
+func (g *Graph) renderEdge(grid *charGrid, from, to Position, edgeType EdgeType) {
+	// Adjust for viewport
+	fromX := from.X + from.W/2 - g.viewport.OffsetX
+	fromY := from.Y + from.H - g.viewport.OffsetY
+	toX := to.X + to.W/2 - g.viewport.OffsetX
+	toY := to.Y - g.viewport.OffsetY
+
+	// Choose characters based on edge type
+	var hChar, vChar, cornerChar rune
+	if edgeType == EdgeHierarchy {
+		hChar = '─'
+		vChar = '│'
+		cornerChar = '└'
+	} else {
+		// Dependency edges use dashed characters
+		hChar = '╌'
+		vChar = '╎'
+		cornerChar = '└'
+	}
+
+	// Simple L-shaped edge: down from source, then across to target
+	// Draw vertical segment
+	minY, maxY := fromY, toY
+	if minY > maxY {
+		minY, maxY = maxY, minY
+	}
+	for y := minY + 1; y < maxY; y++ {
+		grid.writeRune(fromX, y, vChar)
+	}
+
+	// Draw horizontal segment and corner
+	if fromX != toX {
+		minX, maxX := fromX, toX
+		if minX > maxX {
+			minX, maxX = maxX, minX
+		}
+		for x := minX; x <= maxX; x++ {
+			if x == fromX && toY > fromY {
+				grid.writeRune(x, toY-1, cornerChar)
+			} else if x != toX {
+				grid.writeRune(x, toY-1, hChar)
+			}
+		}
+	}
+}
+
+// charGrid is a 2D character grid for rendering.
+type charGrid struct {
+	width  int
+	height int
+	cells  [][]rune
+	styles [][]lipgloss.Style
+}
+
+// newGrid creates a new character grid filled with spaces.
+func newGrid(width, height int) *charGrid {
+	cells := make([][]rune, height)
+	styles := make([][]lipgloss.Style, height)
+	for y := 0; y < height; y++ {
+		cells[y] = make([]rune, width)
+		styles[y] = make([]lipgloss.Style, width)
+		for x := 0; x < width; x++ {
+			cells[y][x] = ' '
+		}
+	}
+	return &charGrid{
+		width:  width,
+		height: height,
+		cells:  cells,
+		styles: styles,
+	}
+}
+
+// writeRune writes a single rune at the given position.
+func (g *charGrid) writeRune(x, y int, r rune) {
+	if x >= 0 && x < g.width && y >= 0 && y < g.height {
+		g.cells[y][x] = r
+	}
+}
+
+// writeString writes a string starting at the given position.
+func (g *charGrid) writeString(x, y int, s string) {
+	for i, r := range s {
+		g.writeRune(x+i, y, r)
+	}
+}
+
+// String converts the grid to a string.
+func (g *charGrid) String() string {
+	var lines []string
+	for _, row := range g.cells {
+		lines = append(lines, string(row))
+	}
+	return strings.Join(lines, "\n")
 }

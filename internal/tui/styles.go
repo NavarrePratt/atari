@@ -102,3 +102,24 @@ var styles = struct {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("240")), // Dimmed gray for unfocused
 }
+
+// graphStyles contains styles specific to graph rendering.
+var graphStyles = struct {
+	// Node styles
+	Node         lipgloss.Style // Default node style
+	NodeSelected lipgloss.Style // Selected/focused node
+	NodeCurrent  lipgloss.Style // Currently processing bead
+}{
+	Node: lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252")),
+
+	NodeSelected: lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("39")). // Bright cyan for selection
+		Background(lipgloss.Color("236")), // Subtle background
+
+	NodeCurrent: lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("82")). // Bright green for current bead
+		Background(lipgloss.Color("22")), // Green-tinted background
+}

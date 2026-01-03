@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/npratt/atari/internal/config"
@@ -696,5 +697,387 @@ func TestPluralize(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("pluralize(%d, %q, %q) = %q, want %q", tt.count, tt.singular, tt.plural, got, tt.want)
 		}
+	}
+}
+
+func TestStatusIcon(t *testing.T) {
+	tests := []struct {
+		status string
+		want   string
+	}{
+		{"open", "o"},
+		{"in_progress", "*"},
+		{"blocked", "x"},
+		{"deferred", "-"},
+		{"closed", "."},
+		{"unknown", "?"},
+		{"", "?"},
+	}
+
+	for _, tt := range tests {
+		got := statusIcon(tt.status)
+		if got != tt.want {
+			t.Errorf("statusIcon(%q) = %q, want %q", tt.status, got, tt.want)
+		}
+	}
+}
+
+func TestPriorityLabel(t *testing.T) {
+	tests := []struct {
+		priority int
+		want     string
+	}{
+		{0, "P0"},
+		{1, "P1"},
+		{2, "P2"},
+		{3, "P3"},
+		{4, "P4"},
+		{-1, "P?"},
+		{5, "P?"},
+	}
+
+	for _, tt := range tests {
+		got := priorityLabel(tt.priority)
+		if got != tt.want {
+			t.Errorf("priorityLabel(%d) = %q, want %q", tt.priority, got, tt.want)
+		}
+	}
+}
+
+func TestGraph_CycleDensity(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "compact"}
+	fetcher := &mockFetcher{}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	// Start with compact
+	if g.GetDensity() != DensityCompact {
+		t.Errorf("initial density = %v, want DensityCompact", g.GetDensity())
+	}
+
+	// Cycle to standard
+	g.CycleDensity()
+	if g.GetDensity() != DensityStandard {
+		t.Errorf("after first cycle = %v, want DensityStandard", g.GetDensity())
+	}
+
+	// Cycle to detailed
+	g.CycleDensity()
+	if g.GetDensity() != DensityDetailed {
+		t.Errorf("after second cycle = %v, want DensityDetailed", g.GetDensity())
+	}
+
+	// Cycle back to compact
+	g.CycleDensity()
+	if g.GetDensity() != DensityCompact {
+		t.Errorf("after third cycle = %v, want DensityCompact", g.GetDensity())
+	}
+}
+
+func TestGraph_Render_Empty(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	output := g.Render(40, 5)
+
+	if output == "" {
+		t.Error("Render returned empty string for empty graph")
+	}
+	if !strings.Contains(output, "No beads") {
+		t.Errorf("expected empty message, got %q", output)
+	}
+}
+
+func TestGraph_Render_SingleNode(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Test Task", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	output := g.Render(60, 10)
+
+	if output == "" {
+		t.Error("Render returned empty string")
+	}
+	if !strings.Contains(output, "bd-001") {
+		t.Errorf("output should contain node ID, got %q", output)
+	}
+}
+
+func TestGraph_Render_WithCurrentBead(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "in_progress", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetCurrentBead("bd-002")
+	output := g.Render(60, 10)
+
+	// Should contain both nodes
+	if !strings.Contains(output, "bd-001") || !strings.Contains(output, "bd-002") {
+		t.Errorf("output should contain both nodes, got %q", output)
+	}
+}
+
+func TestGraph_Render_CollapsedEpic(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task",
+				Title:     "Child Task",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Before collapse: both visible
+	output := g.Render(60, 10)
+	if !strings.Contains(output, "bd-task") {
+		t.Errorf("child should be visible before collapse")
+	}
+
+	// Collapse epic
+	g.ToggleCollapse("bd-epic")
+	output = g.Render(60, 10)
+
+	// Epic should show "+1" indicator
+	if !strings.Contains(output, "+1") {
+		t.Errorf("collapsed epic should show child count indicator, got %q", output)
+	}
+}
+
+func TestGraph_Render_DensityLevels(t *testing.T) {
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "A Longer Task Title", Status: "open", Priority: 1, IssueType: "task"},
+		},
+	}
+
+	tests := []struct {
+		density  string
+		contains []string
+	}{
+		{"compact", []string{"bd-001", "o"}},
+		{"standard", []string{"bd-001", "o", "A Longer"}},
+		{"detailed", []string{"bd-001", "o", "P1"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.density, func(t *testing.T) {
+			cfg := &config.GraphConfig{Density: tt.density}
+			g := NewGraph(cfg, fetcher, "horizontal")
+			if err := g.Refresh(context.Background()); err != nil {
+				t.Fatalf("Refresh failed: %v", err)
+			}
+
+			output := g.Render(60, 10)
+			for _, want := range tt.contains {
+				if !strings.Contains(output, want) {
+					t.Errorf("density %s: output should contain %q, got %q", tt.density, want, output)
+				}
+			}
+		})
+	}
+}
+
+func TestCharGrid(t *testing.T) {
+	grid := newGrid(10, 5)
+
+	if grid.width != 10 || grid.height != 5 {
+		t.Errorf("grid dimensions = %dx%d, want 10x5", grid.width, grid.height)
+	}
+
+	// Write a rune
+	grid.writeRune(0, 0, 'X')
+	if grid.cells[0][0] != 'X' {
+		t.Errorf("cell[0][0] = %c, want X", grid.cells[0][0])
+	}
+
+	// Write a string
+	grid.writeString(2, 1, "Hello")
+	if string(grid.cells[1][2:7]) != "Hello" {
+		t.Errorf("row 1 = %q, want 'Hello' at position 2", string(grid.cells[1]))
+	}
+
+	// Boundary check: out of bounds writes should be ignored
+	grid.writeRune(-1, 0, 'Y')
+	grid.writeRune(100, 0, 'Z')
+	// No panic is success
+
+	// String output
+	output := grid.String()
+	lines := strings.Split(output, "\n")
+	if len(lines) != 5 {
+		t.Errorf("String() returned %d lines, want 5", len(lines))
+	}
+}
+
+func TestGraph_Render_ViewportClipping(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+			{ID: "bd-003", Title: "Task 3", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Set a small viewport that might clip some nodes
+	g.SetViewport(30, 5)
+
+	// Render should not panic with small viewport
+	output := g.Render(30, 5)
+	if output == "" {
+		t.Error("Render returned empty string")
+	}
+}
+
+func TestGraph_FormatNodeCompact(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "compact"}
+	fetcher := &mockFetcher{}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	node := &GraphNode{
+		ID:     "bd-test",
+		Title:  "Test Node",
+		Status: "in_progress",
+	}
+
+	text := g.formatNodeCompact(node, false, 0)
+	if text != "bd-test *" {
+		t.Errorf("formatNodeCompact = %q, want 'bd-test *'", text)
+	}
+
+	// With collapsed indicator
+	text = g.formatNodeCompact(node, true, 3)
+	if text != "bd-test * +3" {
+		t.Errorf("formatNodeCompact (collapsed) = %q, want 'bd-test * +3'", text)
+	}
+}
+
+func TestGraph_FormatNodeStandard(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	node := &GraphNode{
+		ID:     "bd-test",
+		Title:  "A Very Long Title That Gets Truncated",
+		Status: "blocked",
+	}
+
+	text := g.formatNodeStandard(node, false, 0)
+	if !strings.Contains(text, "bd-test") || !strings.Contains(text, "x") {
+		t.Errorf("formatNodeStandard should contain ID and status icon, got %q", text)
+	}
+	if !strings.Contains(text, "...") {
+		t.Errorf("formatNodeStandard should truncate long title, got %q", text)
+	}
+}
+
+func TestGraph_FormatNodeDetailed(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "detailed"}
+	fetcher := &mockFetcher{}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	node := &GraphNode{
+		ID:       "bd-test",
+		Title:    "Test Node",
+		Status:   "open",
+		Priority: 1,
+		Attempts: 2,
+		Cost:     1.50,
+	}
+
+	text := g.formatNodeDetailed(node, false, 0)
+	if !strings.Contains(text, "bd-test") {
+		t.Errorf("should contain ID, got %q", text)
+	}
+	if !strings.Contains(text, "P1") {
+		t.Errorf("should contain priority, got %q", text)
+	}
+	if !strings.Contains(text, "[2 $1.50]") {
+		t.Errorf("should contain attempts and cost, got %q", text)
+	}
+}
+
+func TestGraph_GetVisibleNodes_WithCollapsedEpic(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task-1",
+				Title:     "Task 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-task-2",
+				Title:     "Task 2",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Before collapse
+	g.mu.RLock()
+	visible := g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 3 {
+		t.Errorf("visible nodes before collapse = %d, want 3", len(visible))
+	}
+
+	// After collapse
+	g.ToggleCollapse("bd-epic")
+	g.mu.RLock()
+	visible = g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 1 {
+		t.Errorf("visible nodes after collapse = %d, want 1 (just epic)", len(visible))
 	}
 }
