@@ -27,10 +27,11 @@ const (
 
 // DrainState holds the current state of the drain for context building.
 type DrainState struct {
-	Status      string
-	Uptime      time.Duration
-	TotalCost   float64
-	CurrentBead *CurrentBeadInfo
+	Status       string
+	Uptime       time.Duration
+	TotalCost    float64
+	CurrentBead  *CurrentBeadInfo
+	CurrentTurns int // turns completed in current session
 }
 
 // CurrentBeadInfo holds information about the currently active bead.
@@ -115,10 +116,17 @@ You have access to tools. If you need more details about an event, you can use g
 func (b *ContextBuilder) buildDrainStatusSection(state DrainState) string {
 	var sb strings.Builder
 	sb.WriteString("## Drain Status\n")
-	sb.WriteString(fmt.Sprintf("State: %s | Uptime: %s | Total cost: $%.2f\n",
+
+	statusLine := fmt.Sprintf("State: %s | Uptime: %s | Total cost: $%.2f",
 		state.Status,
 		formatDuration(state.Uptime),
-		state.TotalCost))
+		state.TotalCost)
+
+	if state.CurrentBead != nil && state.CurrentTurns > 0 {
+		statusLine += fmt.Sprintf(" | Turn: %d", state.CurrentTurns)
+	}
+
+	sb.WriteString(statusLine + "\n")
 	return sb.String()
 }
 
@@ -258,6 +266,9 @@ func FormatEvent(e events.Event) string {
 
 	case *events.SessionTimeoutEvent:
 		return fmt.Sprintf("[%s] Session timed out after %s", ts, ev.Duration)
+
+	case *events.TurnCompleteEvent:
+		return fmt.Sprintf("[%s] Turn %d complete (%d tools, %dms)", ts, ev.TurnNumber, ev.ToolCount, ev.ToolElapsedMs)
 
 	case *events.IterationStartEvent:
 		return fmt.Sprintf("[%s] Started bead %s: %s", ts, ev.BeadID, truncate(ev.Title, truncateToolSummary))

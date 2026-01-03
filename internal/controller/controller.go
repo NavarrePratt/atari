@@ -662,10 +662,15 @@ func (c *Controller) GetDrainState() observer.DrainState {
 	beadStart := c.currentBeadStart
 	c.beadMu.RUnlock()
 
+	c.currentTurnMu.RLock()
+	turns := c.currentTurnCount
+	c.currentTurnMu.RUnlock()
+
 	state := observer.DrainState{
-		Status:    string(c.getState()),
-		Uptime:    time.Since(c.startTime),
-		TotalCost: c.totalCostUSD,
+		Status:       string(c.getState()),
+		Uptime:       time.Since(c.startTime),
+		TotalCost:    c.totalCostUSD,
+		CurrentTurns: turns,
 	}
 
 	if beadID != "" {
