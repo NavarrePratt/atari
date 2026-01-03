@@ -22,6 +22,9 @@ func TestEventInterfaceCompliance(t *testing.T) {
 	var _ Event = (*BeadAbandonedEvent)(nil)
 	var _ Event = (*ErrorEvent)(nil)
 
+	// Turn events
+	var _ Event = (*TurnCompleteEvent)(nil)
+
 	// BD activity event types
 	var _ Event = (*BeadCreatedEvent)(nil)
 	var _ Event = (*BeadStatusEvent)(nil)
@@ -281,6 +284,42 @@ func TestIterationEndEventJSON(t *testing.T) {
 	}
 	if decoded.NumTurns != original.NumTurns {
 		t.Errorf("NumTurns = %v, want %v", decoded.NumTurns, original.NumTurns)
+	}
+}
+
+// TestTurnCompleteEventJSON tests JSON round-trip for TurnCompleteEvent.
+func TestTurnCompleteEventJSON(t *testing.T) {
+	original := TurnCompleteEvent{
+		BaseEvent:     NewClaudeEvent(EventTurnComplete),
+		TurnNumber:    3,
+		ToolCount:     2,
+		ToolElapsedMs: 1500,
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded TurnCompleteEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.TurnNumber != original.TurnNumber {
+		t.Errorf("TurnNumber = %v, want %v", decoded.TurnNumber, original.TurnNumber)
+	}
+	if decoded.ToolCount != original.ToolCount {
+		t.Errorf("ToolCount = %v, want %v", decoded.ToolCount, original.ToolCount)
+	}
+	if decoded.ToolElapsedMs != original.ToolElapsedMs {
+		t.Errorf("ToolElapsedMs = %v, want %v", decoded.ToolElapsedMs, original.ToolElapsedMs)
+	}
+	if decoded.Type() != EventTurnComplete {
+		t.Errorf("Type = %v, want %v", decoded.Type(), EventTurnComplete)
+	}
+	if decoded.Source() != SourceClaude {
+		t.Errorf("Source = %v, want %v", decoded.Source(), SourceClaude)
 	}
 }
 
@@ -688,6 +727,7 @@ func TestEventTypeConstants(t *testing.T) {
 		{EventDrainStateChanged, "drain.state_changed"},
 		{EventIterationStart, "iteration.start"},
 		{EventIterationEnd, "iteration.end"},
+		{EventTurnComplete, "turn.complete"},
 		{EventBeadAbandoned, "bead.abandoned"},
 		{EventBeadCreated, "bead.created"},
 		{EventBeadStatus, "bead.status"},
