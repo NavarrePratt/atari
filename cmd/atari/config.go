@@ -42,4 +42,8 @@ const (
 	FlagObserverModel        = "observer-model"
 	FlagObserverLayout       = "observer-layout"
 	FlagObserverRecentEvents = "observer-recent-events"
+
+	// Graph flags
+	FlagGraphEnabled = "graph-enabled"
+	FlagGraphDensity = "graph-density"
 )

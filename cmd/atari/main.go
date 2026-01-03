@@ -311,6 +311,14 @@ Use --daemon to run in the background.`,
 				cfg.Observer.RecentEvents = viper.GetInt(FlagObserverRecentEvents)
 			}
 
+			// Graph flag overrides
+			if cmd.Flags().Changed(FlagGraphEnabled) {
+				cfg.Graph.Enabled = viper.GetBool(FlagGraphEnabled)
+			}
+			if cmd.Flags().Changed(FlagGraphDensity) {
+				cfg.Graph.Density = viper.GetString(FlagGraphDensity)
+			}
+
 			// Handle max-turns: set config field if flag provided
 			if cmd.Flags().Changed(FlagMaxTurns) {
 				cfg.Claude.MaxTurns = viper.GetInt(FlagMaxTurns)
@@ -533,6 +541,10 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().String(FlagObserverModel, "haiku", "Claude model for observer queries")
 	startCmd.Flags().String(FlagObserverLayout, "horizontal", "Observer pane layout (horizontal/vertical)")
 	startCmd.Flags().Int(FlagObserverRecentEvents, 20, "Recent events for observer context")
+
+	// Graph flags
+	startCmd.Flags().Bool(FlagGraphEnabled, true, "Enable graph pane in TUI")
+	startCmd.Flags().String(FlagGraphDensity, "standard", "Graph node density (compact/standard/detailed)")
 
 	startCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = viper.BindPFlag(f.Name, f)

@@ -136,3 +136,19 @@ func TestDefaultObserverConfig(t *testing.T) {
 		t.Errorf("Observer.Layout = %q, want %q", cfg.Observer.Layout, "horizontal")
 	}
 }
+
+func TestDefaultGraphConfig(t *testing.T) {
+	cfg := Default()
+
+	if !cfg.Graph.Enabled {
+		t.Error("Graph.Enabled = false, want true")
+	}
+
+	if cfg.Graph.Density != "standard" {
+		t.Errorf("Graph.Density = %q, want %q", cfg.Graph.Density, "standard")
+	}
+
+	if cfg.Graph.RefreshOnEvent {
+		t.Error("Graph.RefreshOnEvent = true, want false")
+	}
+}

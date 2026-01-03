@@ -12,6 +12,7 @@ type Config struct {
 	BDActivity  BDActivityConfig  `yaml:"bdactivity" mapstructure:"bdactivity"`
 	LogRotation LogRotationConfig `yaml:"log_rotation" mapstructure:"log_rotation"`
 	Observer    ObserverConfig    `yaml:"observer" mapstructure:"observer"`
+	Graph       GraphConfig       `yaml:"graph" mapstructure:"graph"`
 	Prompt      string            `yaml:"prompt" mapstructure:"prompt"`
 	PromptFile  string            `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
 	AgentID     string            `yaml:"agent_id" mapstructure:"agent_id"`       // Bead ID for agent state reporting (empty = disabled)
@@ -71,6 +72,13 @@ type ObserverConfig struct {
 	Layout       string `yaml:"layout" mapstructure:"layout"`               // Pane layout: "horizontal" or "vertical"
 }
 
+// GraphConfig holds settings for the TUI graph pane.
+type GraphConfig struct {
+	Enabled        bool   `yaml:"enabled" mapstructure:"enabled"`                 // Enable graph pane in TUI
+	Density        string `yaml:"density" mapstructure:"density"`                 // Node density: "compact", "standard", or "detailed"
+	RefreshOnEvent bool   `yaml:"refresh_on_event" mapstructure:"refresh_on_event"` // Auto-refresh graph on events
+}
+
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
 const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
 
@@ -115,6 +123,11 @@ func Default() *Config {
 			RecentEvents: 20,
 			ShowCost:     true,
 			Layout:       "horizontal",
+		},
+		Graph: GraphConfig{
+			Enabled:        true,
+			Density:        "standard",
+			RefreshOnEvent: false,
 		},
 		Prompt: DefaultPrompt,
 	}
