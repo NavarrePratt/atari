@@ -20,7 +20,8 @@ type Config struct {
 // ClaudeConfig holds Claude Code session settings.
 type ClaudeConfig struct {
 	Timeout   time.Duration `yaml:"timeout" mapstructure:"timeout"`
-	ExtraArgs []string      `yaml:"extra_args" mapstructure:"extra_args"`
+	MaxTurns  int           `yaml:"max_turns" mapstructure:"max_turns"`   // Max turns per session batch (0 = unlimited)
+	ExtraArgs []string      `yaml:"extra_args" mapstructure:"extra_args"` // Additional CLI args (--max-turns handled separately)
 }
 
 // WorkQueueConfig holds work queue polling settings.
@@ -78,6 +79,7 @@ func Default() *Config {
 	return &Config{
 		Claude: ClaudeConfig{
 			Timeout:   5 * time.Minute,
+			MaxTurns:  0, // 0 = unlimited; set to 10 for faster graceful pause
 			ExtraArgs: []string{},
 		},
 		WorkQueue: WorkQueueConfig{

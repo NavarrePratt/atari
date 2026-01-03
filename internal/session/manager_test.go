@@ -330,3 +330,42 @@ func TestManager_WatchdogRespectsDone(t *testing.T) {
 		t.Error("watchdog did not exit after done channel closed")
 	}
 }
+
+// Test graceful pause functionality
+
+func TestManager_PauseRequested_InitiallyFalse(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, nil)
+
+	if m.PauseRequested() {
+		t.Error("expected PauseRequested() to be false initially")
+	}
+}
+
+func TestManager_RequestPause(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, nil)
+
+	if m.PauseRequested() {
+		t.Fatal("precondition failed: pause already requested")
+	}
+
+	m.RequestPause()
+
+	if !m.PauseRequested() {
+		t.Error("expected PauseRequested() to be true after RequestPause()")
+	}
+}
+
+func TestManager_RequestPause_Idempotent(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, nil)
+
+	m.RequestPause()
+	m.RequestPause()
+	m.RequestPause()
+
+	if !m.PauseRequested() {
+		t.Error("expected PauseRequested() to remain true after multiple calls")
+	}
+}

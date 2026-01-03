@@ -19,6 +19,10 @@ func TestDefaultClaudeConfig(t *testing.T) {
 		t.Errorf("Claude.Timeout = %v, want %v", cfg.Claude.Timeout, 5*time.Minute)
 	}
 
+	if cfg.Claude.MaxTurns != 0 {
+		t.Errorf("Claude.MaxTurns = %d, want 0 (unlimited)", cfg.Claude.MaxTurns)
+	}
+
 	if cfg.Claude.ExtraArgs == nil {
 		t.Error("Claude.ExtraArgs is nil, want empty slice")
 	}

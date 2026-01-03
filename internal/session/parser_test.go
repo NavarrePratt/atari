@@ -497,6 +497,108 @@ func TestScannerBufferSize(t *testing.T) {
 	}
 }
 
+func TestParser_TurnBoundaryCallback(t *testing.T) {
+	// A turn consists of: assistant (tool_use) -> user (tool_result)
+	// Callback should be triggered when all tool_results are received
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"file.txt"}]}}`
+
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	var callbackCount int
+	parser.SetOnTurnComplete(func() {
+		callbackCount++
+	})
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if callbackCount != 1 {
+		t.Errorf("expected 1 turn boundary callback, got %d", callbackCount)
+	}
+}
+
+func TestParser_TurnBoundaryMultipleToolUses(t *testing.T) {
+	// Multiple tool uses in one turn should trigger one callback
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}},{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"result1"},{"type":"tool_result","tool_use_id":"t2","content":"result2"}]}}`
+
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	var callbackCount int
+	parser.SetOnTurnComplete(func() {
+		callbackCount++
+	})
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if callbackCount != 1 {
+		t.Errorf("expected 1 turn boundary callback for multiple tool uses, got %d", callbackCount)
+	}
+}
+
+func TestParser_TurnBoundaryMultipleTurns(t *testing.T) {
+	// Multiple turns should trigger callback for each turn
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"result1"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"result2"}]}}`
+
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	var callbackCount int
+	parser.SetOnTurnComplete(func() {
+		callbackCount++
+	})
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if callbackCount != 2 {
+		t.Errorf("expected 2 turn boundary callbacks, got %d", callbackCount)
+	}
+}
+
+func TestParser_TurnBoundaryNoCallback(t *testing.T) {
+	// Text-only events shouldn't trigger callback
+	input := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}`
+
+	router := events.NewRouter(100)
+	defer router.Close()
+
+	parser := NewParser(strings.NewReader(input), router, nil)
+
+	var callbackCount int
+	parser.SetOnTurnComplete(func() {
+		callbackCount++
+	})
+
+	err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if callbackCount != 0 {
+		t.Errorf("expected 0 turn boundary callbacks for text-only, got %d", callbackCount)
+	}
+}
+
 // TestParser_ActivityUpdateCount verifies UpdateActivity is called for each valid event
 func TestParser_ActivityUpdateCount(t *testing.T) {
 	input := `{"type":"assistant","message":{"content":[{"type":"text","text":"First"}]}}

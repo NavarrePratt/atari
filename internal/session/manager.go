@@ -71,15 +71,16 @@ const DefaultStderrCap = 64 * 1024
 
 // Manager manages a Claude Code session lifecycle.
 type Manager struct {
-	config     *config.Config
-	events     *events.Router
-	cmd        *exec.Cmd
-	stdout     io.ReadCloser
-	stderr     *LimitedWriter
-	lastActive atomic.Value // time.Time
-	done       chan struct{}
-	mu         sync.Mutex
-	started    bool
+	config         *config.Config
+	events         *events.Router
+	cmd            *exec.Cmd
+	stdout         io.ReadCloser
+	stderr         *LimitedWriter
+	lastActive     atomic.Value // time.Time
+	pauseRequested atomic.Bool  // graceful pause requested
+	done           chan struct{}
+	mu             sync.Mutex
+	started        bool
 }
 
 // New creates a Manager with the given config and event router.
@@ -105,6 +106,9 @@ func (m *Manager) Start(ctx context.Context, prompt string) error {
 	}
 
 	args := []string{"-p", "--verbose", "--output-format", "stream-json"}
+	if m.config.Claude.MaxTurns > 0 {
+		args = append(args, "--max-turns", fmt.Sprintf("%d", m.config.Claude.MaxTurns))
+	}
 	args = append(args, m.config.Claude.ExtraArgs...)
 
 	m.cmd = exec.CommandContext(ctx, "claude", args...)
@@ -225,4 +229,15 @@ func (m *Manager) Running() bool {
 	default:
 		return true
 	}
+}
+
+// RequestPause signals that the session should stop at the next turn boundary.
+// This allows Claude to complete its current work before stopping.
+func (m *Manager) RequestPause() {
+	m.pauseRequested.Store(true)
+}
+
+// PauseRequested returns true if a graceful pause has been requested.
+func (m *Manager) PauseRequested() bool {
+	return m.pauseRequested.Load()
 }

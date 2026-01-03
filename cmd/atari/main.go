@@ -296,11 +296,9 @@ Use --daemon to run in the background.`,
 				cfg.BDActivity.Enabled = viper.GetBool(FlagBDActivityEnabled)
 			}
 
-			// Handle max-turns: only add to ExtraArgs if non-zero
-			maxTurns := viper.GetInt(FlagMaxTurns)
-			if maxTurns > 0 {
-				cfg.Claude.ExtraArgs = append(cfg.Claude.ExtraArgs,
-					"--max-turns", fmt.Sprintf("%d", maxTurns))
+			// Handle max-turns: set config field if flag provided
+			if cmd.Flags().Changed(FlagMaxTurns) {
+				cfg.Claude.MaxTurns = viper.GetInt(FlagMaxTurns)
 			}
 
 			// Find project root for path resolution

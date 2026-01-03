@@ -63,9 +63,10 @@ type Controller struct {
 	wg       sync.WaitGroup
 
 	// Control signals for pause/resume/stop
-	pauseSignal  chan struct{}
-	resumeSignal chan struct{}
-	stopSignal   chan struct{}
+	pauseSignal         chan struct{}
+	gracefulPauseSignal chan struct{}
+	resumeSignal        chan struct{}
+	stopSignal          chan struct{}
 
 	// Statistics
 	iteration int
@@ -78,16 +79,17 @@ func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, cmdRu
 		logger = slog.Default()
 	}
 	c := &Controller{
-		config:        cfg,
-		workQueue:    wq,
-		router:       router,
-		runner:       cmdRunner,
-		processRunner: processRunner,
-		logger:       logger,
-		state:        StateIdle,
-		pauseSignal:  make(chan struct{}, 1),
-		resumeSignal: make(chan struct{}, 1),
-		stopSignal:   make(chan struct{}, 1),
+		config:              cfg,
+		workQueue:           wq,
+		router:              router,
+		runner:              cmdRunner,
+		processRunner:       processRunner,
+		logger:              logger,
+		state:               StateIdle,
+		pauseSignal:         make(chan struct{}, 1),
+		gracefulPauseSignal: make(chan struct{}, 1),
+		resumeSignal:        make(chan struct{}, 1),
+		stopSignal:          make(chan struct{}, 1),
 	}
 
 	// Build BD activity watcher if enabled and processRunner is available
@@ -327,8 +329,26 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		return nil, fmt.Errorf("start session: %w", err)
 	}
 
+	// Check for graceful pause request and wire up turn boundary callback
+	select {
+	case <-c.gracefulPauseSignal:
+		sess.RequestPause()
+		c.logger.Info("graceful pause active for session", "bead_id", bead.ID)
+	default:
+		// No graceful pause requested
+	}
+
 	// Parse stream in goroutine
 	parser := session.NewParser(sess.Stdout(), c.router, sess)
+
+	// Set up turn boundary callback for graceful pause
+	parser.SetOnTurnComplete(func() {
+		if sess.PauseRequested() {
+			c.logger.Info("stopping session at turn boundary", "bead_id", bead.ID)
+			sess.Stop()
+		}
+	})
+
 	parseDone := make(chan error, 1)
 	go func() {
 		parseDone <- parser.Parse()
@@ -339,6 +359,22 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 
 	// Wait for parser to finish
 	<-parseDone
+
+	// If we stopped due to graceful pause, signal the controller to pause
+	// and don't treat the process termination as an error
+	if sess.PauseRequested() {
+		select {
+		case c.pauseSignal <- struct{}{}:
+		default:
+		}
+		// Graceful pause stops are not errors
+		result := &SessionResult{}
+		if parserResult := parser.Result(); parserResult != nil {
+			result.NumTurns = parserResult.NumTurns
+			result.TotalCostUSD = parserResult.TotalCostUSD
+		}
+		return result, nil
+	}
 
 	if waitErr != nil {
 		// Include stderr in error message if available
@@ -427,6 +463,17 @@ func (c *Controller) Pause() {
 	select {
 	case c.pauseSignal <- struct{}{}:
 		c.logger.Info("pause requested")
+	default:
+		// Signal already pending
+	}
+}
+
+// GracefulPause requests the controller to pause at the next turn boundary.
+// This allows Claude to complete its current tool use before stopping.
+func (c *Controller) GracefulPause() {
+	select {
+	case c.gracefulPauseSignal <- struct{}{}:
+		c.logger.Info("graceful pause requested (turn boundary)")
 	default:
 		// Signal already pending
 	}

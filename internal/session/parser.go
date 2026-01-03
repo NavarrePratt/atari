@@ -62,10 +62,12 @@ type ContentBlock struct {
 
 // Parser reads Claude stream-json output and emits typed events.
 type Parser struct {
-	scanner *bufio.Scanner
-	router  *events.Router
-	manager *Manager
-	result  atomic.Value // stores *events.SessionEndEvent
+	scanner         *bufio.Scanner
+	router          *events.Router
+	manager         *Manager
+	result          atomic.Value // stores *events.SessionEndEvent
+	onTurnComplete  func()       // callback when turn boundary is reached
+	pendingToolUses int          // count of tool_use without matching tool_result
 }
 
 // NewParser creates a Parser for the given reader.
@@ -184,6 +186,7 @@ func (p *Parser) handleAssistantEvent(e *StreamEvent) {
 				Text:      block.Thinking,
 			})
 		case "tool_use":
+			p.pendingToolUses++
 			p.router.Emit(&events.ClaudeToolUseEvent{
 				BaseEvent: events.NewClaudeEvent(events.EventClaudeToolUse),
 				ToolID:    block.ID,
@@ -208,6 +211,9 @@ func (p *Parser) handleUserEvent(e *StreamEvent) {
 		}
 
 		if block.Type == "tool_result" {
+			if p.pendingToolUses > 0 {
+				p.pendingToolUses--
+			}
 			p.router.Emit(&events.ClaudeToolResultEvent{
 				BaseEvent: events.NewClaudeEvent(events.EventClaudeToolResult),
 				ToolID:    block.ToolUseID,
@@ -215,6 +221,11 @@ func (p *Parser) handleUserEvent(e *StreamEvent) {
 				IsError:   block.IsError,
 			})
 		}
+	}
+
+	// When all tool uses have results, we're at a turn boundary
+	if p.pendingToolUses == 0 && p.onTurnComplete != nil {
+		p.onTurnComplete()
 	}
 }
 
@@ -240,4 +251,10 @@ func (p *Parser) Result() *events.SessionEndEvent {
 		return v.(*events.SessionEndEvent)
 	}
 	return nil
+}
+
+// SetOnTurnComplete sets a callback that's invoked when a turn boundary is reached.
+// A turn boundary occurs when all pending tool uses have received their results.
+func (p *Parser) SetOnTurnComplete(fn func()) {
+	p.onTurnComplete = fn
 }
