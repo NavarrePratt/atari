@@ -150,7 +150,8 @@ func (p ObserverPane) handleKey(msg tea.KeyMsg) (ObserverPane, tea.Cmd) {
 			p.input.Reset()
 			return p, nil
 		}
-		// If nothing to clear, let parent handle (switch focus)
+		// If nothing to clear, unfocus to signal parent should close
+		p.focused = false
 		return p, nil
 
 	default:

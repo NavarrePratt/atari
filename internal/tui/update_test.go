@@ -673,7 +673,12 @@ func TestHandleKey_Tab_CyclesFocus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := model{focusedPane: tt.startFocus, status: "idle"}
+			m := model{
+				focusedPane:  tt.startFocus,
+				observerOpen: true, // Tab only cycles focus when observer is open
+				observerPane: NewObserverPane(nil),
+				status:       "idle",
+			}
 			newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 			resultM := newM.(model)
 
@@ -690,16 +695,26 @@ func TestHandleKey_Tab_CyclesFocus(t *testing.T) {
 
 func TestHandleKey_Esc_ReturnsFocusToEvents(t *testing.T) {
 	t.Run("from observer to events", func(t *testing.T) {
-		m := model{focusedPane: FocusObserver, status: "idle"}
-		newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+		// Create observer pane and set it as focused
+		obsPane := NewObserverPane(nil)
+		obsPane.SetFocused(true)
+
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			observerPane: obsPane,
+			status:       "idle",
+		}
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
 		resultM := newM.(model)
 
+		// Esc should close the observer pane and return focus to events
 		if resultM.focusedPane != FocusEvents {
 			t.Errorf("Esc from observer should return focus to events, got %v",
 				resultM.focusedPane)
 		}
-		if cmd != nil {
-			t.Error("Esc should return nil command")
+		if resultM.observerOpen {
+			t.Error("Esc should close the observer pane")
 		}
 	})
 
@@ -746,22 +761,24 @@ func TestHandleKey_CtrlC_AlwaysQuits(t *testing.T) {
 }
 
 func TestHandleKey_ObserverFocused_SuppressesGlobalKeys(t *testing.T) {
-	// Keys that should be suppressed when observer is focused
+	// Keys that should be suppressed when observer is focused and open
 	keys := []string{"q", "p", "r", "up", "down", "k", "j", "home", "end", "g", "G"}
 
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
 			callbackCalled := false
 			m := model{
-				focusedPane: FocusObserver,
-				status:      "idle",
-				onQuit:      func() { callbackCalled = true },
-				onPause:     func() { callbackCalled = true },
-				onResume:    func() { callbackCalled = true },
-				scrollPos:   5,
-				autoScroll:  true,
-				height:      20,
-				eventLines:  make([]eventLine, 30),
+				focusedPane:  FocusObserver,
+				observerOpen: true,
+				observerPane: NewObserverPane(nil),
+				status:       "idle",
+				onQuit:       func() { callbackCalled = true },
+				onPause:      func() { callbackCalled = true },
+				onResume:     func() { callbackCalled = true },
+				scrollPos:    5,
+				autoScroll:   true,
+				height:       20,
+				eventLines:   make([]eventLine, 30),
 			}
 
 			newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
@@ -770,9 +787,10 @@ func TestHandleKey_ObserverFocused_SuppressesGlobalKeys(t *testing.T) {
 			if callbackCalled {
 				t.Errorf("key %q should not trigger callback when observer focused", key)
 			}
-			if cmd != nil {
-				t.Errorf("key %q should return nil command when observer focused", key)
-			}
+			// When observer is focused, keys are forwarded to observer pane
+			// The observer pane may return a command (e.g., for textarea input)
+			// so we don't check cmd == nil here
+			_ = cmd
 			// Scroll position should not change
 			if resultM.scrollPos != 5 {
 				t.Errorf("key %q should not change scroll when observer focused", key)

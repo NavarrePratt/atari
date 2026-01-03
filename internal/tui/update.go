@@ -44,6 +44,8 @@ func doTick() tea.Cmd {
 
 // Update implements tea.Model. It handles all message types and updates the model.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -51,6 +53,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.updatePaneSizes()
 		return m, nil
 
 	case eventMsg:
@@ -66,8 +69,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleTick()
 		return m, doTick()
 
+	case observerTickMsg, observerResultMsg:
+		// Forward observer messages to observer pane
+		if m.observerOpen {
+			var cmd tea.Cmd
+			m.observerPane, cmd = m.observerPane.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	default:
-		return m, nil
+		// Forward unknown messages to observer pane if focused
+		if m.observerOpen && m.isObserverFocused() {
+			var cmd tea.Cmd
+			m.observerPane, cmd = m.observerPane.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
 	}
 }
 
@@ -78,29 +100,45 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global keys: always work regardless of focus
 	switch key {
 	case "ctrl+c":
+		// If observer has a query in progress, cancel it
+		if m.observerOpen && m.observerPane.IsLoading() {
+			var cmd tea.Cmd
+			m.observerPane, cmd = m.observerPane.Update(msg)
+			return m, cmd
+		}
 		if m.onQuit != nil {
 			m.onQuit()
 		}
 		return m, tea.Quit
 
 	case "tab":
-		m.cycleFocus()
+		// Only cycle focus if observer is open
+		if m.observerOpen {
+			m.cycleFocus()
+			m.observerPane.SetFocused(m.isObserverFocused())
+		}
 		return m, nil
 
 	case "esc":
-		// When observer is focused, Esc returns focus to events pane
-		if m.isObserverFocused() {
-			m.focusedPane = FocusEvents
+		// When observer is focused, first try to clear input/error
+		if m.isObserverFocused() && m.observerOpen {
+			var cmd tea.Cmd
+			m.observerPane, cmd = m.observerPane.Update(msg)
+			// If observer unfocused itself (nothing to clear), close the pane
+			// Otherwise it cleared something and stays open
+			if !m.observerPane.IsFocused() {
+				m.toggleObserver()
+			}
+			return m, cmd
 		}
 		return m, nil
 	}
 
-	// When observer is focused, suppress global keybinds
-	// to allow text input in the observer pane
-	if m.isObserverFocused() {
-		// Observer pane will handle its own keys
-		// For now just return without processing
-		return m, nil
+	// When observer is focused, forward keys to observer pane
+	if m.observerOpen && m.isObserverFocused() {
+		var cmd tea.Cmd
+		m.observerPane, cmd = m.observerPane.Update(msg)
+		return m, cmd
 	}
 
 	// Events pane focused: normal key handling
@@ -110,6 +148,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.onQuit()
 		}
 		return m, tea.Quit
+
+	case "o":
+		// Toggle observer pane
+		m.toggleObserver()
+		return m, nil
 
 	case "p":
 		if m.onPause != nil {

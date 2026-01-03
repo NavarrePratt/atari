@@ -41,6 +41,32 @@ type eventLine struct {
 	Style lipgloss.Style
 }
 
+// LayoutMode represents the split layout orientation.
+type LayoutMode string
+
+const (
+	// LayoutHorizontal shows events left, observer right.
+	LayoutHorizontal LayoutMode = "horizontal"
+	// LayoutVertical shows events top, observer bottom.
+	LayoutVertical LayoutMode = "vertical"
+)
+
+// Layout size constants.
+const (
+	// eventsWidthPercent is the percentage of width for events pane in horizontal layout.
+	eventsWidthPercent = 60
+	// eventsHeightPercent is the percentage of height for events pane in vertical layout.
+	eventsHeightPercent = 60
+	// minEventsCols is the minimum width for events pane.
+	minEventsCols = 40
+	// minEventsRows is the minimum height for events pane.
+	minEventsRows = 10
+	// minObserverCols is the minimum width for observer pane.
+	minObserverCols = 30
+	// minObserverRows is the minimum height for observer pane.
+	minObserverRows = 8
+)
+
 // model is the bubbletea model for the TUI.
 type model struct {
 	// Event source
@@ -61,6 +87,11 @@ type model struct {
 	autoScroll  bool
 	focusedPane FocusedPane
 
+	// Observer state
+	observerPane ObserverPane
+	observerOpen bool
+	layout       LayoutMode
+
 	// Callbacks
 	onPause  func()
 	onResume func()
@@ -80,14 +111,60 @@ func newModel(
 	statsGetter StatsGetter,
 ) model {
 	return model{
-		eventChan:   eventChan,
-		status:      "idle",
-		autoScroll:  true,
-		onPause:     onPause,
-		onResume:    onResume,
-		onQuit:      onQuit,
-		statsGetter: statsGetter,
+		eventChan:    eventChan,
+		status:       "idle",
+		autoScroll:   true,
+		onPause:      onPause,
+		onResume:     onResume,
+		onQuit:       onQuit,
+		statsGetter:  statsGetter,
+		observerPane: NewObserverPane(nil), // Observer will be set later via SetObserver
+		layout:       LayoutHorizontal,
 	}
+}
+
+// toggleObserver toggles the observer pane visibility.
+func (m *model) toggleObserver() {
+	m.observerOpen = !m.observerOpen
+	if m.observerOpen {
+		m.focusedPane = FocusObserver
+		m.observerPane.SetFocused(true)
+	} else {
+		m.focusedPane = FocusEvents
+		m.observerPane.SetFocused(false)
+	}
+	m.updatePaneSizes()
+}
+
+// updatePaneSizes recalculates pane dimensions based on current layout.
+func (m *model) updatePaneSizes() {
+	if !m.observerOpen {
+		// Observer closed - events pane gets full width/height
+		return
+	}
+
+	// Calculate observer pane size based on layout
+	if m.layout == LayoutHorizontal {
+		observerWidth := m.width * (100 - eventsWidthPercent) / 100
+		if observerWidth < minObserverCols {
+			observerWidth = minObserverCols
+		}
+		m.observerPane.SetSize(observerWidth-2, m.height-2) // Account for borders
+	} else {
+		observerHeight := m.height * (100 - eventsHeightPercent) / 100
+		if observerHeight < minObserverRows {
+			observerHeight = minObserverRows
+		}
+		m.observerPane.SetSize(m.width-2, observerHeight-2) // Account for borders
+	}
+}
+
+// canShowSplitLayout returns true if terminal is large enough for split view.
+func (m model) canShowSplitLayout() bool {
+	if m.layout == LayoutHorizontal {
+		return m.width >= minEventsCols+minObserverCols+4 // +4 for borders
+	}
+	return m.height >= minEventsRows+minObserverRows+4
 }
 
 // Init implements tea.Model.

@@ -439,34 +439,46 @@ func TestRenderFooter_Focus(t *testing.T) {
 		name          string
 		focus         FocusedPane
 		status        string
+		observerOpen  bool
 		shouldContain []string
 		shouldNotHave []string
 	}{
 		{
-			name:          "events focused idle",
+			name:          "events focused idle observer closed",
 			focus:         FocusEvents,
 			status:        "idle",
-			shouldContain: []string{"tab: switch pane", "p: pause", "q: quit"},
+			observerOpen:  false,
+			shouldContain: []string{"o: observer", "p: pause", "q: quit"},
 		},
 		{
-			name:          "events focused paused",
+			name:          "events focused paused observer closed",
 			focus:         FocusEvents,
 			status:        "paused",
-			shouldContain: []string{"tab: switch pane", "r: resume"},
+			observerOpen:  false,
+			shouldContain: []string{"o: observer", "r: resume"},
 			shouldNotHave: []string{"p: pause"},
+		},
+		{
+			name:          "events focused observer open",
+			focus:         FocusEvents,
+			status:        "idle",
+			observerOpen:  true,
+			shouldContain: []string{"tab: switch", "p: pause", "q: quit"},
+			shouldNotHave: []string{"o: observer"},
 		},
 		{
 			name:          "observer focused",
 			focus:         FocusObserver,
 			status:        "idle",
-			shouldContain: []string{"tab: switch pane", "esc: back", "ctrl+c: quit"},
+			observerOpen:  true,
+			shouldContain: []string{"tab: switch", "esc: close", "ctrl+c: quit", "enter: ask"},
 			shouldNotHave: []string{"p: pause", "r: resume", "scroll"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := model{focusedPane: tt.focus, status: tt.status}
+			m := model{focusedPane: tt.focus, status: tt.status, observerOpen: tt.observerOpen}
 			result := m.renderFooter()
 
 			for _, s := range tt.shouldContain {
