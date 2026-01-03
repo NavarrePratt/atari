@@ -1,6 +1,23 @@
 # Planning Bd Issues
 
-Review the conversation history above to identify work that needs planning. Extract requirements, decisions, and context discussed - these inform the bd issues you create. If the user provided additional instructions below, incorporate those as well.
+Plan and create bd issues for multi-step work requiring discovery and collaborative debate.
+
+## Context Sources
+
+This command receives context from two sources:
+1. **Conversation history** - All messages above inform requirements, decisions, and scope
+2. **Arguments** - Additional instructions passed when invoking the command (see $ARGUMENTS at end)
+
+## Tools Used
+
+- **Task (Explore subagent)** - Codebase exploration with model: "haiku"
+- **Task (Plan subagent)** - Implementation design with model: "haiku"
+- **mcp__codex__codex** - Cross-reference discovery with model: "gpt-5.1-codex-mini"
+- **bd CLI** - Issue creation, status management, and dependencies
+
+---
+
+## Overview
 
 This is a two-phase process: discovery first, then planning with collaborative debate.
 
@@ -221,5 +238,9 @@ When discovery or planning reveals blocking issues:
    - Instruction to use Plan subagent to design fix
    - Instruction to create implementation bd issues via bd-issue-tracking skill
 3. Any implementation issues spawned from meta issues are also P0
+
+---
+
+## Additional Instructions
 
 $ARGUMENTS
