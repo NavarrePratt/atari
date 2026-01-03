@@ -108,9 +108,18 @@ Before creating issues, confirm:
 - [ ] Testing strategy covers new code
 - [ ] Trade-offs documented with reasoning
 
-### Step 3: Create Issues
+### Step 3: Create Issues (Deferred)
 
-Create bd issues using the bd-issue-tracking skill. Each issue must:
+Create bd issues using the bd-issue-tracking skill. **Immediately set each to deferred status** to prevent atari from picking them up before planning is complete.
+
+For each issue:
+```bash
+id=$(bd create "Title" --description "..." --json | jq -r '.id')
+bd update $id --status deferred
+# Track the ID for later publishing
+```
+
+Each issue must:
 1. Have clear acceptance criteria (what success looks like)
 2. Be scoped to complete in one session
 3. End with verification notes using **discovered commands** (not generic phrases):
@@ -124,12 +133,17 @@ Create bd issues using the bd-issue-tracking skill. Each issue must:
    Use exact commands from Phase 1 discovery. Omit categories if no command exists.
 4. Include note: "If implementation reveals new issues, create separate bd issues for investigation"
 
-### Step 4: Final Verification Issue
+**Track all created issue IDs** for the publish step.
+
+### Step 4: Final Verification Issue (Deferred)
 
 After creating all implementation issues, create one final bd issue to run the full test suite:
 
-1. **Create the issue**:
-   - Title: "Run full E2E/integration test suite"
+1. **Create the issue** (also set to deferred):
+   ```bash
+   final_id=$(bd create "Run full test suite for [feature] (final verification)" --description "..." --json | jq -r '.id')
+   bd update $final_id --status deferred
+   ```
    - Description: Verify all changes work together by running the complete test suite
    - Include the discovered e2e/integration command from Phase 1
    - Acceptance criteria: All tests pass, no regressions introduced
@@ -177,6 +191,25 @@ bd dep add bd-xxx <epic-id> --type parent-child
 ```
 
 Check epic progress: `bd epic status`
+
+### Step 6: Publish All Beads
+
+After the epic is created and all dependencies are set, publish all beads by transitioning them from deferred to open status. This makes them available to `bd ready` and atari.
+
+```bash
+# Publish all deferred beads created during this planning session
+for id in $all_bead_ids; do
+  bd update $id --status open
+done
+```
+
+**Important**: Only publish after:
+- All implementation issues are created (deferred)
+- All dependencies are set up
+- Epic is created and children linked
+- You have verified the dependency graph is correct
+
+This ensures atari will not pick up any beads until the entire plan is ready and properly sequenced.
 
 ## Handling Failures
 
