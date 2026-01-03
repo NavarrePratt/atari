@@ -4,6 +4,7 @@ package tui
 import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/observer"
 )
 
 // StatsGetter provides access to controller statistics.
@@ -22,6 +23,7 @@ type TUI struct {
 	onResume    func()
 	onQuit      func()
 	statsGetter StatsGetter
+	observer    *observer.Observer
 }
 
 // Option configures the TUI.
@@ -68,6 +70,13 @@ func WithStatsGetter(sg StatsGetter) Option {
 	}
 }
 
+// WithObserver sets the observer for interactive Q&A in the observer pane.
+func WithObserver(obs *observer.Observer) Option {
+	return func(t *TUI) {
+		t.observer = obs
+	}
+}
+
 // Run starts the TUI and blocks until it exits.
 // If the environment is non-interactive (no TTY) or the terminal is too small,
 // it falls back to simple line-by-line output.
@@ -83,7 +92,7 @@ func (t *TUI) Run() error {
 	}
 
 	// Run the full bubbletea TUI
-	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter)
+	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

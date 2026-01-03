@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/observer"
 )
 
 // FocusedPane represents which pane currently has keyboard focus.
@@ -109,6 +110,7 @@ func newModel(
 	eventChan <-chan events.Event,
 	onPause, onResume, onQuit func(),
 	statsGetter StatsGetter,
+	obs *observer.Observer,
 ) model {
 	return model{
 		eventChan:    eventChan,
@@ -118,7 +120,7 @@ func newModel(
 		onResume:     onResume,
 		onQuit:       onQuit,
 		statsGetter:  statsGetter,
-		observerPane: NewObserverPane(nil), // Observer will be set later via SetObserver
+		observerPane: NewObserverPane(obs),
 		layout:       LayoutHorizontal,
 	}
 }

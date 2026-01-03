@@ -12,6 +12,7 @@ import (
 	"github.com/npratt/atari/internal/bdactivity"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/observer"
 	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/session"
 	"github.com/npratt/atari/internal/testutil"
@@ -51,11 +52,16 @@ type Controller struct {
 	bdWatcher     *bdactivity.Watcher
 	processRunner runner.ProcessRunner
 
+	// Session broker for coordinating Claude process access (optional)
+	broker *observer.SessionBroker
+
 	state   State
 	stateMu sync.RWMutex
 
-	currentBead string
-	beadMu      sync.RWMutex
+	currentBead      string
+	currentBeadTitle string
+	currentBeadStart time.Time
+	beadMu           sync.RWMutex
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -69,12 +75,24 @@ type Controller struct {
 	stopSignal          chan struct{}
 
 	// Statistics
-	iteration int
+	iteration    int
+	totalCostUSD float64
+	startTime    time.Time
+}
+
+// ControllerOption configures a Controller.
+type ControllerOption func(*Controller)
+
+// WithBroker sets the session broker for coordinating Claude process access.
+func WithBroker(broker *observer.SessionBroker) ControllerOption {
+	return func(c *Controller) {
+		c.broker = broker
+	}
 }
 
 // New creates a Controller with the given dependencies.
 // The processRunner parameter is optional - pass nil to disable BD activity watching.
-func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, cmdRunner testutil.CommandRunner, processRunner runner.ProcessRunner, logger *slog.Logger) *Controller {
+func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, cmdRunner testutil.CommandRunner, processRunner runner.ProcessRunner, logger *slog.Logger, opts ...ControllerOption) *Controller {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -92,6 +110,11 @@ func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, cmdRu
 		stopSignal:          make(chan struct{}, 1),
 	}
 
+	// Apply options
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	// Build BD activity watcher if enabled and processRunner is available
 	if cfg.BDActivity.Enabled && processRunner != nil {
 		c.bdWatcher = bdactivity.New(&cfg.BDActivity, router, processRunner, logger)
@@ -106,6 +129,9 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.cancelMu.Lock()
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.cancelMu.Unlock()
+
+	// Record start time for uptime tracking
+	c.startTime = time.Now()
 
 	// Start BD activity watcher if configured (best-effort, non-fatal)
 	if c.bdWatcher != nil {
@@ -193,7 +219,7 @@ func (c *Controller) runIdle() {
 // runWorkingOnBead executes a Claude session for the given bead.
 func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 	c.setState(StateWorking)
-	c.setCurrentBead(bead.ID)
+	c.setCurrentBead(bead.ID, bead.Title)
 	defer c.clearCurrentBead()
 	c.iteration++
 
@@ -260,6 +286,9 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 		)
 		c.workQueue.RecordSuccess(bead.ID)
 
+		// Accumulate total cost
+		c.totalCostUSD += result.TotalCostUSD
+
 		c.emit(&events.IterationEndEvent{
 			BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
 			BeadID:       bead.ID,
@@ -324,6 +353,14 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		BeadID:    bead.ID,
 		Title:     bead.Title,
 	})
+
+	// Acquire session broker if configured (for observer coordination)
+	if c.broker != nil {
+		if err := c.broker.Acquire(c.ctx, "drain", 30*time.Second); err != nil {
+			return nil, fmt.Errorf("acquire session broker: %w", err)
+		}
+		defer c.broker.Release()
+	}
 
 	if err := sess.Start(c.ctx, prompt); err != nil {
 		return nil, fmt.Errorf("start session: %w", err)
@@ -569,16 +606,53 @@ func (c *Controller) CurrentBead() string {
 	return c.currentBead
 }
 
-// setCurrentBead updates the current bead ID (thread-safe).
-func (c *Controller) setCurrentBead(beadID string) {
+// setCurrentBead updates the current bead info (thread-safe).
+func (c *Controller) setCurrentBead(beadID, title string) {
 	c.beadMu.Lock()
 	c.currentBead = beadID
+	c.currentBeadTitle = title
+	c.currentBeadStart = time.Now()
 	c.beadMu.Unlock()
 }
 
-// clearCurrentBead clears the current bead ID (thread-safe).
+// clearCurrentBead clears the current bead info (thread-safe).
 func (c *Controller) clearCurrentBead() {
-	c.setCurrentBead("")
+	c.beadMu.Lock()
+	c.currentBead = ""
+	c.currentBeadTitle = ""
+	c.currentBeadStart = time.Time{}
+	c.beadMu.Unlock()
+}
+
+// GetDrainState returns the current drain state for observer context.
+// Implements observer.DrainStateProvider interface.
+func (c *Controller) GetDrainState() observer.DrainState {
+	c.beadMu.RLock()
+	beadID := c.currentBead
+	beadTitle := c.currentBeadTitle
+	beadStart := c.currentBeadStart
+	c.beadMu.RUnlock()
+
+	state := observer.DrainState{
+		Status:    string(c.getState()),
+		Uptime:    time.Since(c.startTime),
+		TotalCost: c.totalCostUSD,
+	}
+
+	if beadID != "" {
+		state.CurrentBead = &observer.CurrentBeadInfo{
+			ID:        beadID,
+			Title:     beadTitle,
+			StartedAt: beadStart,
+		}
+	}
+
+	return state
+}
+
+// Broker returns the session broker, if configured.
+func (c *Controller) Broker() *observer.SessionBroker {
+	return c.broker
 }
 
 // reportAgentState reports the controller state to beads via bd agent state command.

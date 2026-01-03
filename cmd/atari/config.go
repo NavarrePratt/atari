@@ -36,4 +36,10 @@ const (
 	FlagDryRun  = "dry-run"
 	FlagMinimal = "minimal"
 	FlagGlobal  = "global"
+
+	// Observer flags
+	FlagObserverEnabled      = "observer-enabled"
+	FlagObserverModel        = "observer-model"
+	FlagObserverLayout       = "observer-layout"
+	FlagObserverRecentEvents = "observer-recent-events"
 )

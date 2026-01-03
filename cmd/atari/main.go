@@ -22,6 +22,7 @@ import (
 	"github.com/npratt/atari/internal/daemon"
 	"github.com/npratt/atari/internal/events"
 	initcmd "github.com/npratt/atari/internal/init"
+	"github.com/npratt/atari/internal/observer"
 	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/shutdown"
 	"github.com/npratt/atari/internal/testutil"
@@ -296,6 +297,20 @@ Use --daemon to run in the background.`,
 				cfg.BDActivity.Enabled = viper.GetBool(FlagBDActivityEnabled)
 			}
 
+			// Observer flag overrides
+			if cmd.Flags().Changed(FlagObserverEnabled) {
+				cfg.Observer.Enabled = viper.GetBool(FlagObserverEnabled)
+			}
+			if cmd.Flags().Changed(FlagObserverModel) {
+				cfg.Observer.Model = viper.GetString(FlagObserverModel)
+			}
+			if cmd.Flags().Changed(FlagObserverLayout) {
+				cfg.Observer.Layout = viper.GetString(FlagObserverLayout)
+			}
+			if cmd.Flags().Changed(FlagObserverRecentEvents) {
+				cfg.Observer.RecentEvents = viper.GetInt(FlagObserverRecentEvents)
+			}
+
 			// Handle max-turns: set config field if flag provided
 			if cmd.Flags().Changed(FlagMaxTurns) {
 				cfg.Claude.MaxTurns = viper.GetInt(FlagMaxTurns)
@@ -406,8 +421,12 @@ Use --daemon to run in the background.`,
 				slog.SetDefault(ctrlLogger)
 			}
 
-			// Create controller with appropriate logger
-			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, ctrlLogger)
+			// Create session broker for coordinating Claude process access
+			broker := observer.NewSessionBroker()
+
+			// Create controller with appropriate logger and broker
+			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, ctrlLogger,
+				controller.WithBroker(broker))
 
 			// TUI mode: run TUI in foreground with controller in background
 			if tuiEnabled {
@@ -417,12 +436,21 @@ Use --daemon to run in the background.`,
 				tuiEvents := router.SubscribeBuffered(5000)
 				defer router.Unsubscribe(tuiEvents)
 
-				// Create TUI with callbacks
+				// Create observer for interactive Q&A (if enabled)
+				var obs *observer.Observer
+				if cfg.Observer.Enabled {
+					logReader := observer.NewLogReader(cfg.Paths.Log)
+					contextBuilder := observer.NewContextBuilder(logReader, &cfg.Observer)
+					obs = observer.NewObserver(&cfg.Observer, broker, contextBuilder, ctrl)
+				}
+
+				// Create TUI with callbacks and observer
 				tuiApp := tui.New(tuiEvents,
 					tui.WithOnPause(ctrl.Pause),
 					tui.WithOnResume(ctrl.Resume),
 					tui.WithOnQuit(ctrl.Stop),
 					tui.WithStatsGetter(ctrl),
+					tui.WithObserver(obs),
 				)
 
 				// Run controller in background
@@ -499,6 +527,12 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().String(FlagModel, "opus", "Claude model to use")
 	startCmd.Flags().String(FlagAgentID, "", "Agent bead ID for state reporting (e.g., bd-xxx)")
 	startCmd.Flags().Bool(FlagBDActivityEnabled, true, "Enable BD activity watcher")
+
+	// Observer flags
+	startCmd.Flags().Bool(FlagObserverEnabled, true, "Enable observer mode in TUI")
+	startCmd.Flags().String(FlagObserverModel, "haiku", "Claude model for observer queries")
+	startCmd.Flags().String(FlagObserverLayout, "horizontal", "Observer pane layout (horizontal/vertical)")
+	startCmd.Flags().Int(FlagObserverRecentEvents, 20, "Recent events for observer context")
 
 	startCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = viper.BindPFlag(f.Name, f)
