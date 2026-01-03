@@ -108,3 +108,27 @@ func TestDefaultBDActivityConfig(t *testing.T) {
 		t.Errorf("BDActivity.MaxReconnectDelay = %v, want %v", cfg.BDActivity.MaxReconnectDelay, 5*time.Minute)
 	}
 }
+
+func TestDefaultObserverConfig(t *testing.T) {
+	cfg := Default()
+
+	if !cfg.Observer.Enabled {
+		t.Error("Observer.Enabled = false, want true")
+	}
+
+	if cfg.Observer.Model != "haiku" {
+		t.Errorf("Observer.Model = %q, want %q", cfg.Observer.Model, "haiku")
+	}
+
+	if cfg.Observer.RecentEvents != 20 {
+		t.Errorf("Observer.RecentEvents = %d, want %d", cfg.Observer.RecentEvents, 20)
+	}
+
+	if !cfg.Observer.ShowCost {
+		t.Error("Observer.ShowCost = false, want true")
+	}
+
+	if cfg.Observer.Layout != "horizontal" {
+		t.Errorf("Observer.Layout = %q, want %q", cfg.Observer.Layout, "horizontal")
+	}
+}

@@ -102,12 +102,13 @@ tui:
   enabled: true                  # Enable TUI by default
   colors: true                   # Enable colors
 
-# Observer settings (future feature)
+# Observer settings
 observer:
   enabled: true                  # Enable observer mode in TUI
   model: haiku                   # Model for observer queries
-  event_count: 50                # Number of events for context
+  recent_events: 20              # Events for current bead context
   show_cost: true                # Display observer session cost
+  layout: horizontal             # Pane layout: "horizontal" or "vertical"
 
 # Logging
 logging:
@@ -271,22 +272,24 @@ Prompt template variables:
 
 ### Observer Settings
 
-Configuration for the Observer Mode feature (future implementation):
+Configuration for the Observer Mode feature:
 
 ```yaml
 observer:
   enabled: true
   model: haiku
-  event_count: 50
+  recent_events: 20
   show_cost: true
+  layout: horizontal
 ```
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `enabled` | bool | true | Enable observer mode in TUI |
 | `model` | string | "haiku" | Claude model for observer queries |
-| `event_count` | int | 50 | Number of events for context |
+| `recent_events` | int | 20 | Events for current bead context |
 | `show_cost` | bool | true | Display observer session cost in TUI |
+| `layout` | string | "horizontal" | Pane layout: "horizontal" or "vertical" |
 
 See [components/observer.md](../components/observer.md) for Observer Mode details.
 
@@ -323,10 +326,11 @@ type ClaudeConfig struct {
 }
 
 type ObserverConfig struct {
-    Enabled    bool   `yaml:"enabled"`
-    Model      string `yaml:"model"`
-    EventCount int    `yaml:"event_count"`
-    ShowCost   bool   `yaml:"show_cost"`
+    Enabled      bool   `yaml:"enabled"`
+    Model        string `yaml:"model"`
+    RecentEvents int    `yaml:"recent_events"`
+    ShowCost     bool   `yaml:"show_cost"`
+    Layout       string `yaml:"layout"`
 }
 
 func Default() *Config {
@@ -336,10 +340,11 @@ func Default() *Config {
             ExtraArgs: []string{},
         },
         Observer: ObserverConfig{
-            Enabled:    true,
-            Model:      "haiku",
-            EventCount: 50,
-            ShowCost:   true,
+            Enabled:      true,
+            Model:        "haiku",
+            RecentEvents: 20,
+            ShowCost:     true,
+            Layout:       "horizontal",
         },
         WorkQueue: WorkQueueConfig{
             PollInterval: 5 * time.Second,

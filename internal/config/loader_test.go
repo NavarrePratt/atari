@@ -295,3 +295,71 @@ func TestProjectConfigPath(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfig_ObserverSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `
+observer:
+  enabled: false
+  model: sonnet
+  recent_events: 50
+  show_cost: false
+  layout: vertical
+`
+	configPath := filepath.Join(tmpDir, "observer-config.yaml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+
+	v := viper.New()
+	v.Set("config", configPath)
+
+	cfg, err := LoadConfig(v)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// Check observer values from file
+	if cfg.Observer.Enabled {
+		t.Error("Observer.Enabled = true, want false")
+	}
+	if cfg.Observer.Model != "sonnet" {
+		t.Errorf("Observer.Model = %q, want %q", cfg.Observer.Model, "sonnet")
+	}
+	if cfg.Observer.RecentEvents != 50 {
+		t.Errorf("Observer.RecentEvents = %d, want %d", cfg.Observer.RecentEvents, 50)
+	}
+	if cfg.Observer.ShowCost {
+		t.Error("Observer.ShowCost = true, want false")
+	}
+	if cfg.Observer.Layout != "vertical" {
+		t.Errorf("Observer.Layout = %q, want %q", cfg.Observer.Layout, "vertical")
+	}
+}
+
+func TestLoadConfig_ObserverDefaults(t *testing.T) {
+	// When no observer config is provided, defaults should apply
+	v := viper.New()
+	cfg, err := LoadConfig(v)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// Check defaults
+	if !cfg.Observer.Enabled {
+		t.Error("Observer.Enabled = false, want true (default)")
+	}
+	if cfg.Observer.Model != "haiku" {
+		t.Errorf("Observer.Model = %q, want %q (default)", cfg.Observer.Model, "haiku")
+	}
+	if cfg.Observer.RecentEvents != 20 {
+		t.Errorf("Observer.RecentEvents = %d, want %d (default)", cfg.Observer.RecentEvents, 20)
+	}
+	if !cfg.Observer.ShowCost {
+		t.Error("Observer.ShowCost = false, want true (default)")
+	}
+	if cfg.Observer.Layout != "horizontal" {
+		t.Errorf("Observer.Layout = %q, want %q (default)", cfg.Observer.Layout, "horizontal")
+	}
+}

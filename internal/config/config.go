@@ -11,6 +11,7 @@ type Config struct {
 	Paths       PathsConfig       `yaml:"paths" mapstructure:"paths"`
 	BDActivity  BDActivityConfig  `yaml:"bdactivity" mapstructure:"bdactivity"`
 	LogRotation LogRotationConfig `yaml:"log_rotation" mapstructure:"log_rotation"`
+	Observer    ObserverConfig    `yaml:"observer" mapstructure:"observer"`
 	Prompt      string            `yaml:"prompt" mapstructure:"prompt"`
 	PromptFile  string            `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
 	AgentID     string            `yaml:"agent_id" mapstructure:"agent_id"`       // Bead ID for agent state reporting (empty = disabled)
@@ -60,6 +61,15 @@ type LogRotationConfig struct {
 	Compress   bool `yaml:"compress" mapstructure:"compress"`
 }
 
+// ObserverConfig holds settings for the TUI observer mode.
+type ObserverConfig struct {
+	Enabled      bool   `yaml:"enabled" mapstructure:"enabled"`             // Enable observer mode in TUI
+	Model        string `yaml:"model" mapstructure:"model"`                 // Claude model for observer queries (default: haiku)
+	RecentEvents int    `yaml:"recent_events" mapstructure:"recent_events"` // Events for current bead context
+	ShowCost     bool   `yaml:"show_cost" mapstructure:"show_cost"`         // Display observer session cost
+	Layout       string `yaml:"layout" mapstructure:"layout"`               // Pane layout: "horizontal" or "vertical"
+}
+
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
 const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
 
@@ -96,6 +106,13 @@ func Default() *Config {
 			MaxBackups: 3,
 			MaxAgeDays: 7,
 			Compress:   true,
+		},
+		Observer: ObserverConfig{
+			Enabled:      true,
+			Model:        "haiku",
+			RecentEvents: 20,
+			ShowCost:     true,
+			Layout:       "horizontal",
 		},
 		Prompt: DefaultPrompt,
 	}
