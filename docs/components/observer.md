@@ -1,319 +1,474 @@
 # Observer Mode
 
-Interactive Q&A pane for asking questions about the event stream during operation.
-
-**Note**: This component is planned for future implementation, not the initial POC.
+Interactive Q&A pane for asking questions about drain activity during operation.
 
 ## Purpose
 
-The Observer Mode allows users to:
-- Ask questions about events without pausing the main drain
-- Get context about what's happening in real-time
-- Investigate specific events or patterns
-- Understand Claude's decision-making process
+Observer Mode enables real-time understanding and intervention guidance:
+
+- Ask questions about what Claude is doing without pausing the drain
+- Get context about current progress and decision-making
+- Identify when manual intervention might be needed
+- Understand errors or unexpected behavior as they happen
+
+**Primary use cases**:
+- Real-time understanding: "What's happening right now?"
+- Intervention guidance: "Should I pause and fix something?"
+
+Post-hoc investigation is better done in a normal Claude Code session since relevant info is persisted on beads.
 
 ## Interface
 
 ```go
 type Observer struct {
-    config    *config.ObserverConfig
-    events    *events.RingBuffer
-    session   *claudeSession
+    config     *config.ObserverConfig
+    logPath    string
+    sessionID  string
+    stats      StatsGetter
+    mu         sync.Mutex
+    cost       float64
 }
 
 type ObserverConfig struct {
     Model         string  // Default: "haiku"
-    EventCount    int     // Number of events for context (default: 50)
+    RecentEvents  int     // Events for current bead context (default: 20)
     ShowCost      bool    // Display cost tracking (default: true)
+    Layout        string  // "horizontal" (default) or "vertical"
+}
+
+// StatsGetter provides drain state for context building
+type StatsGetter interface {
+    State() string
+    Stats() controller.Stats
+    CurrentBead() *workqueue.Bead
+    Uptime() time.Duration
 }
 
 // Public API
-func New(cfg *ObserverConfig, events *events.RingBuffer) *Observer
-func (o *Observer) Start(ctx context.Context) error
-func (o *Observer) Stop() error
-func (o *Observer) Ask(question string) (<-chan string, error)
-func (o *Observer) IsActive() bool
+func New(cfg *ObserverConfig, logPath string, stats StatsGetter) *Observer
+func (o *Observer) Ask(ctx context.Context, question string) (<-chan string, error)
+func (o *Observer) RefreshContext() error
+func (o *Observer) Close() error
 func (o *Observer) SessionCost() float64
+func (o *Observer) IsActive() bool
 ```
 
 ## Dependencies
 
 | Component | Usage |
 |-----------|-------|
-| events.RingBuffer | Access to recent event history |
 | config.ObserverConfig | Model, event count, display settings |
+| StatsGetter | Current drain state and statistics |
+| Log file | Event history (`.atari/atari.log`) |
 
 External:
 - `claude` CLI binary (haiku model by default)
 
 ## Design Decisions
 
+### Session Model
+
+Claude CLI does not support a true stdin REPL mode. Instead, we use **chainable sessions with `--resume`**:
+
+1. First question establishes a session with full context
+2. Subsequent questions resume the same session, maintaining conversation history
+3. Each question spawns a new process but preserves context via session ID
+
+```go
+// First question - establishes session with context
+sessionID, response := askWithContext(ctx, model, contextPrompt, question)
+
+// Follow-up questions resume the session
+response := askResume(ctx, model, sessionID, question)
+```
+
+This approach:
+- Maintains conversation history without re-sending full context
+- Allows natural follow-up questions
+- Session terminates when observer pane closes
+
+### Context Source
+
+Context is built from the existing event log file (`.atari/atari.log`) rather than a separate ring buffer:
+
+- Reuses existing infrastructure (no duplicate state)
+- Survives observer restarts
+- Works even if observer starts after events occurred
+- Log rotation is handled by existing LogSink
+
+### Structured Context
+
+Context is organized into sections for clarity:
+
+1. **Drain Status**: Current state, uptime, total cost
+2. **Session History**: Completed beads with outcomes and costs
+3. **Current Bead**: Active work with recent events
+4. **Tips**: How to retrieve full event details
+
+### Event Summarization
+
+Events are summarized to fit context limits:
+
+| Event Type | Included Fields |
+|------------|-----------------|
+| claude.text | First 200 chars of text |
+| claude.tool_use | tool_name + description (Bash) or file_path |
+| claude.tool_result | First 100 chars + tool_id for lookup |
+| session.start/end | Bead ID, turns, cost |
+| iteration.start/end | Bead ID, outcome |
+| bead.* | Bead ID, status change |
+
+Full event details can be retrieved via grep using the tool_id.
+
 ### Model Selection
 
 - **Default**: Haiku - fast responses, low cost for Q&A
-- **Configurable**: Users can switch to sonnet/opus for deeper analysis
+- **Configurable**: Users can switch to sonnet for deeper analysis
 - Haiku is appropriate because observer questions are typically:
   - Event summarization
   - Pattern identification
   - Simple clarifications
-
-### Context Window
-
-- **Event count**: Configurable number of recent events (default: 50)
-- Events are serialized to JSON for Claude context
-- Older events are trimmed to fit context window
-- User can adjust based on memory/cost tradeoff
-
-### Session Lifecycle
-
-- Session starts when observer pane is opened in TUI
-- Session persists while pane is open (maintains conversation history)
-- Session terminates when pane is closed
-- No persistence across pane open/close cycles
-
-### Cost Tracking
-
-- Observer sessions track cost separately from main drain
-- Display is configurable (on by default)
-- Helps users understand the overhead of observer queries
+  - "What's happening?" queries
 
 ## Implementation
-
-### Observer Session
-
-```go
-type claudeSession struct {
-    cmd     *exec.Cmd
-    stdin   io.WriteCloser
-    stdout  io.ReadCloser
-    cost    float64
-    mu      sync.Mutex
-}
-
-func (o *Observer) Start(ctx context.Context) error {
-    o.mu.Lock()
-    defer o.mu.Unlock()
-
-    if o.session != nil {
-        return nil // Already running
-    }
-
-    args := []string{
-        "--print",
-        "--model", o.config.Model,
-        "--output-format", "stream-json",
-    }
-
-    cmd := exec.CommandContext(ctx, "claude", args...)
-
-    stdin, err := cmd.StdinPipe()
-    if err != nil {
-        return fmt.Errorf("create stdin pipe: %w", err)
-    }
-
-    stdout, err := cmd.StdoutPipe()
-    if err != nil {
-        return fmt.Errorf("create stdout pipe: %w", err)
-    }
-
-    if err := cmd.Start(); err != nil {
-        return fmt.Errorf("start claude: %w", err)
-    }
-
-    o.session = &claudeSession{
-        cmd:    cmd,
-        stdin:  stdin,
-        stdout: stdout,
-    }
-
-    return nil
-}
-```
 
 ### Building Context
 
 ```go
-func (o *Observer) buildContext() string {
-    events := o.events.Recent(o.config.EventCount)
-
+func (o *Observer) buildContext() (string, error) {
     var b strings.Builder
-    b.WriteString("You are an observer assistant helping the user understand ")
-    b.WriteString("what's happening in an automated bead processing session.\n\n")
-    b.WriteString("Recent events (newest last):\n\n")
 
-    for _, e := range events {
-        b.WriteString(formatEventForContext(e))
+    // System prompt
+    b.WriteString(`You are an observer assistant helping the user understand what's happening in an automated bead processing session (Atari drain).
+
+Your role:
+- Answer questions about current activity
+- Help identify issues or unexpected behavior
+- Suggest when manual intervention might be needed
+- Explain Claude's decision-making based on visible events
+
+You have access to tools. If you need more details about an event, you can use grep to look it up in the log file.
+
+`)
+
+    // Drain status section
+    b.WriteString("## Drain Status\n")
+    b.WriteString(fmt.Sprintf("State: %s | Uptime: %s | Total cost: $%.2f\n\n",
+        o.stats.State(),
+        formatDuration(o.stats.Uptime()),
+        o.stats.Stats().TotalCost))
+
+    // Session history section
+    history := o.loadSessionHistory()
+    if len(history) > 0 {
+        b.WriteString("## Session History\n")
+        b.WriteString("| Bead | Title | Outcome | Cost | Turns |\n")
+        b.WriteString("|------|-------|---------|------|-------|\n")
+        for _, h := range history {
+            b.WriteString(fmt.Sprintf("| %s | %s | %s | $%.2f | %d |\n",
+                h.BeadID, truncate(h.Title, 30), h.Outcome, h.Cost, h.Turns))
+        }
         b.WriteString("\n")
     }
 
-    return b.String()
-}
+    // Current bead section
+    if bead := o.stats.CurrentBead(); bead != nil {
+        b.WriteString(fmt.Sprintf("## Current Bead: %s\n", bead.ID))
+        b.WriteString(fmt.Sprintf("Title: %s\n", bead.Title))
+        b.WriteString(fmt.Sprintf("Started: %s ago\n\n", formatDuration(time.Since(bead.StartedAt))))
 
-func formatEventForContext(e events.Event) string {
+        // Recent events for current bead
+        events := o.loadRecentEvents(bead.ID, o.config.RecentEvents)
+        if len(events) > 0 {
+            b.WriteString("### Recent Activity\n")
+            for _, e := range events {
+                b.WriteString(o.formatEvent(e))
+                b.WriteString("\n")
+            }
+            b.WriteString("\n")
+        }
+    }
+
+    // Tips section
+    b.WriteString("## Retrieving Full Event Details\n")
+    b.WriteString("Events are stored in `.atari/atari.log` as JSON lines.\n")
+    b.WriteString("To see full event details:\n")
+    b.WriteString("  grep '<tool_id>' .atari/atari.log | jq .\n")
+    b.WriteString("To see recent events:\n")
+    b.WriteString("  tail -50 .atari/atari.log | jq -s .\n")
+    b.WriteString("To get bead details:\n")
+    b.WriteString("  bd show <bead-id>\n")
+
+    return b.String(), nil
+}
+```
+
+### Event Formatting
+
+```go
+func (o *Observer) formatEvent(e events.Event) string {
     ts := e.Timestamp().Format("15:04:05")
 
     switch ev := e.(type) {
-    case *events.ToolUse:
-        return fmt.Sprintf("[%s] Tool: %s - %s", ts, ev.Name, summarizeInput(ev.Input))
-    case *events.Text:
+    case *events.ClaudeTextEvent:
         return fmt.Sprintf("[%s] Claude: %s", ts, truncate(ev.Text, 200))
-    case *events.BeadStatus:
-        return fmt.Sprintf("[%s] Bead %s: %s -> %s", ts, ev.ID, ev.OldStatus, ev.NewStatus)
-    case *events.SessionStart:
-        return fmt.Sprintf("[%s] Session started (model: %s)", ts, ev.Model)
-    case *events.SessionEnd:
+
+    case *events.ClaudeToolUseEvent:
+        summary := formatToolSummary(ev.ToolName, ev.Input)
+        return fmt.Sprintf("[%s] Tool: %s %s (%s)", ts, ev.ToolName, summary, shortID(ev.ToolID))
+
+    case *events.ClaudeToolResultEvent:
+        content := truncate(ev.Content, 100)
+        if ev.IsError {
+            return fmt.Sprintf("[%s] Result ERROR: %s (%s)", ts, content, shortID(ev.ToolID))
+        }
+        return fmt.Sprintf("[%s] Result: %s (%s)", ts, content, shortID(ev.ToolID))
+
+    case *events.SessionStartEvent:
+        return fmt.Sprintf("[%s] Session started for %s", ts, ev.BeadID)
+
+    case *events.SessionEndEvent:
         return fmt.Sprintf("[%s] Session ended (turns: %d, cost: $%.2f)", ts, ev.NumTurns, ev.TotalCostUSD)
-    case *events.Error:
+
+    case *events.IterationStartEvent:
+        return fmt.Sprintf("[%s] Started bead %s: %s", ts, ev.BeadID, truncate(ev.Title, 40))
+
+    case *events.IterationEndEvent:
+        outcome := "completed"
+        if !ev.Success {
+            outcome = "failed"
+        }
+        return fmt.Sprintf("[%s] Bead %s %s ($%.2f)", ts, ev.BeadID, outcome, ev.TotalCostUSD)
+
+    case *events.ErrorEvent:
         return fmt.Sprintf("[%s] ERROR: %s", ts, ev.Message)
+
     default:
-        return fmt.Sprintf("[%s] %T", ts, e)
+        return fmt.Sprintf("[%s] %s", ts, e.Type())
     }
+}
+
+func formatToolSummary(toolName string, input map[string]any) string {
+    switch toolName {
+    case "Bash":
+        if desc, ok := input["description"].(string); ok {
+            return fmt.Sprintf("%q", truncate(desc, 40))
+        }
+        if cmd, ok := input["command"].(string); ok {
+            return fmt.Sprintf("%q", truncate(cmd, 40))
+        }
+    case "Read", "Write", "Edit":
+        if path, ok := input["file_path"].(string); ok {
+            return filepath.Base(path)
+        }
+    case "Glob", "Grep":
+        if pattern, ok := input["pattern"].(string); ok {
+            return fmt.Sprintf("%q", pattern)
+        }
+    }
+    return ""
+}
+
+func shortID(toolID string) string {
+    // "toolu_01YSTWRyWLogpciN1XgcpZbK" -> "toolu_01YST..."
+    if len(toolID) > 15 {
+        return toolID[:15] + "..."
+    }
+    return toolID
 }
 ```
 
 ### Asking Questions
 
 ```go
-func (o *Observer) Ask(question string) (<-chan string, error) {
+func (o *Observer) Ask(ctx context.Context, question string) (<-chan string, error) {
     o.mu.Lock()
     defer o.mu.Unlock()
 
-    if o.session == nil {
-        return nil, fmt.Errorf("observer session not started")
-    }
-
-    // Build prompt with context
-    context := o.buildContext()
-    prompt := fmt.Sprintf("%s\n\nUser question: %s", context, question)
-
-    // Send to claude
-    if _, err := o.session.stdin.Write([]byte(prompt + "\n")); err != nil {
-        return nil, fmt.Errorf("write prompt: %w", err)
-    }
-
-    // Stream response
     responses := make(chan string, 100)
-    go o.streamResponse(responses)
+
+    go func() {
+        defer close(responses)
+
+        var args []string
+
+        if o.sessionID == "" {
+            // First question - build full context
+            context, err := o.buildContext()
+            if err != nil {
+                responses <- fmt.Sprintf("Error building context: %v", err)
+                return
+            }
+
+            prompt := fmt.Sprintf("%s\n\n---\n\nUser question: %s", context, question)
+            args = []string{
+                "-p", prompt,
+                "--model", o.config.Model,
+                "--output-format", "json",
+            }
+        } else {
+            // Follow-up question - resume session
+            args = []string{
+                "-p", question,
+                "--resume", o.sessionID,
+                "--output-format", "json",
+            }
+        }
+
+        cmd := exec.CommandContext(ctx, "claude", args...)
+        output, err := cmd.Output()
+        if err != nil {
+            responses <- fmt.Sprintf("Error: %v", err)
+            return
+        }
+
+        // Parse JSON response
+        var result struct {
+            SessionID    string  `json:"session_id"`
+            Result       string  `json:"result"`
+            TotalCostUSD float64 `json:"total_cost_usd"`
+        }
+        if err := json.Unmarshal(output, &result); err != nil {
+            responses <- fmt.Sprintf("Parse error: %v", err)
+            return
+        }
+
+        // Store session ID for follow-up questions
+        if o.sessionID == "" {
+            o.sessionID = result.SessionID
+        }
+
+        o.cost += result.TotalCostUSD
+        responses <- result.Result
+    }()
 
     return responses, nil
 }
 
-func (o *Observer) streamResponse(out chan<- string) {
-    defer close(out)
-
-    scanner := bufio.NewScanner(o.session.stdout)
-    for scanner.Scan() {
-        line := scanner.Bytes()
-
-        var msg struct {
-            Type    string `json:"type"`
-            Message struct {
-                Content []struct {
-                    Type string `json:"type"`
-                    Text string `json:"text"`
-                } `json:"content"`
-            } `json:"message"`
-            TotalCostUSD float64 `json:"total_cost_usd"`
-        }
-
-        if err := json.Unmarshal(line, &msg); err != nil {
-            continue
-        }
-
-        if msg.Type == "assistant" {
-            for _, content := range msg.Message.Content {
-                if content.Type == "text" {
-                    out <- content.Text
-                }
-            }
-        }
-
-        if msg.Type == "result" {
-            o.session.cost += msg.TotalCostUSD
-            return // Response complete
-        }
-    }
-}
-```
-
-### Cleanup
-
-```go
-func (o *Observer) Stop() error {
+func (o *Observer) RefreshContext() error {
     o.mu.Lock()
     defer o.mu.Unlock()
 
-    if o.session == nil {
-        return nil
-    }
+    // Clear session to force context rebuild on next question
+    o.sessionID = ""
+    return nil
+}
 
-    // Close stdin to signal end of input
-    o.session.stdin.Close()
+func (o *Observer) Close() error {
+    o.mu.Lock()
+    defer o.mu.Unlock()
 
-    // Wait for process to exit
-    done := make(chan error, 1)
-    go func() {
-        done <- o.session.cmd.Wait()
-    }()
-
-    select {
-    case <-done:
-    case <-time.After(5 * time.Second):
-        o.session.cmd.Process.Kill()
-    }
-
-    o.session = nil
+    o.sessionID = ""
     return nil
 }
 ```
 
-## Event Ring Buffer
-
-The observer needs access to recent events without affecting the main event stream:
+### Loading Events from Log
 
 ```go
-type RingBuffer struct {
-    events []events.Event
-    size   int
-    head   int
-    count  int
-    mu     sync.RWMutex
+func (o *Observer) loadRecentEvents(beadID string, limit int) []events.Event {
+    file, err := os.Open(o.logPath)
+    if err != nil {
+        return nil
+    }
+    defer file.Close()
+
+    var allEvents []events.Event
+    scanner := bufio.NewScanner(file)
+
+    // Find events for current bead (events after last iteration.start for this bead)
+    var currentBeadEvents []events.Event
+    inCurrentBead := false
+
+    for scanner.Scan() {
+        line := scanner.Bytes()
+
+        var base struct {
+            Type   string `json:"type"`
+            BeadID string `json:"bead_id,omitempty"`
+        }
+        if err := json.Unmarshal(line, &base); err != nil {
+            continue
+        }
+
+        // Track when we enter the current bead's iteration
+        if base.Type == "iteration.start" && base.BeadID == beadID {
+            inCurrentBead = true
+            currentBeadEvents = nil // Reset - start fresh
+        }
+
+        if inCurrentBead {
+            // Parse full event
+            evt := parseEvent(line)
+            if evt != nil {
+                currentBeadEvents = append(currentBeadEvents, evt)
+            }
+        }
+    }
+
+    // Return last N events
+    if len(currentBeadEvents) > limit {
+        return currentBeadEvents[len(currentBeadEvents)-limit:]
+    }
+    return currentBeadEvents
 }
 
-func NewRingBuffer(size int) *RingBuffer {
-    return &RingBuffer{
-        events: make([]events.Event, size),
-        size:   size,
+func (o *Observer) loadSessionHistory() []BeadHistory {
+    file, err := os.Open(o.logPath)
+    if err != nil {
+        return nil
     }
+    defer file.Close()
+
+    var history []BeadHistory
+    beadMap := make(map[string]*BeadHistory)
+
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        line := scanner.Bytes()
+
+        var base struct {
+            Type         string  `json:"type"`
+            BeadID       string  `json:"bead_id,omitempty"`
+            Title        string  `json:"title,omitempty"`
+            Success      bool    `json:"success,omitempty"`
+            NumTurns     int     `json:"num_turns,omitempty"`
+            TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
+        }
+        if err := json.Unmarshal(line, &base); err != nil {
+            continue
+        }
+
+        switch base.Type {
+        case "iteration.start":
+            beadMap[base.BeadID] = &BeadHistory{
+                BeadID: base.BeadID,
+                Title:  base.Title,
+            }
+        case "iteration.end":
+            if h, ok := beadMap[base.BeadID]; ok {
+                h.Turns = base.NumTurns
+                h.Cost = base.TotalCostUSD
+                if base.Success {
+                    h.Outcome = "completed"
+                } else {
+                    h.Outcome = "failed"
+                }
+                history = append(history, *h)
+                delete(beadMap, base.BeadID)
+            }
+        }
+    }
+
+    return history
 }
 
-func (rb *RingBuffer) Add(e events.Event) {
-    rb.mu.Lock()
-    defer rb.mu.Unlock()
-
-    rb.events[rb.head] = e
-    rb.head = (rb.head + 1) % rb.size
-    if rb.count < rb.size {
-        rb.count++
-    }
-}
-
-func (rb *RingBuffer) Recent(n int) []events.Event {
-    rb.mu.RLock()
-    defer rb.mu.RUnlock()
-
-    if n > rb.count {
-        n = rb.count
-    }
-
-    result := make([]events.Event, n)
-    start := (rb.head - n + rb.size) % rb.size
-
-    for i := 0; i < n; i++ {
-        result[i] = rb.events[(start+i)%rb.size]
-    }
-
-    return result
+type BeadHistory struct {
+    BeadID  string
+    Title   string
+    Outcome string
+    Cost    float64
+    Turns   int
 }
 ```
 
@@ -323,40 +478,69 @@ func (rb *RingBuffer) Recent(n int) []events.Event {
 observer:
   enabled: true
   model: haiku              # Model for observer queries
-  event_count: 50           # Number of events for context
+  recent_events: 20         # Events for current bead context
   show_cost: true           # Display observer session cost
+  layout: horizontal        # Layout: "horizontal" (side-by-side) or "vertical" (stacked)
 ```
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `enabled` | bool | true | Enable observer mode in TUI |
 | `model` | string | "haiku" | Claude model for observer |
-| `event_count` | int | 50 | Events to include in context |
+| `recent_events` | int | 20 | Recent events to include for current bead |
 | `show_cost` | bool | true | Show observer cost in TUI |
+| `layout` | string | "horizontal" | Pane layout: "horizontal" (side-by-side) or "vertical" (stacked) |
 
 ## TUI Integration
 
-The observer appears as a pane in the TUI. See [tui.md](tui.md) for integration details.
+The observer appears as a pane in the TUI when activated.
 
-### Observer Pane Layout
+### Layout
+
+The layout is configurable via `observer.layout` setting. Default is `horizontal` (side-by-side).
+
+**Horizontal layout (default)** - events left, observer right:
 
 ```
-┌─ ATARI ─────────────────────────────────────────────────────────┐
-│ Status: WORKING                            Cost: $2.35          │
-│ Current: bd-042 "Fix auth bug"             Turns: 42            │
-├─ Events ────────────────────────────────────────────────────────┤
-│ [event feed...]                                                 │
-│                                                                 │
-├─ Observer (haiku) ──────────────────────── Cost: $0.03 ─────────┤
-│ > Why did Claude run the tests twice?                           │
-│                                                                 │
-│ The tests were run twice because the first run had a flaky      │
-│ failure in test_auth.go. Claude retried to confirm whether      │
-│ it was a genuine failure or transient issue.                    │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│ [o] observer  [p] pause  [r] resume  [q] quit  [↑↓] scroll      │
-└─────────────────────────────────────────────────────────────────┘
++-- ATARI ------------------------------------------------------------------+
+| Status: WORKING                                        Cost: $2.35        |
+| Current: bd-042 "Fix auth bug"                         Turns: 42          |
++-- Events -------------------------------+-- Observer (haiku) -- $0.03 ----+
+| [14:02:13] Tool: Bash "Run tests"       | > Why did Claude run tests     |
+| [14:02:14] Result: "PASS ok github..."  |   twice?                        |
+| [14:02:15] Claude: "Tests pass. Now..." |                                 |
+| [14:02:16] Tool: Edit types.go          | The tests were run twice        |
+| [14:02:17] Result: "ok" (toolu_01DEF..) | because the first run had a     |
+| [14:02:18] Claude: "Updated the type.." | flaky failure in test_auth.go.  |
+|                                         | Claude retried to confirm       |
+|                                         | whether it was genuine.         |
+|                                         |                                 |
++-----------------------------------------+---------------------------------+
+| [o] observer  [p] pause  [r] resume  [q] quit  [Tab] focus  [Ctrl+R] refresh |
++---------------------------------------------------------------------------+
+```
+
+**Vertical layout** - events top, observer bottom:
+
+```
++-- ATARI ------------------------------------------------------+
+| Status: WORKING                          Cost: $2.35          |
+| Current: bd-042 "Fix auth bug"           Turns: 42            |
++-- Events -----------------------------------------------------+
+| [14:02:13] Tool: Bash "Run tests" (toolu_01YST...)           |
+| [14:02:14] Result: "PASS ok github.com/..." (toolu_01YST...) |
+| [14:02:15] Claude: "Tests pass. Now I'll update the docs..." |
+|                                                               |
++-- Observer (haiku) ------------------------- Cost: $0.03 -----+
+| > Why did Claude run the tests twice?                         |
+|                                                               |
+| The tests were run twice because the first run had a flaky    |
+| failure in test_auth.go. Claude retried to confirm whether    |
+| it was a genuine failure or transient issue.                  |
+|                                                               |
++---------------------------------------------------------------+
+| [o] observer  [p] pause  [r] resume  [q] quit  [Ctrl+R] refresh|
++---------------------------------------------------------------+
 ```
 
 ### Keyboard Shortcuts
@@ -364,46 +548,111 @@ The observer appears as a pane in the TUI. See [tui.md](tui.md) for integration 
 | Key | Action |
 |-----|--------|
 | `o` | Toggle observer pane |
-| `Enter` | Send question (when in observer) |
+| `Enter` | Send question (when in observer input) |
 | `Esc` | Close observer pane |
 | `Tab` | Switch focus between events and observer |
+| `Ctrl+R` | Refresh observer context (rebuild from current log state) |
+
+### Focus States
+
+- **Events focused**: Arrow keys scroll event feed
+- **Observer focused**: Text input active, arrow keys navigate conversation
+
+## Example Context
+
+```
+You are an observer assistant helping the user understand what's happening
+in an automated bead processing session (Atari drain).
+
+Your role:
+- Answer questions about current activity
+- Help identify issues or unexpected behavior
+- Suggest when manual intervention might be needed
+- Explain Claude's decision-making based on visible events
+
+You have access to tools. If you need more details about an event, you can
+use grep to look it up in the log file.
+
+## Drain Status
+State: working | Uptime: 2h 15m | Total cost: $4.23
+
+## Session History
+| Bead | Title | Outcome | Cost | Turns |
+|------|-------|---------|------|-------|
+| bd-drain-abc | Fix auth bug | completed | $0.36 | 8 |
+| bd-drain-def | Add validation | completed | $1.27 | 24 |
+
+## Current Bead: bd-drain-ghi
+Title: Refactor parser
+Started: 3m ago
+
+### Recent Activity
+[14:02:13] Started bead bd-drain-ghi: Refactor parser
+[14:02:13] Session started for bd-drain-ghi
+[14:02:15] Claude: "Let me check the existing parser implementation..."
+[14:02:16] Tool: Read parser.go (toolu_01ABC...)
+[14:02:17] Result: "package parser\n\nimport..." (toolu_01ABC...)
+[14:02:18] Claude: "I see the parser uses a state machine. Let me..."
+[14:02:19] Tool: Bash "Run test suite" (toolu_01DEF...)
+[14:02:20] Result: "PASS ok github.com/npratt/atari..." (toolu_01DEF...)
+[14:02:21] Claude: "Tests pass. Now I'll refactor the parse loop..."
+
+## Retrieving Full Event Details
+Events are stored in `.atari/atari.log` as JSON lines.
+To see full event details:
+  grep '<tool_id>' .atari/atari.log | jq .
+To see recent events:
+  tail -50 .atari/atari.log | jq -s .
+To get bead details:
+  bd show <bead-id>
+
+---
+
+User question: Why did Claude run the tests?
+```
 
 ## Example Queries
 
 Users might ask:
 - "Why did Claude choose to modify that file?"
 - "What error caused the last retry?"
-- "Summarize what happened in the last 5 minutes"
+- "Summarize what's happened so far"
 - "Is the current approach likely to succeed?"
 - "What's taking so long?"
+- "Should I pause and intervene?"
 
 ## Testing
 
 ### Unit Tests
 
-- Context building: verify event serialization
-- Ring buffer: test circular behavior
-- Session lifecycle: start, query, stop
+- Context building from log file
+- Event formatting for all event types
+- Session history extraction
+- Tool summary formatting
+- Truncation behavior
 
 ### Integration Tests
 
 - Full Q&A flow with mock claude
-- TUI pane toggle behavior
+- Session resumption (follow-up questions)
+- Context refresh behavior
+- TUI pane toggle and focus handling
 - Cost tracking accuracy
 
 ## Error Handling
 
 | Error | Action |
 |-------|--------|
-| Claude not available | Show error in observer pane |
-| Session crashes | Auto-restart on next query |
+| Claude not available | Show error in observer pane, allow retry |
+| Log file not found | Show "No events yet" message |
+| Session resume fails | Clear session ID, rebuild context on next question |
 | Response timeout | Show timeout message, allow retry |
-| Context too large | Reduce event count, warn user |
+| Parse error | Log warning, skip malformed events |
 
 ## Future Considerations
 
-- **Voice queries**: Whisper integration for hands-free questions
-- **Auto-insights**: Proactive observations without user prompting
-- **Query history**: Persist Q&A across sessions
+- **Streaming responses**: Show response as it generates (requires stream-json parsing)
 - **Event filtering**: Focus context on specific event types
-- **Model switching**: Hot-swap models mid-session
+- **Model switching**: Change models mid-session for deeper analysis
+- **Query history**: Show previous Q&A in the pane
+- **Intervention actions**: Direct commands like "pause drain" from observer

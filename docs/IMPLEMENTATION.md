@@ -285,30 +285,46 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## Phase 6: Observer Mode
 
-**Goal**: Interactive Q&A pane for asking questions about events and session activity.
+**Goal**: Interactive Q&A pane for real-time understanding and intervention guidance.
 
 ### Components to Implement
 
-| Component | Documentation |
-|-----------|---------------|
-| Observer Pane | [components/observer.md](components/observer.md) |
-| Event Context | - |
+| Component | Documentation | Implementation |
+|-----------|---------------|----------------|
+| Observer | [components/observer.md](components/observer.md) | `internal/observer/` |
+| TUI Observer Pane | [components/observer.md](components/observer.md) | `internal/tui/` |
+| ObserverConfig | [config/configuration.md](config/configuration.md) | `internal/config/` |
 
 ### Tasks
 
-1. [ ] Add observer pane to TUI (split view or modal)
-2. [ ] Capture event context for Claude queries
-3. [ ] Send user questions to Claude with event history
-4. [ ] Display Claude responses in observer pane
-5. [ ] Keyboard shortcut to toggle observer mode
-6. [ ] Event selection for targeted questions
+1. [ ] Add ObserverConfig to configuration system
+2. [ ] Implement Observer struct with Ask/RefreshContext/Close
+3. [ ] Implement context builder (structured sections from log file)
+4. [ ] Implement event formatter (summarized tool_use, truncated text)
+5. [ ] Implement session history loader from log
+6. [ ] Add observer pane to TUI (split view below events)
+7. [ ] Implement text input component for questions
+8. [ ] Wire up keyboard shortcuts (o toggle, Ctrl+R refresh, Tab focus)
+9. [ ] Add observer cost display to TUI header
+10. [ ] Integration tests with mock claude
 
 ### Success Criteria
 
 - [ ] Can ask questions about current session activity
-- [ ] Claude responses appear in TUI
-- [ ] Can reference specific events in questions
+- [ ] Claude responses appear in TUI observer pane
+- [ ] Follow-up questions maintain conversation context (via --resume)
+- [ ] Ctrl+R refreshes context from current log state
+- [ ] Observer can retrieve full event details via grep (tool access)
 - [ ] Does not interfere with main drain operation
+- [ ] Cost tracking shows observer usage separately
+
+### Design Decisions
+
+- **Session model**: Uses `claude --resume <session_id>` for follow-up questions (no stdin REPL)
+- **Context source**: Reads from existing `.atari/atari.log` (no separate ring buffer)
+- **Structured context**: Drain status, session history with costs, current bead events
+- **Event summarization**: Tool name + description/file_path, truncated text (full details via grep)
+- **Default model**: Haiku for fast, low-cost Q&A
 
 ---
 
@@ -365,7 +381,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## File Structure
 
-Current structure (Phase 5 complete):
+Current structure (Phase 5 complete, Phase 6 planned):
 
 ```
 atari/
@@ -457,6 +473,12 @@ atari/
 │   │   ├── watcher_test.go
 │   │   ├── parser.go        # JSON to typed event conversion
 │   │   ├── parser_test.go
+│   │   └── CLAUDE.md
+│   ├── observer/            # Observer mode Q&A (Phase 6) [planned]
+│   │   ├── observer.go      # Observer struct, Ask, RefreshContext
+│   │   ├── observer_test.go
+│   │   ├── context.go       # Context builder from log file
+│   │   ├── format.go        # Event formatting for observer context
 │   │   └── CLAUDE.md
 │   └── tui/                 # Terminal UI (bubbletea) - Phase 4
 │       ├── model.go         # Bubbletea model definition
