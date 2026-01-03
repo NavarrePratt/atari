@@ -347,23 +347,84 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## Phase 7: Bead Visualization
 
-**Goal**: Visual representation of bead relationships and status in TUI.
+**Goal**: Interactive TUI pane for visualizing bead relationships, status, and hierarchy.
+
+**Status**: Not started
+
+### Components to Implement
+
+| Component | Documentation | Implementation |
+|-----------|---------------|----------------|
+| Graph Visualizer | [components/graph.md](components/graph.md) | `internal/tui/graph.go` |
+| Bead Fetcher | [components/graph.md](components/graph.md) | `internal/tui/fetcher.go` |
+| GraphConfig | [config/configuration.md](config/configuration.md) | `internal/config/` |
+| Detail Modal | [components/graph.md](components/graph.md) | `internal/tui/modal.go` |
+
+### Design Decisions
+
+- **Data source**: `bd list --json --status ...` with status filtering
+- **Views**: Active (open/in_progress/blocked) vs Backlog (deferred), toggle with `a`
+- **Panel system**: Three toggleable panels (e/o/g), uppercase for focus mode
+- **Node density**: Compact/Standard/Detailed, cycle with `d`
+- **Selection action**: Modal popup (~90% pane size) with full bead info
+- **Edge rendering**: Both hierarchy (solid) and dependencies (dashed)
+- **Layout direction**: Top-down for vertical splits, left-right for horizontal
+- **Refresh**: Manual with `r`
+- **Overflow**: Scrolling viewport, collapsible epics with `c`
 
 ### Tasks
 
-1. [ ] Fetch bead dependency graph from bd
-2. [ ] Render bead tree/graph in TUI pane
-3. [ ] Show bead status with color coding (ready, in_progress, closed)
-4. [ ] Highlight currently processing bead
-5. [ ] Navigate between beads with keyboard
-6. [ ] Show bead details on selection
+1. [ ] Add GraphConfig to configuration system
+2. [ ] Implement BeadFetcher (bd list --json wrapper)
+3. [ ] Implement Graph struct with node/edge data structures
+4. [ ] Implement layout algorithm (layer assignment, positioning)
+5. [ ] Implement node rendering (compact/standard/detailed densities)
+6. [ ] Implement edge rendering (hierarchy solid, dependency dashed)
+7. [ ] Add graph pane to TUI panel system
+8. [ ] Implement keyboard navigation (arrow keys, selection)
+9. [ ] Implement detail modal (Enter to open, Esc to close)
+10. [ ] Implement view toggle (Active/Backlog with `a`)
+11. [ ] Implement epic collapse/expand with `c`
+12. [ ] Implement current bead highlighting
+13. [ ] Implement viewport scrolling for large graphs
+14. [ ] Wire up panel toggle keys (g/G)
+15. [ ] Handle all-panels-disabled expanded stats view
+16. [ ] Unit tests for graph logic
+17. [ ] Integration tests with mock bd
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `g` | Toggle graph panel |
+| `G` | Focus graph (fullscreen) |
+| `Arrow keys` | Navigate between nodes |
+| `Enter` | Open detail modal |
+| `Esc` | Close modal / exit focus mode |
+| `a` | Toggle Active/Backlog view |
+| `c` | Collapse/expand selected epic |
+| `d` | Cycle density level |
+| `r` | Refresh graph data |
+| `Tab` | Cycle focus between panels |
 
 ### Success Criteria
 
-- [ ] Bead graph renders correctly in TUI
-- [ ] Current bead is visually highlighted
-- [ ] Can navigate and inspect beads
-- [ ] Updates in real-time as beads change status
+- [ ] Graph renders correctly showing epic/task hierarchy
+- [ ] Dependency edges (blocks) shown with dashed lines
+- [ ] Current bead is visually highlighted during processing
+- [ ] Can navigate and select beads with keyboard
+- [ ] Detail modal shows full bead information
+- [ ] Active/Backlog views filter appropriately
+- [ ] Epics can be collapsed to hide children
+- [ ] Large graphs scroll correctly
+- [ ] Panel toggle system works with events/observer/graph
+
+### Notes
+
+- Layout direction adapts to TUI split configuration for optimal use of space
+- Detail modal is nearly full-pane size since beads contain detailed descriptions
+- Graph uses `bd list --json` which includes embedded dependency objects
+- No separate graph computation needed - bd provides all relationship data
 
 ---
 
@@ -505,7 +566,7 @@ atari/
 │   │   ├── log_reader_test.go
 │   │   ├── types.go         # DrainState, DrainStateProvider, SessionHistory
 │   │   └── CLAUDE.md
-│   └── tui/                 # Terminal UI (bubbletea) - Phase 4, 6
+│   └── tui/                 # Terminal UI (bubbletea) - Phase 4, 6, 7
 │       ├── model.go         # Bubbletea model definition
 │       ├── view.go          # View rendering (header, events, footer)
 │       ├── view_test.go
@@ -517,6 +578,10 @@ atari/
 │       ├── fallback.go      # Non-TTY fallback mode
 │       ├── fallback_test.go
 │       ├── observer_pane.go # Observer Q&A pane (Phase 6)
+│       ├── graph.go         # Graph visualizer pane [Phase 7]
+│       ├── graph_test.go    # Graph unit tests [Phase 7]
+│       ├── fetcher.go       # BeadFetcher for bd list [Phase 7]
+│       ├── modal.go         # Detail modal component [Phase 7]
 │       ├── tui.go           # Public API (Run, RunSimple)
 │       └── CLAUDE.md
 ├── docs/
