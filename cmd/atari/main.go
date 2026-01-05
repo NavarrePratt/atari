@@ -452,6 +452,9 @@ Use --daemon to run in the background.`,
 					obs = observer.NewObserver(&cfg.Observer, broker, contextBuilder, ctrl)
 				}
 
+				// Create graph fetcher for bead visualization
+				graphFetcher := tui.NewBDFetcher(cmdRunner)
+
 				// Create TUI with callbacks and observer
 				tuiApp := tui.New(tuiEvents,
 					tui.WithOnPause(ctrl.Pause),
@@ -459,6 +462,7 @@ Use --daemon to run in the background.`,
 					tui.WithOnQuit(ctrl.Stop),
 					tui.WithStatsGetter(ctrl),
 					tui.WithObserver(obs),
+					tui.WithGraphFetcher(graphFetcher),
 				)
 
 				// Run controller in background
