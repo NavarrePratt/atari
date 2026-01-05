@@ -40,6 +40,12 @@ type DrainStateProvider interface {
 	GetDrainState() DrainState
 }
 
+// Exchange represents a single Q&A exchange in the observer session.
+type Exchange struct {
+	Question string
+	Answer   string
+}
+
 // Observer handles interactive Q&A queries using Claude CLI.
 type Observer struct {
 	config        *config.ObserverConfig
@@ -52,6 +58,7 @@ type Observer struct {
 	sessionID string // Claude session ID for --resume
 	runner    runner.ProcessRunner
 	cancel    context.CancelFunc
+	history   []Exchange // conversation history for session continuity
 }
 
 // NewObserver creates a new Observer with the given configuration.
@@ -76,13 +83,18 @@ func NewObserver(
 // It builds context and runs claude CLI. Observer runs independently of
 // drain sessions - they use different models and processes.
 func (o *Observer) Ask(ctx context.Context, question string) (string, error) {
-	// Build context
+	// Build context with conversation history
 	state := DrainState{}
 	if o.stateProvider != nil {
 		state = o.stateProvider.GetDrainState()
 	}
 
-	contextStr, err := o.builder.Build(state)
+	o.mu.Lock()
+	history := make([]Exchange, len(o.history))
+	copy(history, o.history)
+	o.mu.Unlock()
+
+	contextStr, err := o.builder.Build(state, history)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrNoContext, err)
 	}
@@ -96,6 +108,16 @@ func (o *Observer) Ask(ctx context.Context, question string) (string, error) {
 		// Retry once with fresh session
 		o.sessionID = ""
 		response, err = o.executeQuery(ctx, prompt)
+	}
+
+	// Record successful exchange in history
+	if err == nil && response != "" {
+		o.mu.Lock()
+		o.history = append(o.history, Exchange{
+			Question: question,
+			Answer:   response,
+		})
+		o.mu.Unlock()
 	}
 
 	return response, err
@@ -230,11 +252,12 @@ func (o *Observer) Cancel() {
 	}
 }
 
-// Reset clears the session state for a fresh start.
+// Reset clears the session state and conversation history for a fresh start.
 func (o *Observer) Reset() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.sessionID = ""
+	o.history = nil
 }
 
 // SetRunnerFactory allows injection of a mock runner factory for testing.

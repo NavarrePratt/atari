@@ -65,7 +65,8 @@ func NewContextBuilder(logReader *LogReader, cfg *config.ObserverConfig) *Contex
 }
 
 // Build assembles the full context string for an observer query.
-func (b *ContextBuilder) Build(state DrainState) (string, error) {
+// The conversation parameter contains prior Q&A exchanges for session continuity.
+func (b *ContextBuilder) Build(state DrainState, conversation []Exchange) (string, error) {
 	var sb strings.Builder
 
 	// System prompt
@@ -76,7 +77,7 @@ func (b *ContextBuilder) Build(state DrainState) (string, error) {
 	sb.WriteString(b.buildDrainStatusSection(state))
 	sb.WriteString("\n")
 
-	// Session history section
+	// Bead session history section (completed beads)
 	history, err := b.loadSessionHistory()
 	if err == nil && len(history) > 0 {
 		sb.WriteString(b.buildSessionHistorySection(history))
@@ -94,6 +95,12 @@ func (b *ContextBuilder) Build(state DrainState) (string, error) {
 
 	// Tips section
 	sb.WriteString(b.buildTipsSection())
+
+	// Conversation history section (prior Q&A in this observer session)
+	if len(conversation) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString(b.buildConversationHistorySection(conversation))
+	}
 
 	return sb.String(), nil
 }
@@ -185,6 +192,21 @@ To see recent events:
 To get bead details:
   bd show <bead-id>
 `
+}
+
+// buildConversationHistorySection formats prior Q&A exchanges for context.
+func (b *ContextBuilder) buildConversationHistorySection(conversation []Exchange) string {
+	var sb strings.Builder
+	sb.WriteString("## Conversation History\n")
+	sb.WriteString("Previous exchanges in this observer session:\n\n")
+
+	for i, ex := range conversation {
+		sb.WriteString(fmt.Sprintf("### Exchange %d\n", i+1))
+		sb.WriteString(fmt.Sprintf("**User:** %s\n\n", ex.Question))
+		sb.WriteString(fmt.Sprintf("**Assistant:** %s\n\n", ex.Answer))
+	}
+
+	return sb.String()
 }
 
 // loadSessionHistory reads completed bead sessions from the log.

@@ -285,7 +285,7 @@ func TestObserverContextIncludesLogEvents(t *testing.T) {
 	}
 
 	// Build context directly to verify content
-	context, err := env.builder.Build(provider.state)
+	context, err := env.builder.Build(provider.state, nil)
 	if err != nil {
 		t.Fatalf("failed to build context: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestObserverSessionHistory(t *testing.T) {
 		},
 	}
 
-	context, err := env.builder.Build(provider.state)
+	context, err := env.builder.Build(provider.state, nil)
 	if err != nil {
 		t.Fatalf("failed to build context: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestObserverWithFailedBead(t *testing.T) {
 		},
 	}
 
-	context, err := env.builder.Build(provider.state)
+	context, err := env.builder.Build(provider.state, nil)
 	if err != nil {
 		t.Fatalf("failed to build context: %v", err)
 	}

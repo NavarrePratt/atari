@@ -3,6 +3,7 @@ package observer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -434,4 +435,135 @@ func TestLimitedWriter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestObserver_HistoryTracking(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	// Set up mock runner that returns different responses
+	responseNum := 0
+	responses := []string{"First response", "Second response"}
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				resp := responses[responseNum]
+				responseNum++
+				return io.NopCloser(strings.NewReader(resp)), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	// First query
+	resp1, err := obs.Ask(context.Background(), "First question")
+	if err != nil {
+		t.Fatalf("Ask failed: %v", err)
+	}
+	if resp1 != "First response" {
+		t.Errorf("expected 'First response', got %q", resp1)
+	}
+
+	// Verify history has one exchange
+	obs.mu.Lock()
+	if len(obs.history) != 1 {
+		t.Errorf("expected 1 exchange in history, got %d", len(obs.history))
+	}
+	if obs.history[0].Question != "First question" {
+		t.Errorf("expected question 'First question', got %q", obs.history[0].Question)
+	}
+	if obs.history[0].Answer != "First response" {
+		t.Errorf("expected answer 'First response', got %q", obs.history[0].Answer)
+	}
+	obs.mu.Unlock()
+
+	// Second query
+	resp2, err := obs.Ask(context.Background(), "Second question")
+	if err != nil {
+		t.Fatalf("Ask failed: %v", err)
+	}
+	if resp2 != "Second response" {
+		t.Errorf("expected 'Second response', got %q", resp2)
+	}
+
+	// Verify history has two exchanges
+	obs.mu.Lock()
+	if len(obs.history) != 2 {
+		t.Errorf("expected 2 exchanges in history, got %d", len(obs.history))
+	}
+	obs.mu.Unlock()
+}
+
+func TestObserver_ResetClearsHistory(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	// Set up mock runner
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("response")), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	// Make a query to populate history
+	_, err := obs.Ask(context.Background(), "test question")
+	if err != nil {
+		t.Fatalf("Ask failed: %v", err)
+	}
+
+	// Verify history is populated
+	obs.mu.Lock()
+	if len(obs.history) != 1 {
+		t.Errorf("expected 1 exchange in history, got %d", len(obs.history))
+	}
+	obs.mu.Unlock()
+
+	// Reset and verify history is cleared
+	obs.Reset()
+
+	obs.mu.Lock()
+	if len(obs.history) != 0 {
+		t.Errorf("expected empty history after Reset, got %d exchanges", len(obs.history))
+	}
+	obs.mu.Unlock()
+}
+
+func TestObserver_HistoryNotRecordedOnError(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	// Set up mock runner that fails
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				return nil, nil, errors.New("connection failed")
+			},
+		}
+	})
+
+	// Make a query that will fail
+	_, err := obs.Ask(context.Background(), "test question")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	// Verify history is empty (failed queries should not be recorded)
+	obs.mu.Lock()
+	if len(obs.history) != 0 {
+		t.Errorf("expected empty history after failed query, got %d exchanges", len(obs.history))
+	}
+	obs.mu.Unlock()
 }

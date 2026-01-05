@@ -51,7 +51,7 @@ func TestContextBuilder_BuildWithEmptyLog(t *testing.T) {
 		TotalCost: 0.0,
 	}
 
-	ctx, err := builder.Build(state)
+	ctx, err := builder.Build(state, nil)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestContextBuilder_BuildWithCurrentBead(t *testing.T) {
 		},
 	}
 
-	ctx, err := builder.Build(state)
+	ctx, err := builder.Build(state, nil)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
@@ -610,5 +610,120 @@ func TestContextBuilder_TipsSection(t *testing.T) {
 	}
 	if !strings.Contains(tips, "bd show") {
 		t.Error("missing bd show command")
+	}
+}
+
+func TestContextBuilder_ConversationHistorySection(t *testing.T) {
+	builder := NewContextBuilder(nil, nil)
+
+	conversation := []Exchange{
+		{Question: "What is happening?", Answer: "The drain is idle."},
+		{Question: "Any errors?", Answer: "No errors found."},
+	}
+
+	section := builder.buildConversationHistorySection(conversation)
+
+	// Check header
+	if !strings.Contains(section, "## Conversation History") {
+		t.Error("missing section header")
+	}
+
+	// Check exchange 1
+	if !strings.Contains(section, "### Exchange 1") {
+		t.Error("missing exchange 1 header")
+	}
+	if !strings.Contains(section, "**User:** What is happening?") {
+		t.Error("missing question 1")
+	}
+	if !strings.Contains(section, "**Assistant:** The drain is idle.") {
+		t.Error("missing answer 1")
+	}
+
+	// Check exchange 2
+	if !strings.Contains(section, "### Exchange 2") {
+		t.Error("missing exchange 2 header")
+	}
+	if !strings.Contains(section, "**User:** Any errors?") {
+		t.Error("missing question 2")
+	}
+	if !strings.Contains(section, "**Assistant:** No errors found.") {
+		t.Error("missing answer 2")
+	}
+}
+
+func TestContextBuilder_BuildWithConversationHistory(t *testing.T) {
+	// Create temp dir for log file
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "atari.log")
+
+	// Create empty log file
+	if err := os.WriteFile(logPath, []byte{}, 0644); err != nil {
+		t.Fatalf("failed to create log file: %v", err)
+	}
+
+	logReader := NewLogReader(logPath)
+	builder := NewContextBuilder(logReader, nil)
+
+	state := DrainState{
+		Status: "idle",
+	}
+
+	conversation := []Exchange{
+		{Question: "What is happening?", Answer: "The drain is idle."},
+	}
+
+	ctx, err := builder.Build(state, conversation)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Verify conversation history is included
+	if !strings.Contains(ctx, "## Conversation History") {
+		t.Error("missing conversation history section")
+	}
+	if !strings.Contains(ctx, "What is happening?") {
+		t.Error("missing question in context")
+	}
+	if !strings.Contains(ctx, "The drain is idle.") {
+		t.Error("missing answer in context")
+	}
+}
+
+func TestContextBuilder_BuildWithoutConversationHistory(t *testing.T) {
+	// Create temp dir for log file
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "atari.log")
+
+	// Create empty log file
+	if err := os.WriteFile(logPath, []byte{}, 0644); err != nil {
+		t.Fatalf("failed to create log file: %v", err)
+	}
+
+	logReader := NewLogReader(logPath)
+	builder := NewContextBuilder(logReader, nil)
+
+	state := DrainState{
+		Status: "idle",
+	}
+
+	// Pass nil or empty conversation
+	ctx, err := builder.Build(state, nil)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Verify conversation history section is NOT included
+	if strings.Contains(ctx, "## Conversation History") {
+		t.Error("conversation history section should not be present with nil history")
+	}
+
+	// Also test with empty slice
+	ctx, err = builder.Build(state, []Exchange{})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(ctx, "## Conversation History") {
+		t.Error("conversation history section should not be present with empty history")
 	}
 }
