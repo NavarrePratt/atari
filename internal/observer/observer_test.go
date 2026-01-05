@@ -584,3 +584,178 @@ func TestObserver_HistoryNotRecordedOnError(t *testing.T) {
 	}
 	obs.mu.Unlock()
 }
+
+func TestObserver_SessionIDExtraction(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	expectedSessionID := "abc123-def456-ghi789"
+	streamJSON := makeStreamJSON("test response", expectedSessionID)
+
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	_, err := obs.Ask(context.Background(), "test question")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify session ID was extracted
+	obs.mu.Lock()
+	actualSessionID := obs.sessionID
+	obs.mu.Unlock()
+
+	if actualSessionID != expectedSessionID {
+		t.Errorf("expected sessionID %q, got %q", expectedSessionID, actualSessionID)
+	}
+}
+
+func TestObserver_SessionIDMinLengthValidation(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	tests := []struct {
+		name           string
+		sessionID      string
+		shouldBeStored bool
+	}{
+		{
+			name:           "valid long session ID",
+			sessionID:      "abc123-def456-ghi789",
+			shouldBeStored: true,
+		},
+		{
+			name:           "exactly minimum length",
+			sessionID:      "12345678",
+			shouldBeStored: true,
+		},
+		{
+			name:           "too short",
+			sessionID:      "short",
+			shouldBeStored: false,
+		},
+		{
+			name:           "empty",
+			sessionID:      "",
+			shouldBeStored: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obs := NewObserver(cfg, broker, builder, nil)
+			streamJSON := makeStreamJSON("test response", tt.sessionID)
+
+			obs.SetRunnerFactory(func() runner.ProcessRunner {
+				return &mockRunner{
+					startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+						return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
+					},
+				}
+			})
+
+			_, err := obs.Ask(context.Background(), "test question")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			obs.mu.Lock()
+			actualSessionID := obs.sessionID
+			obs.mu.Unlock()
+
+			if tt.shouldBeStored {
+				if actualSessionID != tt.sessionID {
+					t.Errorf("expected sessionID %q, got %q", tt.sessionID, actualSessionID)
+				}
+			} else {
+				if actualSessionID != "" {
+					t.Errorf("expected empty sessionID, got %q", actualSessionID)
+				}
+			}
+		})
+	}
+}
+
+func TestObserver_ResumeOnSubsequentQuery(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
+	sessionID := "session-for-resume-test"
+	queryCount := 0
+	var capturedArgs [][]string
+
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				queryCount++
+				// Capture args for verification
+				argsCopy := make([]string, len(args))
+				copy(argsCopy, args)
+				capturedArgs = append(capturedArgs, argsCopy)
+
+				streamJSON := makeStreamJSON("response "+string(rune('0'+queryCount)), sessionID)
+				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	// First query - should not have --resume
+	_, err := obs.Ask(context.Background(), "first question")
+	if err != nil {
+		t.Fatalf("first query failed: %v", err)
+	}
+
+	// Second query - should have --resume with session ID
+	_, err = obs.Ask(context.Background(), "second question")
+	if err != nil {
+		t.Fatalf("second query failed: %v", err)
+	}
+
+	if len(capturedArgs) != 2 {
+		t.Fatalf("expected 2 queries, got %d", len(capturedArgs))
+	}
+
+	// First query should not have --resume
+	hasResumeFirst := false
+	for _, arg := range capturedArgs[0] {
+		if arg == "--resume" {
+			hasResumeFirst = true
+			break
+		}
+	}
+	if hasResumeFirst {
+		t.Error("first query should not have --resume flag")
+	}
+
+	// Second query should have --resume with correct session ID
+	hasResumeSecond := false
+	resumeValue := ""
+	for i, arg := range capturedArgs[1] {
+		if arg == "--resume" && i+1 < len(capturedArgs[1]) {
+			hasResumeSecond = true
+			resumeValue = capturedArgs[1][i+1]
+			break
+		}
+	}
+	if !hasResumeSecond {
+		t.Error("second query should have --resume flag")
+	}
+	if resumeValue != sessionID {
+		t.Errorf("expected --resume value %q, got %q", sessionID, resumeValue)
+	}
+}
