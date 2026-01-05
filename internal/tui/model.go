@@ -223,7 +223,7 @@ func (m *model) toggleGraph() {
 
 // updatePaneSizes recalculates pane dimensions based on current layout.
 func (m *model) updatePaneSizes() {
-	// Count visible panes (events is always visible)
+	// Count visible panes (at least one pane is always open)
 	numPanes := 1
 	if m.observerOpen {
 		numPanes++
