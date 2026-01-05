@@ -216,30 +216,30 @@ func (p GraphPane) handleKey(msg tea.KeyMsg) (GraphPane, tea.Cmd) {
 
 	switch key {
 	case "up", "k":
-		// Navigate to parent (in hierarchy) or previous sibling (in layer)
-		if p.graph != nil {
-			p.graph.SelectParent()
-		}
-		return p, nil
-
-	case "down", "j":
-		// Navigate to first child (in hierarchy) or next sibling (in layer)
-		if p.graph != nil {
-			p.graph.SelectChild()
-		}
-		return p, nil
-
-	case "left", "h":
-		// Navigate to previous sibling in current layer
+		// Navigate to previous item in list (linear)
 		if p.graph != nil {
 			p.graph.SelectPrev()
 		}
 		return p, nil
 
-	case "right", "l":
-		// Navigate to next sibling in current layer
+	case "down", "j":
+		// Navigate to next item in list (linear)
 		if p.graph != nil {
 			p.graph.SelectNext()
+		}
+		return p, nil
+
+	case "left", "h":
+		// Navigate to parent in hierarchy
+		if p.graph != nil {
+			p.graph.SelectParent()
+		}
+		return p, nil
+
+	case "right", "l":
+		// Navigate to first child in hierarchy
+		if p.graph != nil {
+			p.graph.SelectChild()
 		}
 		return p, nil
 
