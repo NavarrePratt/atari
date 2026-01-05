@@ -341,6 +341,8 @@ func TestGraph_Select_Invalid(t *testing.T) {
 	}
 }
 
+// TestGraph_SelectNext tests grid mode SelectNext behavior.
+// In grid mode, SelectNext moves to next sibling in the same layer with wrap-around.
 func TestGraph_SelectNext(t *testing.T) {
 	cfg := defaultGraphConfig()
 	fetcher := &mockFetcher{
@@ -355,6 +357,10 @@ func TestGraph_SelectNext(t *testing.T) {
 	if err := g.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
 	}
+	// Ensure we're in grid mode (default)
+	if g.GetLayoutMode() != GraphLayoutGrid {
+		t.Fatal("expected default layout mode to be grid")
+	}
 	g.Select("bd-001")
 
 	g.SelectNext()
@@ -367,13 +373,15 @@ func TestGraph_SelectNext(t *testing.T) {
 		t.Errorf("after SelectNext: selected = %q, want bd-003", g.GetSelectedID())
 	}
 
-	// Wrap around
+	// Wrap around (grid mode wraps)
 	g.SelectNext()
 	if g.GetSelectedID() != "bd-001" {
 		t.Errorf("after SelectNext (wrap): selected = %q, want bd-001", g.GetSelectedID())
 	}
 }
 
+// TestGraph_SelectPrev tests grid mode SelectPrev behavior.
+// In grid mode, SelectPrev moves to previous sibling in the same layer with wrap-around.
 func TestGraph_SelectPrev(t *testing.T) {
 	cfg := defaultGraphConfig()
 	fetcher := &mockFetcher{
@@ -388,6 +396,10 @@ func TestGraph_SelectPrev(t *testing.T) {
 	if err := g.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
 	}
+	// Ensure we're in grid mode (default)
+	if g.GetLayoutMode() != GraphLayoutGrid {
+		t.Fatal("expected default layout mode to be grid")
+	}
 	g.Select("bd-002")
 
 	g.SelectPrev()
@@ -395,7 +407,7 @@ func TestGraph_SelectPrev(t *testing.T) {
 		t.Errorf("after SelectPrev: selected = %q, want bd-001", g.GetSelectedID())
 	}
 
-	// Wrap around
+	// Wrap around (grid mode wraps)
 	g.SelectPrev()
 	if g.GetSelectedID() != "bd-003" {
 		t.Errorf("after SelectPrev (wrap): selected = %q, want bd-003", g.GetSelectedID())
@@ -1243,6 +1255,923 @@ func TestGraph_Render_NoPositionCorruption(t *testing.T) {
 	}
 	if strings.Count(output, "bd-002") != 1 {
 		t.Errorf("bd-002 should appear exactly once, got %d", strings.Count(output, "bd-002"))
+	}
+}
+
+// -----------------------------------------------------------------------------
+// List Mode Tests: computeListOrder
+// -----------------------------------------------------------------------------
+
+// TestComputeListOrder_SimpleHierarchy tests DFS traversal produces correct order
+// for a simple parent-child hierarchy.
+func TestComputeListOrder_SimpleHierarchy(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task-1",
+				Title:     "Task 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-task-2",
+				Title:     "Task 2",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Switch to list mode to trigger computeListOrder
+	g.SetLayoutMode(GraphLayoutList)
+
+	layout := g.GetLayout()
+	if layout == nil {
+		t.Fatal("layout is nil")
+	}
+	if len(layout.ListOrder) != 3 {
+		t.Fatalf("expected 3 items in list order, got %d", len(layout.ListOrder))
+	}
+
+	// Verify order: epic (depth 0), then children (depth 1)
+	if layout.ListOrder[0].ID != "bd-epic" {
+		t.Errorf("expected first item to be bd-epic, got %s", layout.ListOrder[0].ID)
+	}
+	if layout.ListOrder[0].Depth != 0 {
+		t.Errorf("expected epic depth 0, got %d", layout.ListOrder[0].Depth)
+	}
+
+	// Children are sorted alphabetically: bd-task-1, bd-task-2
+	if layout.ListOrder[1].ID != "bd-task-1" {
+		t.Errorf("expected second item to be bd-task-1, got %s", layout.ListOrder[1].ID)
+	}
+	if layout.ListOrder[1].Depth != 1 {
+		t.Errorf("expected task-1 depth 1, got %d", layout.ListOrder[1].Depth)
+	}
+	if layout.ListOrder[1].ParentID != "bd-epic" {
+		t.Errorf("expected task-1 parent to be bd-epic, got %s", layout.ListOrder[1].ParentID)
+	}
+
+	if layout.ListOrder[2].ID != "bd-task-2" {
+		t.Errorf("expected third item to be bd-task-2, got %s", layout.ListOrder[2].ID)
+	}
+}
+
+// TestComputeListOrder_MultipleRoots tests DFS with multiple root nodes (no parents).
+func TestComputeListOrder_MultipleRoots(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-standalone-1", Title: "Standalone 1", Status: "open", IssueType: "task"},
+			{ID: "bd-standalone-2", Title: "Standalone 2", Status: "open", IssueType: "task"},
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+
+	layout := g.GetLayout()
+	if len(layout.ListOrder) != 3 {
+		t.Fatalf("expected 3 items in list order, got %d", len(layout.ListOrder))
+	}
+
+	// All should be at depth 0 since they're all roots
+	for i, item := range layout.ListOrder {
+		if item.Depth != 0 {
+			t.Errorf("item %d (%s) depth = %d, want 0", i, item.ID, item.Depth)
+		}
+		if !item.Visible {
+			t.Errorf("item %d (%s) should be visible", i, item.ID)
+		}
+	}
+
+	// Epics should come first in sort order
+	if layout.ListOrder[0].ID != "bd-epic" {
+		t.Errorf("expected epic first (sorts before tasks), got %s", layout.ListOrder[0].ID)
+	}
+}
+
+// TestComputeListOrder_CollapsedEpic tests that children of collapsed epics
+// are marked as not visible.
+func TestComputeListOrder_CollapsedEpic(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task-1",
+				Title:     "Task 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+
+	// Before collapse: both visible
+	layout := g.GetLayout()
+	if !layout.ListOrder[0].Visible || !layout.ListOrder[1].Visible {
+		t.Error("both items should be visible before collapse")
+	}
+
+	// Collapse the epic
+	g.ToggleCollapse("bd-epic")
+
+	layout = g.GetLayout()
+	// Epic should still be visible
+	if !layout.ListOrder[0].Visible {
+		t.Error("epic should be visible after collapse")
+	}
+	// Task should NOT be visible
+	if layout.ListOrder[1].Visible {
+		t.Error("task should not be visible after epic collapse")
+	}
+}
+
+// TestComputeListOrder_CycleProtection tests that cycles in dependencies
+// don't cause infinite loops.
+func TestComputeListOrder_CycleProtection(t *testing.T) {
+	cfg := defaultGraphConfig()
+	// Create a cycle: A -> B -> A (via parent-child edges)
+	// Note: Real data shouldn't have cycles, but we protect against them
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{
+				ID:        "bd-a",
+				Title:     "Node A",
+				Status:    "open",
+				IssueType: "epic",
+				// A is child of B (creating cycle with B being child of A below)
+				// This is unusual but tests cycle protection
+			},
+			{
+				ID:        "bd-b",
+				Title:     "Node B",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-a", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Should not hang or panic
+	g.SetLayoutMode(GraphLayoutList)
+
+	layout := g.GetLayout()
+	// Should have both nodes
+	if len(layout.ListOrder) != 2 {
+		t.Errorf("expected 2 items, got %d", len(layout.ListOrder))
+	}
+}
+
+// TestComputeListOrder_OrphanNodes tests that nodes only connected via
+// dependency edges (not hierarchy) are included at the end.
+func TestComputeListOrder_OrphanNodes(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task",
+				Title:     "Task",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-orphan",
+				Title:     "Orphan",
+				Status:    "blocked",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					// Only has a "blocks" dependency, not parent-child
+					{ID: "bd-task", DependencyType: "blocks"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+
+	layout := g.GetLayout()
+	if len(layout.ListOrder) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(layout.ListOrder))
+	}
+
+	// Orphan should be at depth 0 (root level) since it has no hierarchy parent
+	var orphanItem *ListNode
+	for i := range layout.ListOrder {
+		if layout.ListOrder[i].ID == "bd-orphan" {
+			orphanItem = &layout.ListOrder[i]
+			break
+		}
+	}
+	if orphanItem == nil {
+		t.Fatal("orphan not found in list order")
+	}
+	if orphanItem.Depth != 0 {
+		t.Errorf("orphan depth = %d, want 0 (root level)", orphanItem.Depth)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// List Mode Tests: Navigation
+// -----------------------------------------------------------------------------
+
+// TestSelectNext_ListMode_Linear tests linear traversal in list mode.
+func TestSelectNext_ListMode_Linear(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task-1",
+				Title:     "Task 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-task-2",
+				Title:     "Task 2",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Switch to list mode
+	g.SetLayoutMode(GraphLayoutList)
+	g.Select("bd-epic")
+
+	// Navigate through list: epic -> task-1 -> task-2
+	g.SelectNext()
+	if g.GetSelectedID() != "bd-task-1" {
+		t.Errorf("after first SelectNext: selected = %q, want bd-task-1", g.GetSelectedID())
+	}
+
+	g.SelectNext()
+	if g.GetSelectedID() != "bd-task-2" {
+		t.Errorf("after second SelectNext: selected = %q, want bd-task-2", g.GetSelectedID())
+	}
+}
+
+// TestSelectPrev_ListMode_Linear tests linear backward traversal in list mode.
+func TestSelectPrev_ListMode_Linear(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task-1",
+				Title:     "Task 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-task-2",
+				Title:     "Task 2",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.Select("bd-task-2")
+
+	// Navigate backward: task-2 -> task-1 -> epic
+	g.SelectPrev()
+	if g.GetSelectedID() != "bd-task-1" {
+		t.Errorf("after first SelectPrev: selected = %q, want bd-task-1", g.GetSelectedID())
+	}
+
+	g.SelectPrev()
+	if g.GetSelectedID() != "bd-epic" {
+		t.Errorf("after second SelectPrev: selected = %q, want bd-epic", g.GetSelectedID())
+	}
+}
+
+// TestSelectNext_ListMode_NoWrap tests that list mode stops at the last node
+// instead of wrapping around.
+func TestSelectNext_ListMode_NoWrap(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.Select("bd-002") // Start at last node
+
+	// Try to go next - should stay at bd-002 (no wrap)
+	g.SelectNext()
+	if g.GetSelectedID() != "bd-002" {
+		t.Errorf("SelectNext at last node: selected = %q, want bd-002 (no wrap)", g.GetSelectedID())
+	}
+
+	// Try again - still should not wrap
+	g.SelectNext()
+	if g.GetSelectedID() != "bd-002" {
+		t.Errorf("SelectNext at last node (again): selected = %q, want bd-002 (no wrap)", g.GetSelectedID())
+	}
+}
+
+// TestSelectPrev_ListMode_NoWrap tests that list mode stops at the first node
+// instead of wrapping around.
+func TestSelectPrev_ListMode_NoWrap(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.Select("bd-001") // Start at first node
+
+	// Try to go previous - should stay at bd-001 (no wrap)
+	g.SelectPrev()
+	if g.GetSelectedID() != "bd-001" {
+		t.Errorf("SelectPrev at first node: selected = %q, want bd-001 (no wrap)", g.GetSelectedID())
+	}
+
+	// Try again - still should not wrap
+	g.SelectPrev()
+	if g.GetSelectedID() != "bd-001" {
+		t.Errorf("SelectPrev at first node (again): selected = %q, want bd-001 (no wrap)", g.GetSelectedID())
+	}
+}
+
+// TestSelectNext_ListMode_SkipsHidden tests that navigation skips hidden nodes.
+func TestSelectNext_ListMode_SkipsHidden(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic-1", Title: "Epic 1", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-child-1",
+				Title:     "Child of Epic 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic-1", DependencyType: "parent-child"},
+				},
+			},
+			{ID: "bd-epic-2", Title: "Epic 2", Status: "open", IssueType: "epic"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.Select("bd-epic-1")
+
+	// Collapse epic-1 to hide its child
+	g.ToggleCollapse("bd-epic-1")
+
+	// Now navigate: epic-1 -> epic-2 (skipping hidden child)
+	g.SelectNext()
+	if g.GetSelectedID() != "bd-epic-2" {
+		t.Errorf("SelectNext should skip hidden child: selected = %q, want bd-epic-2", g.GetSelectedID())
+	}
+}
+
+// -----------------------------------------------------------------------------
+// List Mode Tests: Selection Recovery
+// -----------------------------------------------------------------------------
+
+// TestToggleCollapse_SelectionRecovery_ToParent tests that collapsing an epic
+// with a selected child moves selection to the parent.
+func TestToggleCollapse_SelectionRecovery_ToParent(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task",
+				Title:     "Task",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.Select("bd-task") // Select the child
+
+	// Collapse the epic - child becomes invisible
+	g.ToggleCollapse("bd-epic")
+
+	// Selection should recover to parent
+	if g.GetSelectedID() != "bd-epic" {
+		t.Errorf("after collapse: selected = %q, want bd-epic (parent)", g.GetSelectedID())
+	}
+}
+
+// TestToggleCollapse_SelectionRecovery_ToNearestVisible tests selection recovery
+// when the parent is also invisible (nested collapse).
+func TestToggleCollapse_SelectionRecovery_ToNearestVisible(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-root", Title: "Root", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-mid",
+				Title:     "Middle Epic",
+				Status:    "open",
+				IssueType: "epic",
+				Dependencies: []BeadReference{
+					{ID: "bd-root", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-leaf",
+				Title:     "Leaf Task",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-mid", DependencyType: "parent-child"},
+				},
+			},
+			{ID: "bd-sibling", Title: "Sibling", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.Select("bd-mid") // Select the middle epic
+
+	// Collapse root - mid becomes invisible
+	g.ToggleCollapse("bd-root")
+
+	// Selection should recover to root (nearest visible ancestor)
+	if g.GetSelectedID() != "bd-root" {
+		t.Errorf("after collapse: selected = %q, want bd-root (nearest visible)", g.GetSelectedID())
+	}
+}
+
+// TestRefresh_SelectionValidation tests that refresh validates selection
+// when the previously selected node no longer exists.
+func TestRefresh_SelectionValidation(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Select bd-002
+	g.Select("bd-002")
+	if g.GetSelectedID() != "bd-002" {
+		t.Fatal("failed to select bd-002")
+	}
+
+	// Update fetcher to remove bd-002
+	fetcher.activeBeads = []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+	}
+
+	// Refresh should clear invalid selection and auto-select first node
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Selection should have been cleared or moved to valid node
+	selected := g.GetSelectedID()
+	if selected == "bd-002" {
+		t.Error("selected node should not be the removed bd-002")
+	}
+	if selected == "" {
+		t.Error("should auto-select a valid node after refresh")
+	}
+	if selected != "bd-001" {
+		t.Errorf("should auto-select bd-001, got %q", selected)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// List Mode Tests: Rendering
+// -----------------------------------------------------------------------------
+
+// TestRenderListMode_TreeGlyphs tests that list mode renders tree glyphs correctly.
+func TestRenderListMode_TreeGlyphs(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task-1",
+				Title:     "Task 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-task-2",
+				Title:     "Task 2",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.SetViewport(80, 20)
+
+	output := g.Render(80, 20)
+
+	// Should contain tree glyphs for children
+	if !strings.Contains(output, "├") && !strings.Contains(output, "└") {
+		t.Error("list mode output should contain tree glyphs")
+	}
+
+	// Should contain all node IDs
+	if !strings.Contains(output, "bd-epic") {
+		t.Error("output should contain bd-epic")
+	}
+	if !strings.Contains(output, "bd-task-1") {
+		t.Error("output should contain bd-task-1")
+	}
+	if !strings.Contains(output, "bd-task-2") {
+		t.Error("output should contain bd-task-2")
+	}
+}
+
+// TestRenderListMode_DependencyBadge tests that blocking dependencies are shown.
+func TestRenderListMode_DependencyBadge(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-blocker", Title: "Blocker", Status: "open", IssueType: "task"},
+			{
+				ID:        "bd-blocked",
+				Title:     "Blocked Task",
+				Status:    "blocked",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-blocker", DependencyType: "blocks"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.SetViewport(80, 20)
+
+	output := g.Render(80, 20)
+
+	// Blocked task should show dependency badge
+	if !strings.Contains(output, "[1 dep]") {
+		t.Errorf("output should contain dependency badge [1 dep], got:\n%s", output)
+	}
+}
+
+// TestRenderListMode_Viewport tests that viewport clipping works in list mode.
+func TestRenderListMode_Viewport(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+			{ID: "bd-003", Title: "Task 3", Status: "open", IssueType: "task"},
+			{ID: "bd-004", Title: "Task 4", Status: "open", IssueType: "task"},
+			{ID: "bd-005", Title: "Task 5", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+
+	// Set a small viewport that can't show all nodes
+	g.SetViewport(60, 3)
+
+	output := g.Render(60, 3)
+
+	// Should render without panic and produce output
+	if output == "" {
+		t.Error("render should produce output")
+	}
+
+	// Output should have 3 lines (height is 3)
+	lines := strings.Split(output, "\n")
+	if len(lines) != 3 {
+		t.Errorf("expected 3 lines, got %d", len(lines))
+	}
+}
+
+// TestRenderListMode_CollapsedIndicator tests that collapsed epics show +N badge.
+func TestRenderListMode_CollapsedIndicator(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task-1",
+				Title:     "Task 1",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+			{
+				ID:        "bd-task-2",
+				Title:     "Task 2",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.SetViewport(80, 20)
+	g.ToggleCollapse("bd-epic")
+
+	output := g.Render(80, 20)
+
+	// Should show +2 indicator for collapsed epic with 2 children
+	if !strings.Contains(output, "+2") {
+		t.Errorf("collapsed epic should show +2 indicator, got:\n%s", output)
+	}
+}
+
+// TestRenderListMode_Empty tests rendering an empty graph in list mode.
+func TestRenderListMode_Empty(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	g.SetLayoutMode(GraphLayoutList)
+
+	output := g.Render(60, 10)
+
+	if !strings.Contains(output, "No beads") {
+		t.Errorf("empty list mode should show 'No beads' message, got:\n%s", output)
+	}
+}
+
+// TestRenderListMode_SingleNode tests rendering a single node in list mode.
+func TestRenderListMode_SingleNode(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-single", Title: "Single Task", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	g.SetViewport(60, 10)
+
+	output := g.Render(60, 10)
+
+	// Should contain the single node
+	if !strings.Contains(output, "bd-single") {
+		t.Errorf("output should contain bd-single, got:\n%s", output)
+	}
+
+	// Should NOT contain tree glyphs for single root node
+	if strings.Contains(output, "├") || strings.Contains(output, "└") || strings.Contains(output, "│") {
+		t.Errorf("single root node should not have tree glyphs, got:\n%s", output)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Layout Mode Toggle Tests
+// -----------------------------------------------------------------------------
+
+// TestCycleLayoutMode tests toggling between grid and list modes.
+func TestCycleLayoutMode(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Default is grid
+	if g.GetLayoutMode() != GraphLayoutGrid {
+		t.Errorf("default mode = %v, want GraphLayoutGrid", g.GetLayoutMode())
+	}
+
+	// Cycle to list
+	g.CycleLayoutMode()
+	if g.GetLayoutMode() != GraphLayoutList {
+		t.Errorf("after first cycle = %v, want GraphLayoutList", g.GetLayoutMode())
+	}
+
+	// Cycle back to grid
+	g.CycleLayoutMode()
+	if g.GetLayoutMode() != GraphLayoutGrid {
+		t.Errorf("after second cycle = %v, want GraphLayoutGrid", g.GetLayoutMode())
+	}
+}
+
+// TestSetLayoutMode tests directly setting layout mode.
+func TestSetLayoutMode(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task", Status: "open", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetLayoutMode(GraphLayoutList)
+	if g.GetLayoutMode() != GraphLayoutList {
+		t.Error("SetLayoutMode(List) did not set list mode")
+	}
+
+	g.SetLayoutMode(GraphLayoutGrid)
+	if g.GetLayoutMode() != GraphLayoutGrid {
+		t.Error("SetLayoutMode(Grid) did not set grid mode")
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Position Tests for List Mode
+// -----------------------------------------------------------------------------
+
+// TestPositionNodesForList tests that list mode positions are computed correctly.
+func TestPositionNodesForList(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task",
+				Title:     "Task",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	g.SetViewport(80, 20)
+	g.SetLayoutMode(GraphLayoutList)
+
+	layout := g.GetLayout()
+
+	// Epic at depth 0: X should be 0
+	epicPos := layout.Positions["bd-epic"]
+	if epicPos.X != 0 {
+		t.Errorf("epic X = %d, want 0", epicPos.X)
+	}
+
+	// Task at depth 1: X should be 2 (2-space indent per level)
+	taskPos := layout.Positions["bd-task"]
+	if taskPos.X != 2 {
+		t.Errorf("task X = %d, want 2 (2-space indent)", taskPos.X)
+	}
+
+	// Task should be below epic (Y should be greater)
+	if taskPos.Y <= epicPos.Y {
+		t.Errorf("task Y (%d) should be greater than epic Y (%d)", taskPos.Y, epicPos.Y)
 	}
 }
 
