@@ -129,7 +129,7 @@ func Default() *Config {
 			Enabled:             true,
 			Density:             "standard",
 			RefreshOnEvent:      false,
-			AutoRefreshInterval: 0, // 0 = disabled
+			AutoRefreshInterval: 5 * time.Second,
 		},
 		Prompt: DefaultPrompt,
 	}
