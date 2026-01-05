@@ -76,7 +76,6 @@ type ObserverConfig struct {
 type GraphConfig struct {
 	Enabled             bool          `yaml:"enabled" mapstructure:"enabled"`                             // Enable graph pane in TUI
 	Density             string        `yaml:"density" mapstructure:"density"`                             // Node density: "compact", "standard", or "detailed"
-	LayoutMode          string        `yaml:"layout_mode" mapstructure:"layout_mode"`                     // Layout mode: "grid" or "list"
 	RefreshOnEvent      bool          `yaml:"refresh_on_event" mapstructure:"refresh_on_event"`           // Auto-refresh graph on events
 	AutoRefreshInterval time.Duration `yaml:"auto_refresh_interval" mapstructure:"auto_refresh_interval"` // Interval for auto-refresh (0 = disabled, min 1s)
 }
@@ -129,7 +128,6 @@ func Default() *Config {
 		Graph: GraphConfig{
 			Enabled:             true,
 			Density:             "standard",
-			LayoutMode:          "grid",
 			RefreshOnEvent:      false,
 			AutoRefreshInterval: 5 * time.Second,
 		},

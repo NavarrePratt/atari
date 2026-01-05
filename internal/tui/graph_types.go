@@ -209,28 +209,6 @@ func ParseDensity(s string) NodeDensity {
 	}
 }
 
-// GraphLayoutMode indicates how nodes should be rendered.
-type GraphLayoutMode int
-
-const (
-	// GraphLayoutGrid renders nodes as boxes in a 2D grid (default).
-	GraphLayoutGrid GraphLayoutMode = iota
-	// GraphLayoutList renders nodes as a vertical list with tree glyphs.
-	GraphLayoutList
-)
-
-// String returns a string representation of the GraphLayoutMode.
-func (m GraphLayoutMode) String() string {
-	switch m {
-	case GraphLayoutGrid:
-		return "grid"
-	case GraphLayoutList:
-		return "list"
-	default:
-		return "unknown"
-	}
-}
-
 // ListNode represents a node in the list view with its tree position.
 type ListNode struct {
 	ID       string // Node ID
@@ -239,13 +217,3 @@ type ListNode struct {
 	Visible  bool   // Whether this node should be rendered
 }
 
-// ParseLayoutMode converts a string to GraphLayoutMode.
-// Returns GraphLayoutGrid for invalid input.
-func ParseLayoutMode(s string) GraphLayoutMode {
-	switch s {
-	case "list":
-		return GraphLayoutList
-	default:
-		return GraphLayoutGrid
-	}
-}

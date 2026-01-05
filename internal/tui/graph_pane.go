@@ -280,13 +280,6 @@ func (p GraphPane) handleKey(msg tea.KeyMsg) (GraphPane, tea.Cmd) {
 		// Manual refresh
 		return p, p.refreshCmd()
 
-	case "L":
-		// Toggle layout mode (Grid <-> List)
-		if p.graph != nil {
-			p.graph.CycleLayoutMode()
-		}
-		return p, nil
-
 	case "enter":
 		// Two-step selection:
 		// 1. First Enter: show inline detail view
@@ -474,20 +467,13 @@ func (p GraphPane) renderStatusBar(width int) string {
 		densityStr = "standard"
 	}
 
-	var layoutStr string
-	if p.graph != nil {
-		layoutStr = p.graph.GetLayoutMode().String()
-	} else {
-		layoutStr = "grid"
-	}
-
 	nodeCount := 0
 	if p.graph != nil {
 		nodeCount = p.graph.NodeCount()
 	}
 
-	info := viewStr + " | " + layoutStr + " | " + densityStr + " | " + pluralize(nodeCount, "node", "nodes")
-	hint := " | a:view L:layout d:density R:refresh c:collapse"
+	info := viewStr + " | " + densityStr + " | " + pluralize(nodeCount, "node", "nodes")
+	hint := " | a:view d:density R:refresh c:collapse"
 
 	// Add loading indicator at the very end if refreshing
 	loadingIndicator := ""

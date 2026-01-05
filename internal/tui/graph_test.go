@@ -341,78 +341,6 @@ func TestGraph_Select_Invalid(t *testing.T) {
 	}
 }
 
-// TestGraph_SelectNext tests grid mode SelectNext behavior.
-// In grid mode, SelectNext moves to next sibling in the same layer with wrap-around.
-func TestGraph_SelectNext(t *testing.T) {
-	cfg := defaultGraphConfig()
-	fetcher := &mockFetcher{
-		activeBeads: []GraphBead{
-			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
-			{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
-			{ID: "bd-003", Title: "Task 3", Status: "open", IssueType: "task"},
-		},
-	}
-
-	g := NewGraph(cfg, fetcher, "horizontal")
-	if err := g.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh failed: %v", err)
-	}
-	// Ensure we're in grid mode (default)
-	if g.GetLayoutMode() != GraphLayoutGrid {
-		t.Fatal("expected default layout mode to be grid")
-	}
-	g.Select("bd-001")
-
-	g.SelectNext()
-	if g.GetSelectedID() != "bd-002" {
-		t.Errorf("after SelectNext: selected = %q, want bd-002", g.GetSelectedID())
-	}
-
-	g.SelectNext()
-	if g.GetSelectedID() != "bd-003" {
-		t.Errorf("after SelectNext: selected = %q, want bd-003", g.GetSelectedID())
-	}
-
-	// Wrap around (grid mode wraps)
-	g.SelectNext()
-	if g.GetSelectedID() != "bd-001" {
-		t.Errorf("after SelectNext (wrap): selected = %q, want bd-001", g.GetSelectedID())
-	}
-}
-
-// TestGraph_SelectPrev tests grid mode SelectPrev behavior.
-// In grid mode, SelectPrev moves to previous sibling in the same layer with wrap-around.
-func TestGraph_SelectPrev(t *testing.T) {
-	cfg := defaultGraphConfig()
-	fetcher := &mockFetcher{
-		activeBeads: []GraphBead{
-			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
-			{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
-			{ID: "bd-003", Title: "Task 3", Status: "open", IssueType: "task"},
-		},
-	}
-
-	g := NewGraph(cfg, fetcher, "horizontal")
-	if err := g.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh failed: %v", err)
-	}
-	// Ensure we're in grid mode (default)
-	if g.GetLayoutMode() != GraphLayoutGrid {
-		t.Fatal("expected default layout mode to be grid")
-	}
-	g.Select("bd-002")
-
-	g.SelectPrev()
-	if g.GetSelectedID() != "bd-001" {
-		t.Errorf("after SelectPrev: selected = %q, want bd-001", g.GetSelectedID())
-	}
-
-	// Wrap around (grid mode wraps)
-	g.SelectPrev()
-	if g.GetSelectedID() != "bd-003" {
-		t.Errorf("after SelectPrev (wrap): selected = %q, want bd-003", g.GetSelectedID())
-	}
-}
 
 func TestGraph_SelectParent(t *testing.T) {
 	cfg := defaultGraphConfig()
@@ -933,13 +861,15 @@ func TestGraph_Render_DensityLevels(t *testing.T) {
 		},
 	}
 
+	// List mode has a consistent format regardless of density setting.
+	// All density levels show: status icon, ID, and title.
 	tests := []struct {
 		density  string
 		contains []string
 	}{
-		{"compact", []string{"bd-001", "o"}},
+		{"compact", []string{"bd-001", "o", "A Longer"}},
 		{"standard", []string{"bd-001", "o", "A Longer"}},
-		{"detailed", []string{"bd-001", "o", "P1"}},
+		{"detailed", []string{"bd-001", "o", "A Longer"}},
 	}
 
 	for _, tt := range tests {
@@ -960,37 +890,6 @@ func TestGraph_Render_DensityLevels(t *testing.T) {
 	}
 }
 
-func TestCharGrid(t *testing.T) {
-	grid := newGrid(10, 5)
-
-	if grid.width != 10 || grid.height != 5 {
-		t.Errorf("grid dimensions = %dx%d, want 10x5", grid.width, grid.height)
-	}
-
-	// Write a rune
-	grid.writeRune(0, 0, 'X')
-	if grid.cells[0][0] != 'X' {
-		t.Errorf("cell[0][0] = %c, want X", grid.cells[0][0])
-	}
-
-	// Write a string
-	grid.writeString(2, 1, "Hello")
-	if string(grid.cells[1][2:7]) != "Hello" {
-		t.Errorf("row 1 = %q, want 'Hello' at position 2", string(grid.cells[1]))
-	}
-
-	// Boundary check: out of bounds writes should be ignored
-	grid.writeRune(-1, 0, 'Y')
-	grid.writeRune(100, 0, 'Z')
-	// No panic is success
-
-	// String output
-	output := grid.String()
-	lines := strings.Split(output, "\n")
-	if len(lines) != 5 {
-		t.Errorf("String() returned %d lines, want 5", len(lines))
-	}
-}
 
 func TestGraph_Render_ViewportClipping(t *testing.T) {
 	cfg := defaultGraphConfig()
@@ -1017,74 +916,6 @@ func TestGraph_Render_ViewportClipping(t *testing.T) {
 	}
 }
 
-func TestGraph_FormatNodeCompact(t *testing.T) {
-	cfg := &config.GraphConfig{Density: "compact"}
-	fetcher := &mockFetcher{}
-	g := NewGraph(cfg, fetcher, "horizontal")
-
-	node := &GraphNode{
-		ID:     "bd-test",
-		Title:  "Test Node",
-		Status: "in_progress",
-	}
-
-	text := g.formatNodeCompact(node, false, 0)
-	if text != "bd-test *" {
-		t.Errorf("formatNodeCompact = %q, want 'bd-test *'", text)
-	}
-
-	// With collapsed indicator
-	text = g.formatNodeCompact(node, true, 3)
-	if text != "bd-test * +3" {
-		t.Errorf("formatNodeCompact (collapsed) = %q, want 'bd-test * +3'", text)
-	}
-}
-
-func TestGraph_FormatNodeStandard(t *testing.T) {
-	cfg := &config.GraphConfig{Density: "standard"}
-	fetcher := &mockFetcher{}
-	g := NewGraph(cfg, fetcher, "horizontal")
-
-	node := &GraphNode{
-		ID:     "bd-test",
-		Title:  "A Very Long Title That Gets Truncated",
-		Status: "blocked",
-	}
-
-	text := g.formatNodeStandard(node, false, 0)
-	if !strings.Contains(text, "bd-test") || !strings.Contains(text, "x") {
-		t.Errorf("formatNodeStandard should contain ID and status icon, got %q", text)
-	}
-	if !strings.Contains(text, "...") {
-		t.Errorf("formatNodeStandard should truncate long title, got %q", text)
-	}
-}
-
-func TestGraph_FormatNodeDetailed(t *testing.T) {
-	cfg := &config.GraphConfig{Density: "detailed"}
-	fetcher := &mockFetcher{}
-	g := NewGraph(cfg, fetcher, "horizontal")
-
-	node := &GraphNode{
-		ID:       "bd-test",
-		Title:    "Test Node",
-		Status:   "open",
-		Priority: 1,
-		Attempts: 2,
-		Cost:     1.50,
-	}
-
-	text := g.formatNodeDetailed(node, false, 0)
-	if !strings.Contains(text, "bd-test") {
-		t.Errorf("should contain ID, got %q", text)
-	}
-	if !strings.Contains(text, "P1") {
-		t.Errorf("should contain priority, got %q", text)
-	}
-	if !strings.Contains(text, "[2 $1.50]") {
-		t.Errorf("should contain attempts and cost, got %q", text)
-	}
-}
 
 func TestGraph_GetVisibleNodes_WithCollapsedEpic(t *testing.T) {
 	cfg := defaultGraphConfig()
@@ -1135,80 +966,6 @@ func TestGraph_GetVisibleNodes_WithCollapsedEpic(t *testing.T) {
 	}
 }
 
-func TestCharGrid_StyledString_CorrectPositions(t *testing.T) {
-	// This test verifies that writeStyledString places characters at correct
-	// positions without ANSI escape code corruption. Previously, formatNode()
-	// returned pre-styled strings with ANSI codes, and writeString() would
-	// iterate over those codes as individual runes, corrupting positions.
-	grid := newGrid(20, 3)
-
-	// Write styled text at position (2, 1)
-	style := graphStyles.NodeSelected
-	grid.writeStyledString(2, 1, "bd-001 o", style)
-
-	// Verify characters are at correct positions
-	expectedChars := []struct {
-		x    int
-		char rune
-	}{
-		{2, 'b'},
-		{3, 'd'},
-		{4, '-'},
-		{5, '0'},
-		{6, '0'},
-		{7, '1'},
-		{8, ' '},
-		{9, 'o'},
-	}
-
-	for _, tc := range expectedChars {
-		if grid.cells[1][tc.x] != tc.char {
-			t.Errorf("cell[1][%d] = %c, want %c", tc.x, grid.cells[1][tc.x], tc.char)
-		}
-	}
-
-	// Verify style is stored for each character
-	for x := 2; x <= 9; x++ {
-		if grid.styles[1][x].Render("x") != style.Render("x") {
-			t.Errorf("style not stored at position [1][%d]", x)
-		}
-	}
-
-	// Verify spaces outside the text remain unstyled
-	if grid.cells[1][0] != ' ' || grid.cells[1][1] != ' ' {
-		t.Error("leading spaces should remain")
-	}
-}
-
-func TestGraph_FormatNode_ReturnsPlainText(t *testing.T) {
-	// Verify that formatNode returns plain text without ANSI escape codes.
-	// The style is returned separately and applied by charGrid.String().
-	cfg := &config.GraphConfig{Density: "compact"}
-	fetcher := &mockFetcher{}
-	g := NewGraph(cfg, fetcher, "horizontal")
-
-	node := &GraphNode{
-		ID:     "bd-test",
-		Title:  "Test",
-		Status: "open",
-	}
-
-	text, _ := g.formatNode(node, 20, false, true, false, 0)
-
-	// Text should not contain ANSI escape codes
-	if strings.Contains(text, "\x1b[") {
-		t.Errorf("formatNode returned text with ANSI codes: %q", text)
-	}
-
-	// Text should be plain
-	expected := "bd-test o"
-	if text != expected {
-		t.Errorf("formatNode text = %q, want %q", text, expected)
-	}
-
-	// Style is a lipgloss.Style - verify it was returned (non-zero value type)
-	// Note: lipgloss styling in tests may not produce ANSI codes in non-TTY environments
-}
 
 func TestGraph_Render_NoPositionCorruption(t *testing.T) {
 	// Regression test: verify that styled nodes render at correct positions
@@ -1295,9 +1052,6 @@ func TestComputeListOrder_SimpleHierarchy(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	// Switch to list mode to trigger computeListOrder
-	g.SetLayoutMode(GraphLayoutList)
-
 	layout := g.GetLayout()
 	if layout == nil {
 		t.Fatal("layout is nil")
@@ -1346,8 +1100,6 @@ func TestComputeListOrder_MultipleRoots(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
-
 	layout := g.GetLayout()
 	if len(layout.ListOrder) != 3 {
 		t.Fatalf("expected 3 items in list order, got %d", len(layout.ListOrder))
@@ -1392,8 +1144,6 @@ func TestComputeListOrder_CollapsedEpic(t *testing.T) {
 	if err := g.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
 	}
-
-	g.SetLayoutMode(GraphLayoutList)
 
 	// Before collapse: both visible
 	layout := g.GetLayout()
@@ -1449,8 +1199,6 @@ func TestComputeListOrder_CycleProtection(t *testing.T) {
 	}
 
 	// Should not hang or panic
-	g.SetLayoutMode(GraphLayoutList)
-
 	layout := g.GetLayout()
 	// Should have both nodes
 	if len(layout.ListOrder) != 2 {
@@ -1491,8 +1239,6 @@ func TestComputeListOrder_OrphanNodes(t *testing.T) {
 	if err := g.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
 	}
-
-	g.SetLayoutMode(GraphLayoutList)
 
 	layout := g.GetLayout()
 	if len(layout.ListOrder) != 3 {
@@ -1551,8 +1297,6 @@ func TestSelectNext_ListMode_Linear(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	// Switch to list mode
-	g.SetLayoutMode(GraphLayoutList)
 	g.Select("bd-epic")
 
 	// Navigate through list: epic -> task-1 -> task-2
@@ -1599,7 +1343,6 @@ func TestSelectPrev_ListMode_Linear(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.Select("bd-task-2")
 
 	// Navigate backward: task-2 -> task-1 -> epic
@@ -1630,7 +1373,6 @@ func TestSelectNext_ListMode_NoWrap(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.Select("bd-002") // Start at last node
 
 	// Try to go next - should stay at bd-002 (no wrap)
@@ -1662,7 +1404,6 @@ func TestSelectPrev_ListMode_NoWrap(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.Select("bd-001") // Start at first node
 
 	// Try to go previous - should stay at bd-001 (no wrap)
@@ -1702,7 +1443,6 @@ func TestSelectNext_ListMode_SkipsHidden(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.Select("bd-epic-1")
 
 	// Collapse epic-1 to hide its child
@@ -1743,7 +1483,6 @@ func TestToggleCollapse_SelectionRecovery_ToParent(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.Select("bd-task") // Select the child
 
 	// Collapse the epic - child becomes invisible
@@ -1789,7 +1528,6 @@ func TestToggleCollapse_SelectionRecovery_ToNearestVisible(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.Select("bd-mid") // Select the middle epic
 
 	// Collapse root - mid becomes invisible
@@ -1882,7 +1620,6 @@ func TestRenderListMode_TreeGlyphs(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.SetViewport(80, 20)
 
 	output := g.Render(80, 20)
@@ -1927,7 +1664,6 @@ func TestRenderListMode_DependencyBadge(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.SetViewport(80, 20)
 
 	output := g.Render(80, 20)
@@ -1955,8 +1691,6 @@ func TestRenderListMode_Viewport(t *testing.T) {
 	if err := g.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
 	}
-
-	g.SetLayoutMode(GraphLayoutList)
 
 	// Set a small viewport that can't show all nodes
 	g.SetViewport(60, 3)
@@ -2007,7 +1741,6 @@ func TestRenderListMode_CollapsedIndicator(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.SetViewport(80, 20)
 	g.ToggleCollapse("bd-epic")
 
@@ -2025,7 +1758,6 @@ func TestRenderListMode_Empty(t *testing.T) {
 	fetcher := &mockFetcher{}
 
 	g := NewGraph(cfg, fetcher, "horizontal")
-	g.SetLayoutMode(GraphLayoutList)
 
 	output := g.Render(60, 10)
 
@@ -2048,7 +1780,6 @@ func TestRenderListMode_SingleNode(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	g.SetLayoutMode(GraphLayoutList)
 	g.SetViewport(60, 10)
 
 	output := g.Render(60, 10)
@@ -2064,66 +1795,6 @@ func TestRenderListMode_SingleNode(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Layout Mode Toggle Tests
-// -----------------------------------------------------------------------------
-
-// TestCycleLayoutMode tests toggling between grid and list modes.
-func TestCycleLayoutMode(t *testing.T) {
-	cfg := defaultGraphConfig()
-	fetcher := &mockFetcher{
-		activeBeads: []GraphBead{
-			{ID: "bd-001", Title: "Task", Status: "open", IssueType: "task"},
-		},
-	}
-
-	g := NewGraph(cfg, fetcher, "horizontal")
-	if err := g.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh failed: %v", err)
-	}
-
-	// Default is grid
-	if g.GetLayoutMode() != GraphLayoutGrid {
-		t.Errorf("default mode = %v, want GraphLayoutGrid", g.GetLayoutMode())
-	}
-
-	// Cycle to list
-	g.CycleLayoutMode()
-	if g.GetLayoutMode() != GraphLayoutList {
-		t.Errorf("after first cycle = %v, want GraphLayoutList", g.GetLayoutMode())
-	}
-
-	// Cycle back to grid
-	g.CycleLayoutMode()
-	if g.GetLayoutMode() != GraphLayoutGrid {
-		t.Errorf("after second cycle = %v, want GraphLayoutGrid", g.GetLayoutMode())
-	}
-}
-
-// TestSetLayoutMode tests directly setting layout mode.
-func TestSetLayoutMode(t *testing.T) {
-	cfg := defaultGraphConfig()
-	fetcher := &mockFetcher{
-		activeBeads: []GraphBead{
-			{ID: "bd-001", Title: "Task", Status: "open", IssueType: "task"},
-		},
-	}
-
-	g := NewGraph(cfg, fetcher, "horizontal")
-	if err := g.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh failed: %v", err)
-	}
-
-	g.SetLayoutMode(GraphLayoutList)
-	if g.GetLayoutMode() != GraphLayoutList {
-		t.Error("SetLayoutMode(List) did not set list mode")
-	}
-
-	g.SetLayoutMode(GraphLayoutGrid)
-	if g.GetLayoutMode() != GraphLayoutGrid {
-		t.Error("SetLayoutMode(Grid) did not set grid mode")
-	}
-}
 
 // -----------------------------------------------------------------------------
 // Position Tests for List Mode
@@ -2153,7 +1824,6 @@ func TestPositionNodesForList(t *testing.T) {
 	}
 
 	g.SetViewport(80, 20)
-	g.SetLayoutMode(GraphLayoutList)
 
 	layout := g.GetLayout()
 

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/npratt/atari/internal/config"
 )
 
@@ -29,13 +28,12 @@ type Graph struct {
 	nodes       map[string]*GraphNode
 	edges       []GraphEdge
 	computed    *Layout
-	selected    string           // Selected node ID
+	selected    string          // Selected node ID
 	viewport    Viewport
-	collapsed   map[string]bool  // Collapsed epic IDs
-	view        GraphView        // Active or Backlog
-	currentBead string           // Currently processing bead (highlighted)
-	layoutMode  GraphLayoutMode  // Grid or List
-	listOrder   []ListNode       // Ordered list of nodes for list mode
+	collapsed   map[string]bool // Collapsed epic IDs
+	view        GraphView       // Active or Backlog
+	currentBead string          // Currently processing bead (highlighted)
+	listOrder   []ListNode      // Ordered list of nodes for list view
 }
 
 // NewGraph creates a new Graph with the given configuration.
@@ -208,15 +206,9 @@ func (g *Graph) computeLayout() {
 		}
 	}
 
-	// Position nodes based on layout mode
-	if g.layoutMode == GraphLayoutList {
-		// List mode: compute list order first, then position nodes linearly
-		g.computeListOrder()
-		g.positionNodesForList()
-	} else {
-		// Grid mode: position nodes within layers
-		g.positionNodes()
-	}
+	// Compute list order and position nodes linearly
+	g.computeListOrder()
+	g.positionNodesForList()
 }
 
 // assignLayers assigns nodes to layers using BFS from roots.
@@ -383,19 +375,6 @@ func (g *Graph) getChildrenMap() map[string][]string {
 	return children
 }
 
-// getChildren returns the child node IDs for a given node via hierarchy edges.
-// Must be called with mu held.
-func (g *Graph) getChildren(nodeID string) []string {
-	var children []string
-	for _, edge := range g.edges {
-		if edge.Type == EdgeHierarchy && edge.From == nodeID {
-			children = append(children, edge.To)
-		}
-	}
-	sort.Strings(children)
-	return children
-}
-
 // getParent returns the parent node ID for a given node via hierarchy edges.
 // Returns empty string if no parent exists. Must be called with mu held.
 func (g *Graph) getParent(nodeID string) string {
@@ -405,72 +384,6 @@ func (g *Graph) getParent(nodeID string) string {
 		}
 	}
 	return ""
-}
-
-// SetLayoutMode sets the layout mode (Grid or List).
-func (g *Graph) SetLayoutMode(mode GraphLayoutMode) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.layoutMode = mode
-	if mode == GraphLayoutList {
-		g.computeListOrder()
-		g.positionNodesForList()
-	} else {
-		g.positionNodes()
-	}
-}
-
-// GetLayoutMode returns the current layout mode.
-func (g *Graph) GetLayoutMode() GraphLayoutMode {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.layoutMode
-}
-
-// CycleLayoutMode cycles between layout modes.
-func (g *Graph) CycleLayoutMode() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.layoutMode == GraphLayoutGrid {
-		g.layoutMode = GraphLayoutList
-		g.computeListOrder()
-		g.positionNodesForList()
-	} else {
-		g.layoutMode = GraphLayoutGrid
-		g.positionNodes()
-	}
-}
-
-// positionNodes computes positions for all nodes.
-// Must be called with mu held.
-func (g *Graph) positionNodes() {
-	// Node dimensions based on density
-	nodeW, nodeH := g.nodeDimensions()
-	spacing := 2 // Space between nodes
-
-	for layerIdx, layer := range g.computed.Layers {
-		for nodeIdx, nodeID := range layer {
-			var pos Position
-			if g.computed.Direction == LayoutTopDown {
-				// Top-down: X varies by position in layer, Y varies by layer
-				pos = Position{
-					X: nodeIdx * (nodeW + spacing),
-					Y: layerIdx * (nodeH + spacing),
-					W: nodeW,
-					H: nodeH,
-				}
-			} else {
-				// Left-right: X varies by layer, Y varies by position in layer
-				pos = Position{
-					X: layerIdx * (nodeW + spacing),
-					Y: nodeIdx * (nodeH + spacing),
-					W: nodeW,
-					H: nodeH,
-				}
-			}
-			g.computed.Positions[nodeID] = pos
-		}
-	}
 }
 
 // nodeDimensions returns node width and height based on density.
@@ -586,9 +499,7 @@ func (g *Graph) GetSelected() *GraphNode {
 	return nil
 }
 
-// SelectNext moves selection to the next node.
-// In list mode: moves to next visible node in list order (no wrap).
-// In grid mode: moves to next sibling in current layer (wraps around).
+// SelectNext moves selection to the next visible node in list order (no wrap).
 func (g *Graph) SelectNext() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -597,24 +508,7 @@ func (g *Graph) SelectNext() {
 		return
 	}
 
-	// List mode: linear traversal through visible nodes
-	if g.layoutMode == GraphLayoutList {
-		g.selectNextInList()
-		return
-	}
-
-	// Grid mode: layer-based navigation with wrap
-	for _, layer := range g.computed.Layers {
-		for i, nodeID := range layer {
-			if nodeID == g.selected {
-				// Move to next in layer (wrap around)
-				nextIdx := (i + 1) % len(layer)
-				g.selected = layer[nextIdx]
-				g.adjustViewport()
-				return
-			}
-		}
-	}
+	g.selectNextInList()
 }
 
 // selectNextInList moves to the next visible node in list order.
@@ -645,9 +539,7 @@ func (g *Graph) selectNextInList() {
 	// No next visible node: stay at current (no wrap)
 }
 
-// SelectPrev moves selection to the previous node.
-// In list mode: moves to previous visible node in list order (no wrap).
-// In grid mode: moves to previous sibling in current layer (wraps around).
+// SelectPrev moves selection to the previous visible node in list order (no wrap).
 func (g *Graph) SelectPrev() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -656,27 +548,7 @@ func (g *Graph) SelectPrev() {
 		return
 	}
 
-	// List mode: linear traversal through visible nodes
-	if g.layoutMode == GraphLayoutList {
-		g.selectPrevInList()
-		return
-	}
-
-	// Grid mode: layer-based navigation with wrap
-	for _, layer := range g.computed.Layers {
-		for i, nodeID := range layer {
-			if nodeID == g.selected {
-				// Move to previous in layer (wrap around)
-				prevIdx := i - 1
-				if prevIdx < 0 {
-					prevIdx = len(layer) - 1
-				}
-				g.selected = layer[prevIdx]
-				g.adjustViewport()
-				return
-			}
-		}
-	}
+	g.selectPrevInList()
 }
 
 // selectPrevInList moves to the previous visible node in list order.
@@ -763,14 +635,12 @@ func (g *Graph) ToggleCollapse(nodeID string) {
 	g.collapsed[nodeID] = !g.collapsed[nodeID]
 
 	// Recompute list order and positions to update visibility
-	if g.layoutMode == GraphLayoutList {
-		g.computeListOrder()
-		g.positionNodesForList()
+	g.computeListOrder()
+	g.positionNodesForList()
 
-		// Handle selection recovery if we just collapsed and selected node is now invisible
-		if wasExpanded && g.selected != "" {
-			g.recoverSelectionAfterCollapse()
-		}
+	// Handle selection recovery if we just collapsed and selected node is now invisible
+	if wasExpanded && g.selected != "" {
+		g.recoverSelectionAfterCollapse()
 	}
 }
 
@@ -1033,11 +903,7 @@ func (g *Graph) CycleDensity() {
 
 	// Recompute layout with new dimensions
 	if len(g.nodes) > 0 {
-		if g.layoutMode == GraphLayoutList {
-			g.positionNodesForList()
-		} else {
-			g.positionNodes()
-		}
+		g.positionNodesForList()
 	}
 }
 
@@ -1057,26 +923,7 @@ func (g *Graph) Render(width, height int) string {
 		return g.renderEmpty(width, height)
 	}
 
-	// Use list mode rendering if enabled
-	if g.layoutMode == GraphLayoutList {
-		return g.renderListMode(width, height)
-	}
-
-	// Create a 2D character grid
-	grid := newGrid(width, height)
-
-	// Collect visible nodes (not children of collapsed epics)
-	visibleNodes := g.getVisibleNodes()
-
-	// Render edges first (so nodes draw on top)
-	g.renderEdges(grid, visibleNodes)
-
-	// Render nodes
-	for _, nodeID := range visibleNodes {
-		g.renderNodeToGrid(grid, nodeID)
-	}
-
-	return grid.String()
+	return g.renderListMode(width, height)
 }
 
 // renderListMode renders the graph as a vertical list with tree glyphs.
@@ -1373,287 +1220,3 @@ func (g *Graph) isNodeVisible(nodeID string) bool {
 	return g.isNodeVisible(parentID)
 }
 
-// renderNodeToGrid renders a single node to the grid.
-func (g *Graph) renderNodeToGrid(grid *charGrid, nodeID string) {
-	node := g.nodes[nodeID]
-	if node == nil {
-		return
-	}
-
-	pos, ok := g.computed.Positions[nodeID]
-	if !ok {
-		return
-	}
-
-	// Adjust for viewport offset
-	x := pos.X - g.viewport.OffsetX
-	y := pos.Y - g.viewport.OffsetY
-
-	// Skip if completely outside viewport
-	if x+pos.W < 0 || x >= grid.width || y+pos.H < 0 || y >= grid.height {
-		return
-	}
-
-	// Determine style
-	isCurrent := nodeID == g.currentBead
-	isSelected := nodeID == g.selected
-	isCollapsedEpic := node.IsEpic && g.collapsed[nodeID]
-	childCount := 0
-	if isCollapsedEpic {
-		childCount = g.countChildren(nodeID)
-	}
-
-	// Render the node content (plain text + style)
-	content, style := g.formatNode(node, pos.W, isCurrent, isSelected, isCollapsedEpic, childCount)
-
-	// Write to grid with style
-	lines := strings.Split(content, "\n")
-	for dy, line := range lines {
-		if y+dy >= 0 && y+dy < grid.height {
-			grid.writeStyledString(x, y+dy, line, style)
-		}
-	}
-}
-
-// countChildren counts hierarchy children of a node.
-func (g *Graph) countChildren(nodeID string) int {
-	return len(g.getChildren(nodeID))
-}
-
-// formatNode formats a node for display based on density.
-// Returns plain text and the style to apply (styling is deferred to grid rendering).
-func (g *Graph) formatNode(node *GraphNode, width int, isCurrent, isSelected, isCollapsed bool, childCount int) (string, lipgloss.Style) {
-	density := ParseDensity(g.config.Density)
-
-	// Build node text based on density
-	var text string
-	switch density {
-	case DensityCompact:
-		text = g.formatNodeCompact(node, isCollapsed, childCount)
-	case DensityDetailed:
-		text = g.formatNodeDetailed(node, isCollapsed, childCount)
-	default: // DensityStandard
-		text = g.formatNodeStandard(node, isCollapsed, childCount)
-	}
-
-	// Determine style (applied later by charGrid)
-	style := graphStyles.Node
-	if isCurrent {
-		style = graphStyles.NodeCurrent
-	} else if isSelected {
-		style = graphStyles.NodeSelected
-	}
-
-	return text, style
-}
-
-// formatNodeCompact formats a node in compact density: "bd-xxx o"
-func (g *Graph) formatNodeCompact(node *GraphNode, isCollapsed bool, childCount int) string {
-	icon := statusIcon(node.Status)
-	text := fmt.Sprintf("%s %s", node.ID, icon)
-	if isCollapsed && childCount > 0 {
-		text += fmt.Sprintf(" +%d", childCount)
-	}
-	return text
-}
-
-// formatNodeStandard formats a node in standard density: "bd-xxx o Title..."
-func (g *Graph) formatNodeStandard(node *GraphNode, isCollapsed bool, childCount int) string {
-	icon := statusIcon(node.Status)
-	title := truncate(node.Title, 12)
-	text := fmt.Sprintf("%s %s %s", node.ID, icon, title)
-	if isCollapsed && childCount > 0 {
-		text += fmt.Sprintf(" +%d", childCount)
-	}
-	return text
-}
-
-// formatNodeDetailed formats a node in detailed density with cost/attempts.
-func (g *Graph) formatNodeDetailed(node *GraphNode, isCollapsed bool, childCount int) string {
-	icon := statusIcon(node.Status)
-	priority := priorityLabel(node.Priority)
-	title := truncate(node.Title, 10)
-	details := ""
-	if node.Attempts > 0 || node.Cost > 0 {
-		details = fmt.Sprintf(" [%d $%.2f]", node.Attempts, node.Cost)
-	}
-	text := fmt.Sprintf("%s %s %s %s%s", node.ID, icon, priority, title, details)
-	if isCollapsed && childCount > 0 {
-		text += fmt.Sprintf(" +%d", childCount)
-	}
-	return text
-}
-
-// renderEdges renders all edges between visible nodes.
-func (g *Graph) renderEdges(grid *charGrid, visibleNodes []string) {
-	visibleSet := make(map[string]bool)
-	for _, id := range visibleNodes {
-		visibleSet[id] = true
-	}
-
-	for _, edge := range g.edges {
-		// Only render if both endpoints are visible
-		if !visibleSet[edge.From] || !visibleSet[edge.To] {
-			continue
-		}
-
-		fromPos, fromOK := g.computed.Positions[edge.From]
-		toPos, toOK := g.computed.Positions[edge.To]
-		if !fromOK || !toOK {
-			continue
-		}
-
-		g.renderEdge(grid, fromPos, toPos, edge.Type)
-	}
-}
-
-// renderEdge renders a single edge between two positions.
-func (g *Graph) renderEdge(grid *charGrid, from, to Position, edgeType EdgeType) {
-	// Adjust for viewport
-	fromX := from.X + from.W/2 - g.viewport.OffsetX
-	fromY := from.Y + from.H - g.viewport.OffsetY
-	toX := to.X + to.W/2 - g.viewport.OffsetX
-	toY := to.Y - g.viewport.OffsetY
-
-	// Choose characters based on edge type
-	var hChar, vChar, cornerChar rune
-	if edgeType == EdgeHierarchy {
-		hChar = '─'
-		vChar = '│'
-		cornerChar = '└'
-	} else {
-		// Dependency edges use dashed characters
-		hChar = '╌'
-		vChar = '╎'
-		cornerChar = '└'
-	}
-
-	// Simple L-shaped edge: down from source, then across to target
-	// Draw vertical segment
-	minY, maxY := fromY, toY
-	if minY > maxY {
-		minY, maxY = maxY, minY
-	}
-	for y := minY + 1; y < maxY; y++ {
-		grid.writeRune(fromX, y, vChar)
-	}
-
-	// Draw horizontal segment and corner
-	if fromX != toX {
-		minX, maxX := fromX, toX
-		if minX > maxX {
-			minX, maxX = maxX, minX
-		}
-		for x := minX; x <= maxX; x++ {
-			if x == fromX && toY > fromY {
-				grid.writeRune(x, toY-1, cornerChar)
-			} else if x != toX {
-				grid.writeRune(x, toY-1, hChar)
-			}
-		}
-	}
-}
-
-// charGrid is a 2D character grid for rendering.
-type charGrid struct {
-	width  int
-	height int
-	cells  [][]rune
-	styles [][]lipgloss.Style
-}
-
-// newGrid creates a new character grid filled with spaces.
-func newGrid(width, height int) *charGrid {
-	cells := make([][]rune, height)
-	styles := make([][]lipgloss.Style, height)
-	for y := 0; y < height; y++ {
-		cells[y] = make([]rune, width)
-		styles[y] = make([]lipgloss.Style, width)
-		for x := 0; x < width; x++ {
-			cells[y][x] = ' '
-		}
-	}
-	return &charGrid{
-		width:  width,
-		height: height,
-		cells:  cells,
-		styles: styles,
-	}
-}
-
-// writeRune writes a single rune at the given position.
-func (g *charGrid) writeRune(x, y int, r rune) {
-	if x >= 0 && x < g.width && y >= 0 && y < g.height {
-		g.cells[y][x] = r
-	}
-}
-
-// writeStyledRune writes a rune with style at the given position.
-func (g *charGrid) writeStyledRune(x, y int, r rune, style lipgloss.Style) {
-	if x >= 0 && x < g.width && y >= 0 && y < g.height {
-		g.cells[y][x] = r
-		g.styles[y][x] = style
-	}
-}
-
-// writeString writes a string starting at the given position (plain text, no style).
-func (g *charGrid) writeString(x, y int, s string) {
-	col := 0
-	for _, r := range s {
-		g.writeRune(x+col, y, r)
-		col++
-	}
-}
-
-// writeStyledString writes a string with style starting at the given position.
-func (g *charGrid) writeStyledString(x, y int, s string, style lipgloss.Style) {
-	col := 0
-	for _, r := range s {
-		g.writeStyledRune(x+col, y, r, style)
-		col++
-	}
-}
-
-// String converts the grid to a string, applying per-cell styles.
-func (g *charGrid) String() string {
-	var lines []string
-	emptyStyle := lipgloss.NewStyle()
-
-	for y, row := range g.cells {
-		var line strings.Builder
-		var currentStyle lipgloss.Style
-		var currentRun strings.Builder
-
-		for x, r := range row {
-			cellStyle := g.styles[y][x]
-
-			// Check if style changed (compare by rendered output of a test char)
-			styleChanged := cellStyle.Render("x") != currentStyle.Render("x")
-
-			if styleChanged && currentRun.Len() > 0 {
-				// Flush previous run with its style
-				if currentStyle.Render("x") != emptyStyle.Render("x") {
-					line.WriteString(currentStyle.Render(currentRun.String()))
-				} else {
-					line.WriteString(currentRun.String())
-				}
-				currentRun.Reset()
-			}
-
-			currentStyle = cellStyle
-			currentRun.WriteRune(r)
-		}
-
-		// Flush final run
-		if currentRun.Len() > 0 {
-			if currentStyle.Render("x") != emptyStyle.Render("x") {
-				line.WriteString(currentStyle.Render(currentRun.String()))
-			} else {
-				line.WriteString(currentRun.String())
-			}
-		}
-
-		lines = append(lines, line.String())
-	}
-	return strings.Join(lines, "\n")
-}
