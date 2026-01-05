@@ -14,6 +14,8 @@ import (
 const (
 	// graphTickInterval is the interval for updating elapsed time during refresh.
 	graphTickInterval = 100 * time.Millisecond
+	// minAutoRefreshInterval is the minimum allowed auto-refresh interval.
+	minAutoRefreshInterval = 1 * time.Second
 )
 
 // GraphPane is a TUI component for bead graph visualization.
@@ -29,7 +31,8 @@ type GraphPane struct {
 	width     int
 	height    int
 	focused   bool
-	requestID int // For staleness detection
+	visible   bool // Whether the pane is visible (for auto-refresh)
+	requestID int  // For staleness detection
 }
 
 // graphTickMsg signals a tick for updating elapsed time during refresh.
@@ -41,6 +44,9 @@ type graphResultMsg struct {
 	err       error
 	requestID int
 }
+
+// graphAutoRefreshMsg signals that auto-refresh interval has elapsed.
+type graphAutoRefreshMsg struct{}
 
 // NewGraphPane creates a new GraphPane with the given configuration.
 func NewGraphPane(cfg *config.GraphConfig, fetcher BeadFetcher, layout string) GraphPane {
@@ -64,7 +70,14 @@ func NewGraphPane(cfg *config.GraphConfig, fetcher BeadFetcher, layout string) G
 // Init returns initial commands for the graph pane.
 func (p GraphPane) Init() tea.Cmd {
 	// Start an initial refresh to load data
-	return p.refreshCmd()
+	cmds := []tea.Cmd{p.refreshCmd()}
+
+	// Start auto-refresh ticker if configured
+	if cmd := p.autoRefreshCmd(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // Update handles messages and returns the updated pane and any commands.
@@ -123,6 +136,21 @@ func (p GraphPane) Update(msg tea.Msg) (GraphPane, tea.Cmd) {
 			return p, cmd
 		}
 		return p, nil
+
+	case graphAutoRefreshMsg:
+		// Auto-refresh: trigger refresh and schedule next tick
+		var cmds []tea.Cmd
+		// Only refresh if visible and not already loading
+		if p.visible {
+			if cmd := p.refreshCmd(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		// Always schedule next auto-refresh tick
+		if cmd := p.autoRefreshCmd(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return p, tea.Batch(cmds...)
 
 	default:
 		return p, nil
@@ -285,6 +313,24 @@ func (p GraphPane) tickCmd() tea.Cmd {
 	})
 }
 
+// autoRefreshCmd returns a command that schedules an auto-refresh.
+// Returns nil if auto-refresh is disabled.
+func (p GraphPane) autoRefreshCmd() tea.Cmd {
+	if p.cfg == nil || p.cfg.AutoRefreshInterval <= 0 {
+		return nil
+	}
+
+	interval := p.cfg.AutoRefreshInterval
+	// Enforce minimum interval
+	if interval < minAutoRefreshInterval {
+		interval = minAutoRefreshInterval
+	}
+
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
+		return graphAutoRefreshMsg{}
+	})
+}
+
 // rebuildGraph rebuilds the graph with new bead data.
 func (p *GraphPane) rebuildGraph(beads []GraphBead) {
 	if p.graph == nil {
@@ -396,6 +442,11 @@ func (p *GraphPane) SetFocused(focused bool) {
 // IsFocused returns true if the pane is focused.
 func (p GraphPane) IsFocused() bool {
 	return p.focused
+}
+
+// SetVisible updates the visibility state (used for auto-refresh).
+func (p *GraphPane) SetVisible(visible bool) {
+	p.visible = visible
 }
 
 // IsLoading returns true if a fetch is in progress.

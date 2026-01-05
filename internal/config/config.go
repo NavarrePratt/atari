@@ -74,9 +74,10 @@ type ObserverConfig struct {
 
 // GraphConfig holds settings for the TUI graph pane.
 type GraphConfig struct {
-	Enabled        bool   `yaml:"enabled" mapstructure:"enabled"`                 // Enable graph pane in TUI
-	Density        string `yaml:"density" mapstructure:"density"`                 // Node density: "compact", "standard", or "detailed"
-	RefreshOnEvent bool   `yaml:"refresh_on_event" mapstructure:"refresh_on_event"` // Auto-refresh graph on events
+	Enabled             bool          `yaml:"enabled" mapstructure:"enabled"`                           // Enable graph pane in TUI
+	Density             string        `yaml:"density" mapstructure:"density"`                           // Node density: "compact", "standard", or "detailed"
+	RefreshOnEvent      bool          `yaml:"refresh_on_event" mapstructure:"refresh_on_event"`         // Auto-refresh graph on events
+	AutoRefreshInterval time.Duration `yaml:"auto_refresh_interval" mapstructure:"auto_refresh_interval"` // Interval for auto-refresh (0 = disabled, min 1s)
 }
 
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
@@ -125,9 +126,10 @@ func Default() *Config {
 			Layout:       "horizontal",
 		},
 		Graph: GraphConfig{
-			Enabled:        true,
-			Density:        "standard",
-			RefreshOnEvent: false,
+			Enabled:             true,
+			Density:             "standard",
+			RefreshOnEvent:      false,
+			AutoRefreshInterval: 0, // 0 = disabled
 		},
 		Prompt: DefaultPrompt,
 	}

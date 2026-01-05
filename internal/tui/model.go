@@ -201,6 +201,7 @@ func (m *model) toggleObserver() {
 // toggleGraph toggles the graph pane visibility.
 func (m *model) toggleGraph() {
 	m.graphOpen = !m.graphOpen
+	m.graphPane.SetVisible(m.graphOpen)
 	if m.graphOpen {
 		m.focusedPane = FocusGraph
 		m.graphPane.SetFocused(true)

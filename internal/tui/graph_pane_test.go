@@ -737,3 +737,165 @@ func TestGraphPane_FullRefreshFlow(t *testing.T) {
 		t.Error("standalone bead should be in graph")
 	}
 }
+
+func TestGraphPane_SetVisible(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+
+	// Initially not visible
+	if pane.visible {
+		t.Error("expected visible to be false initially")
+	}
+
+	pane.SetVisible(true)
+	if !pane.visible {
+		t.Error("expected visible to be true after SetVisible(true)")
+	}
+
+	pane.SetVisible(false)
+	if pane.visible {
+		t.Error("expected visible to be false after SetVisible(false)")
+	}
+}
+
+func TestGraphPane_AutoRefreshCmdDisabled(t *testing.T) {
+	// AutoRefreshInterval = 0 (disabled)
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 0,
+	}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+
+	cmd := pane.autoRefreshCmd()
+	if cmd != nil {
+		t.Error("expected autoRefreshCmd to return nil when disabled (interval=0)")
+	}
+}
+
+func TestGraphPane_AutoRefreshCmdEnabled(t *testing.T) {
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 5 * time.Second,
+	}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+
+	cmd := pane.autoRefreshCmd()
+	if cmd == nil {
+		t.Error("expected autoRefreshCmd to return a command when enabled")
+	}
+}
+
+func TestGraphPane_AutoRefreshCmdEnforcesMinimum(t *testing.T) {
+	// Interval below minimum (500ms < 1s)
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 500 * time.Millisecond,
+	}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+
+	cmd := pane.autoRefreshCmd()
+	if cmd == nil {
+		t.Fatal("expected autoRefreshCmd to return a command")
+	}
+
+	// The command should be a tea.Tick with at least minAutoRefreshInterval (1s)
+	// We can't directly test the interval, but we verify the command exists
+}
+
+func TestGraphPane_AutoRefreshCmdNilConfig(t *testing.T) {
+	pane := NewGraphPane(nil, nil, "horizontal")
+
+	cmd := pane.autoRefreshCmd()
+	if cmd != nil {
+		t.Error("expected autoRefreshCmd to return nil when config is nil")
+	}
+}
+
+func TestGraphPane_AutoRefreshMsgTriggersRefreshWhenVisible(t *testing.T) {
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 5 * time.Second,
+	}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Test", Status: "open", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+	pane.SetVisible(true)
+
+	// Send graphAutoRefreshMsg
+	msg := graphAutoRefreshMsg{}
+	_, cmd := pane.Update(msg)
+
+	// Should return commands: refresh cmd + next auto-refresh tick
+	if cmd == nil {
+		t.Error("expected graphAutoRefreshMsg to return commands when visible")
+	}
+}
+
+func TestGraphPane_AutoRefreshMsgNoRefreshWhenNotVisible(t *testing.T) {
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 5 * time.Second,
+	}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+	pane.SetVisible(false)
+
+	// Send graphAutoRefreshMsg
+	msg := graphAutoRefreshMsg{}
+	newPane, cmd := pane.Update(msg)
+
+	// Should still return next auto-refresh tick, but no refresh triggered
+	if cmd == nil {
+		t.Error("expected graphAutoRefreshMsg to return next tick command")
+	}
+
+	// Pane should not have started loading since it's not visible
+	if newPane.loading {
+		t.Error("expected loading to remain false when not visible")
+	}
+}
+
+func TestGraphPane_AutoRefreshMsgSchedulesNextTick(t *testing.T) {
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 5 * time.Second,
+	}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+	pane.SetVisible(false) // Even when not visible, should schedule next tick
+
+	msg := graphAutoRefreshMsg{}
+	_, cmd := pane.Update(msg)
+
+	if cmd == nil {
+		t.Error("expected graphAutoRefreshMsg to schedule next tick")
+	}
+}
+
+func TestGraphPane_InitStartsAutoRefresh(t *testing.T) {
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 5 * time.Second,
+	}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+
+	cmd := pane.Init()
+	if cmd == nil {
+		t.Error("expected Init to return commands including auto-refresh")
+	}
+}
+
+func TestGraphPane_InitNoAutoRefreshWhenDisabled(t *testing.T) {
+	cfg := &config.GraphConfig{
+		Density:             "standard",
+		AutoRefreshInterval: 0, // Disabled
+	}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+
+	cmd := pane.Init()
+	// Should still return the initial refresh command
+	if cmd == nil {
+		t.Error("expected Init to return initial refresh command")
+	}
+}

@@ -34,10 +34,11 @@ type Graph struct {
 }
 
 type GraphConfig struct {
-    Enabled       bool   // Default: true
-    Density       string // "compact", "standard", "detailed" (default: "standard")
-    Layout        string // "horizontal" or "vertical" (inherited from TUI config)
-    RefreshOnEvent bool  // Auto-refresh on BeadStatusEvent (default: false)
+    Enabled             bool          // Default: true
+    Density             string        // "compact", "standard", "detailed" (default: "standard")
+    Layout              string        // "horizontal" or "vertical" (inherited from TUI config)
+    RefreshOnEvent      bool          // Auto-refresh on BeadStatusEvent (default: false)
+    AutoRefreshInterval time.Duration // Interval-based refresh (0 = disabled, min 1s)
 }
 
 type GraphNode struct {
@@ -321,8 +322,9 @@ the selected node centered (or at least visible).
 ```yaml
 graph:
   enabled: true
-  density: standard        # compact, standard, detailed
-  refresh_on_event: false  # Auto-refresh on bead status changes
+  density: standard           # compact, standard, detailed
+  refresh_on_event: false     # Auto-refresh on bead status changes
+  auto_refresh_interval: 0    # Interval-based refresh (0 = disabled, min 1s)
 ```
 
 | Setting | Type | Default | Description |
@@ -330,8 +332,19 @@ graph:
 | `enabled` | bool | true | Enable graph panel in TUI |
 | `density` | string | "standard" | Node detail level |
 | `refresh_on_event` | bool | false | Auto-refresh on BeadStatusEvent |
+| `auto_refresh_interval` | duration | 0 | Interval for auto-refresh (0 = disabled, minimum 1s) |
 
 Layout direction is inherited from the TUI `layout` setting.
+
+### Auto-Refresh Behavior
+
+When `auto_refresh_interval` is configured:
+
+- Refresh triggers at the specified interval (e.g., `5s`, `10s`)
+- Refresh only occurs when the graph pane is visible
+- Existing loading guard prevents overlapping requests
+- Manual refresh with `R` key remains available
+- Minimum interval is enforced at 1 second to prevent excessive load
 
 ## TUI Integration
 
