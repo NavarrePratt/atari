@@ -290,7 +290,7 @@ func (p *GraphPane) rebuildGraph(beads []GraphBead) {
 	if p.graph == nil {
 		p.graph = NewGraph(p.cfg, p.fetcher, p.layout)
 	}
-	p.graph.buildFromBeads(beads)
+	p.graph.RebuildFromBeads(beads)
 }
 
 // View renders the graph pane.

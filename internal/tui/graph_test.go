@@ -1107,3 +1107,81 @@ func TestGraph_GetVisibleNodes_WithCollapsedEpic(t *testing.T) {
 		t.Errorf("visible nodes after collapse = %d, want 1 (just epic)", len(visible))
 	}
 }
+
+func TestGraph_ConcurrentRebuildAndRender(t *testing.T) {
+	// This test verifies that concurrent calls to RebuildFromBeads and Render
+	// do not cause data races. Run with -race to detect issues.
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	beadSets := [][]GraphBead{
+		{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "in_progress", IssueType: "task"},
+		},
+		{
+			{ID: "bd-003", Title: "Task 3", Status: "blocked", IssueType: "task"},
+		},
+		{
+			{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+			{
+				ID:        "bd-task",
+				Title:     "Child",
+				Status:    "open",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic", DependencyType: "parent-child"},
+				},
+			},
+		},
+	}
+
+	done := make(chan struct{})
+	const iterations = 100
+
+	// Writer goroutine: repeatedly rebuilds with different bead sets
+	go func() {
+		defer close(done)
+		for i := 0; i < iterations; i++ {
+			beads := beadSets[i%len(beadSets)]
+			g.RebuildFromBeads(beads)
+		}
+	}()
+
+	// Reader goroutines: repeatedly render and access graph state
+	for i := 0; i < 3; i++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					g.Render(60, 20)
+					g.GetNodes()
+					g.GetEdges()
+					g.NodeCount()
+					g.GetLayout()
+					g.GetSelectedID()
+				}
+			}
+		}()
+	}
+
+	// Navigation goroutine: repeatedly navigates selection
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				g.SelectNext()
+				g.SelectPrev()
+				g.SelectParent()
+				g.SelectChild()
+			}
+		}
+	}()
+
+	<-done
+}

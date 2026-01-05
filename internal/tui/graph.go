@@ -74,6 +74,14 @@ func (g *Graph) Refresh(ctx context.Context) error {
 	return nil
 }
 
+// RebuildFromBeads rebuilds the graph from bead data with proper locking.
+// This is the public API for external callers.
+func (g *Graph) RebuildFromBeads(beads []GraphBead) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.buildFromBeads(beads)
+}
+
 // buildFromBeads builds the graph from bead data.
 // Must be called with mu held.
 func (g *Graph) buildFromBeads(beads []GraphBead) {
