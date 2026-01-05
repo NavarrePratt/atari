@@ -63,6 +63,8 @@ func (m model) renderWithModalOverlay(baseContent string) string {
 // renderFullscreenPane renders a single pane in fullscreen mode.
 func (m model) renderFullscreenPane() string {
 	switch m.focusMode {
+	case FocusEvents:
+		return m.renderEventsOnlyView()
 	case FocusObserver:
 		return m.renderObserverPane(m.width, m.height)
 	case FocusGraph:
@@ -111,59 +113,75 @@ func (m model) renderSplitView() string {
 	return m.renderVerticalSplit()
 }
 
-// renderHorizontalSplit renders events left, secondary panes right.
+// renderHorizontalSplit renders events left, secondary panes right with shared header.
 func (m model) renderHorizontalSplit() string {
-	// Calculate pane widths
-	eventsWidth := m.width * eventsWidthPercent / 100
-	remainingWidth := m.width - eventsWidth
-
-	// Enforce minimums for events
-	if eventsWidth < minEventsCols {
-		eventsWidth = minEventsCols
-		remainingWidth = m.width - eventsWidth
+	// Count visible panes
+	numPanes := 0
+	if m.eventsOpen {
+		numPanes++
+	}
+	if m.observerOpen {
+		numPanes++
+	}
+	if m.graphOpen {
+		numPanes++
 	}
 
-	// Render events pane
-	eventsPane := m.renderEventsPane(eventsWidth, m.height)
-
-	// Determine secondary panes based on what's open
-	var secondaryPanes []string
-
-	if m.observerOpen && m.graphOpen {
-		// Both open - split remaining width
-		halfWidth := remainingWidth / 2
-		observerWidth := halfWidth
-		graphWidth := remainingWidth - halfWidth
-
-		if observerWidth < minObserverCols {
-			observerWidth = minObserverCols
-		}
-		if graphWidth < minGraphCols {
-			graphWidth = minGraphCols
-		}
-
-		secondaryPanes = append(secondaryPanes, m.renderObserverPane(observerWidth, m.height))
-		secondaryPanes = append(secondaryPanes, m.renderGraphPane(graphWidth, m.height))
-	} else if m.observerOpen {
-		// Only observer
-		observerWidth := remainingWidth
-		if observerWidth < minObserverCols {
-			observerWidth = minObserverCols
-		}
-		secondaryPanes = append(secondaryPanes, m.renderObserverPane(observerWidth, m.height))
-	} else if m.graphOpen {
-		// Only graph
-		graphWidth := remainingWidth
-		if graphWidth < minGraphCols {
-			graphWidth = minGraphCols
-		}
-		secondaryPanes = append(secondaryPanes, m.renderGraphPane(graphWidth, m.height))
+	// Must have at least one pane
+	if numPanes == 0 {
+		return m.renderEventsOnlyView()
 	}
 
-	// Join all panes horizontally
-	allPanes := []string{eventsPane}
-	allPanes = append(allPanes, secondaryPanes...)
-	return lipgloss.JoinHorizontal(lipgloss.Top, allPanes...)
+	// Header spans full width (4 lines: 3 header + 1 divider)
+	headerHeight := 4
+	headerContent := m.renderSharedHeader(m.width - 2)
+	header := styles.UnfocusedBorder.
+		Width(m.width - 2).
+		Render(headerContent)
+
+	// Remaining height for panes
+	paneHeight := m.height - headerHeight - 2
+
+	// Calculate equal widths for all panes
+	paneWidth := m.width / numPanes
+	remainingWidth := m.width
+
+	// Render panes with equal widths
+	var panes []string
+	panesRendered := 0
+
+	// Events pane (no header, just events + footer)
+	if m.eventsOpen {
+		panesRendered++
+		eventsW := paneWidth
+		if panesRendered == numPanes {
+			eventsW = remainingWidth
+		}
+		remainingWidth -= eventsW
+		panes = append(panes, m.renderEventsPaneNoHeader(eventsW, paneHeight))
+	}
+
+	// Observer pane (if open)
+	if m.observerOpen {
+		panesRendered++
+		obsW := paneWidth
+		if panesRendered == numPanes {
+			obsW = remainingWidth
+		}
+		remainingWidth -= obsW
+		panes = append(panes, m.renderObserverPane(obsW, paneHeight))
+	}
+
+	// Graph pane (if open) - gets remaining width
+	if m.graphOpen {
+		panes = append(panes, m.renderGraphPane(remainingWidth, paneHeight))
+	}
+
+	// Join panes horizontally
+	panesRow := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+
+	// Stack header on top of panes
+	return lipgloss.JoinVertical(lipgloss.Left, header, panesRow)
 }
 
 // renderVerticalSplit renders events top, secondary panes bottom.
@@ -219,6 +237,86 @@ func (m model) renderVerticalSplit() string {
 	allPanes := []string{eventsPane}
 	allPanes = append(allPanes, secondaryPanes...)
 	return lipgloss.JoinVertical(lipgloss.Left, allPanes...)
+}
+
+// renderSharedHeader renders the header that spans all panes.
+func (m model) renderSharedHeader(w int) string {
+	// Line 1: Status and cost
+	status := m.renderStatus()
+	cost := styles.Cost.Render(fmt.Sprintf("$%.4f", m.stats.TotalCost))
+
+	statusLine := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		status,
+		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-lipgloss.Width(cost))),
+		cost,
+	)
+
+	// Line 2: Current bead (or idle message) with elapsed time and turn count
+	var beadLine string
+	if m.currentBead != nil {
+		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
+		var beadText string
+		if m.currentSessionTurns > 0 {
+			beadText = fmt.Sprintf("bead: %s - %s [%s, turn %d]",
+				m.currentBead.ID, m.currentBead.Title, elapsed, m.currentSessionTurns)
+		} else {
+			beadText = fmt.Sprintf("bead: %s - %s [%s]",
+				m.currentBead.ID, m.currentBead.Title, elapsed)
+		}
+		if len(beadText) > w {
+			beadText = beadText[:w-3] + "..."
+		}
+		beadLine = styles.Bead.Render(beadText)
+	} else {
+		beadLine = styles.Bead.Render("no active bead")
+	}
+
+	// Line 3: Turns, total duration, and progress stats
+	turnsText := fmt.Sprintf("turns: %d", m.stats.TotalTurns)
+	totalDur := formatDurationHuman(m.stats.TotalDurationMs)
+	statsText := fmt.Sprintf("total: %s  completed: %d  failed: %d  abandoned: %d",
+		totalDur, m.stats.Completed, m.stats.Failed, m.stats.Abandoned)
+
+	// Style first, then calculate spacing based on visual width
+	styledTurns := styles.Turns.Render(turnsText)
+	styledStats := styles.Turns.Render(statsText)
+	statsLine := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		styledTurns,
+		strings.Repeat(" ", max(1, w-lipgloss.Width(styledTurns)-lipgloss.Width(styledStats))),
+		styledStats,
+	)
+
+	// Add dividers
+	divider := styles.Divider.Render(strings.Repeat("─", w))
+
+	return strings.Join([]string{statusLine, beadLine, statsLine, divider}, "\n")
+}
+
+// renderEventsPaneNoHeader renders events pane without header (for split view with shared header).
+func (m model) renderEventsPaneNoHeader(width, height int) string {
+	// Account for borders
+	innerWidth := safeWidth(width - 2)
+	innerHeight := height - 2
+
+	// Calculate visible lines (only footer takes space)
+	visibleLines := max(1, innerHeight-1)
+
+	// Build the view
+	var sections []string
+	sections = append(sections, m.renderEventsForSize(innerWidth, visibleLines))
+	sections = append(sections, m.renderFooter())
+
+	content := strings.Join(sections, "\n")
+
+	// Get focus-aware container style
+	containerStyle := m.containerStyleForFocus(FocusEvents)
+
+	return containerStyle.
+		Width(innerWidth).
+		Height(height - 2).
+		Render(content)
 }
 
 // renderEventsPane renders the events pane within the given dimensions.
@@ -567,16 +665,24 @@ func (m model) renderEventsFooter() string {
 		parts = append(parts, "p: pause")
 	}
 
-	// Panel toggles based on what's open
-	if !m.observerOpen {
-		parts = append(parts, "o: observer")
-	}
-	if !m.graphOpen {
-		parts = append(parts, "b: beads")
-	}
+	// Panel toggles (show letter for each panel)
+	parts = append(parts, "e/o/b: panels")
 
-	// Tab switch if any secondary pane is open
-	if m.anyPaneOpen() {
+	// Fullscreen hint
+	parts = append(parts, "E/O/B: fullscreen")
+
+	// Tab switch if multiple panes open
+	numOpen := 0
+	if m.eventsOpen {
+		numOpen++
+	}
+	if m.observerOpen {
+		numOpen++
+	}
+	if m.graphOpen {
+		numOpen++
+	}
+	if numOpen > 1 {
 		parts = append(parts, "tab: switch")
 	}
 

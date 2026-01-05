@@ -144,11 +144,15 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global keys: always work regardless of focus
 	switch key {
 	case "ctrl+c":
-		// If observer has a query in progress, cancel it
-		if m.observerOpen && m.observerPane.IsLoading() {
-			var cmd tea.Cmd
-			m.observerPane, cmd = m.observerPane.Update(msg)
-			return m, cmd
+		// If observer is focused, forward ctrl+c to it (for query cancellation)
+		if m.observerOpen && m.isObserverFocused() {
+			if m.observerPane.IsLoading() {
+				var cmd tea.Cmd
+				m.observerPane, cmd = m.observerPane.Update(msg)
+				return m, cmd
+			}
+			// When focused but not loading, ignore ctrl+c to prevent accidental quit
+			return m, nil
 		}
 		if m.onQuit != nil {
 			m.onQuit()
@@ -214,6 +218,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 
+	case "e":
+		// Toggle events pane
+		m.toggleEvents()
+		return m, nil
+
 	case "o":
 		// Toggle observer pane
 		m.toggleObserver()
@@ -223,6 +232,20 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Toggle graph pane
 		m.toggleGraph()
 		return m, m.graphPane.Init()
+
+	case "E":
+		// Toggle fullscreen events mode
+		if m.eventsOpen {
+			if m.focusMode == FocusEvents {
+				m.focusMode = FocusModeNone
+			} else {
+				m.focusMode = FocusEvents
+				m.focusedPane = FocusEvents
+				m.observerPane.SetFocused(false)
+				m.graphPane.SetFocused(false)
+			}
+		}
+		return m, nil
 
 	case "B":
 		// Toggle fullscreen graph mode

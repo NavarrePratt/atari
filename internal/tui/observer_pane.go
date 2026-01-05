@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/npratt/atari/internal/observer"
@@ -20,18 +21,34 @@ const (
 	observerTickInterval = 100 * time.Millisecond
 )
 
+// chatRole represents the role of a chat message.
+type chatRole int
+
+const (
+	roleUser chatRole = iota
+	roleAssistant
+)
+
+// chatMessage represents a single message in the chat history.
+type chatMessage struct {
+	role    chatRole
+	content string
+	time    time.Time
+}
+
 // ObserverPane is a TUI component for interactive observer queries.
 type ObserverPane struct {
-	observer *observer.Observer
-	input    textarea.Model
-	spinner  spinner.Model
-	response string
-	loading  bool
+	observer  *observer.Observer
+	input     textarea.Model
+	viewport  viewport.Model
+	spinner   spinner.Model
+	history   []chatMessage
+	loading   bool
 	startedAt time.Time
-	errorMsg string
-	width    int
-	height   int
-	focused  bool
+	errorMsg  string
+	width     int
+	height    int
+	focused   bool
 }
 
 // observerTickMsg signals a tick for updating elapsed time.
@@ -58,10 +75,16 @@ func NewObserverPane(obs *observer.Observer) ObserverPane {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
+	// Initialize viewport for chat history
+	vp := viewport.New(40, 10) // Will be resized later
+	vp.Style = lipgloss.NewStyle()
+
 	return ObserverPane{
 		observer: obs,
 		input:    ta,
+		viewport: vp,
 		spinner:  sp,
+		history:  make([]chatMessage, 0),
 	}
 }
 
@@ -93,10 +116,17 @@ func (p ObserverPane) Update(msg tea.Msg) (ObserverPane, tea.Cmd) {
 		p.loading = false
 		if msg.err != nil {
 			p.errorMsg = msg.err.Error()
-			p.response = ""
 		} else {
 			p.errorMsg = ""
-			p.response = msg.response
+			// Add assistant response to history
+			p.history = append(p.history, chatMessage{
+				role:    roleAssistant,
+				content: msg.response,
+				time:    time.Now(),
+			})
+			// Update viewport content and scroll to bottom
+			p.updateViewportContent()
+			p.viewport.GotoBottom()
 		}
 		return p, nil
 
@@ -109,7 +139,7 @@ func (p ObserverPane) Update(msg tea.Msg) (ObserverPane, tea.Cmd) {
 		return p, nil
 
 	default:
-		// Pass other messages to textarea if focused
+		// Pass other messages to textarea if focused and not loading
 		if p.focused && !p.loading {
 			var cmd tea.Cmd
 			p.input, cmd = p.input.Update(msg)
@@ -141,11 +171,12 @@ func (p ObserverPane) handleKey(msg tea.KeyMsg) (ObserverPane, tea.Cmd) {
 		return p, nil
 
 	case "esc":
-		// Clear input or error
+		// Clear error first
 		if p.errorMsg != "" {
 			p.errorMsg = ""
 			return p, nil
 		}
+		// Then clear input
 		if p.input.Value() != "" {
 			p.input.Reset()
 			return p, nil
@@ -153,6 +184,54 @@ func (p ObserverPane) handleKey(msg tea.KeyMsg) (ObserverPane, tea.Cmd) {
 		// If nothing to clear, unfocus to signal parent should close
 		p.focused = false
 		return p, nil
+
+	case "up", "k":
+		// Scroll up in history when loading or input is empty
+		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
+			p.viewport.ScrollUp(1)
+			return p, nil
+		}
+		// Otherwise pass to textarea
+		var cmd tea.Cmd
+		p.input, cmd = p.input.Update(msg)
+		return p, cmd
+
+	case "down", "j":
+		// Scroll down in history when loading or input is empty
+		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
+			p.viewport.ScrollDown(1)
+			return p, nil
+		}
+		// Otherwise pass to textarea
+		var cmd tea.Cmd
+		p.input, cmd = p.input.Update(msg)
+		return p, cmd
+
+	case "pgup":
+		p.viewport.HalfPageUp()
+		return p, nil
+
+	case "pgdown":
+		p.viewport.HalfPageDown()
+		return p, nil
+
+	case "home", "g":
+		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
+			p.viewport.GotoTop()
+			return p, nil
+		}
+		var cmd tea.Cmd
+		p.input, cmd = p.input.Update(msg)
+		return p, cmd
+
+	case "end", "G":
+		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
+			p.viewport.GotoBottom()
+			return p, nil
+		}
+		var cmd tea.Cmd
+		p.input, cmd = p.input.Update(msg)
+		return p, cmd
 
 	default:
 		// Pass to textarea if not loading
@@ -172,10 +251,23 @@ func (p ObserverPane) submitQuestion() (ObserverPane, tea.Cmd) {
 		return p, nil
 	}
 
+	// Add user question to history
+	p.history = append(p.history, chatMessage{
+		role:    roleUser,
+		content: question,
+		time:    time.Now(),
+	})
+
+	// Clear input
+	p.input.Reset()
+
+	// Update viewport and scroll to bottom
+	p.updateViewportContent()
+	p.viewport.GotoBottom()
+
 	p.loading = true
 	p.startedAt = time.Now()
 	p.errorMsg = ""
-	p.response = ""
 
 	// Start spinner
 	cmd := p.spinner.Tick
@@ -211,6 +303,50 @@ func (p ObserverPane) tickCmd() tea.Cmd {
 	})
 }
 
+// updateViewportContent rebuilds the viewport content from history.
+func (p *ObserverPane) updateViewportContent() {
+	contentWidth := safeWidth(p.width - 6) // Account for padding and role prefix
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+
+	var lines []string
+
+	for _, msg := range p.history {
+		// Add role prefix with styling
+		var prefix string
+		var style lipgloss.Style
+
+		if msg.role == roleUser {
+			prefix = "You: "
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+		} else {
+			prefix = "Claude: "
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+		}
+
+		// Wrap content to fit width
+		wrapped := wordWrap(msg.content, contentWidth-len(prefix))
+		wrappedLines := strings.Split(wrapped, "\n")
+
+		// First line gets the prefix
+		if len(wrappedLines) > 0 {
+			lines = append(lines, style.Render(prefix)+wrappedLines[0])
+		}
+
+		// Subsequent lines are indented
+		indent := strings.Repeat(" ", len(prefix))
+		for i := 1; i < len(wrappedLines); i++ {
+			lines = append(lines, indent+wrappedLines[i])
+		}
+
+		// Add blank line between messages
+		lines = append(lines, "")
+	}
+
+	p.viewport.SetContent(strings.Join(lines, "\n"))
+}
+
 // View renders the observer pane.
 func (p ObserverPane) View() string {
 	if p.width == 0 || p.height == 0 {
@@ -221,19 +357,32 @@ func (p ObserverPane) View() string {
 
 	var sections []string
 
-	// Section 1: Input area
-	p.input.SetWidth(contentWidth)
-	inputSection := p.input.View()
-	sections = append(sections, inputSection)
+	// Section 1: Chat history (takes most of the space)
+	historyHeight := p.height - observerInputHeight - 3 // input + status + padding
+	if historyHeight < 1 {
+		historyHeight = 1
+	}
+
+	if len(p.history) == 0 {
+		placeholder := "Ask questions about the current drain session.\nConversation history will appear here."
+		historySection := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Width(contentWidth).
+			Height(historyHeight).
+			Render(placeholder)
+		sections = append(sections, historySection)
+	} else {
+		sections = append(sections, p.viewport.View())
+	}
 
 	// Section 2: Status bar
 	statusBar := p.renderStatusBar(contentWidth)
 	sections = append(sections, statusBar)
 
-	// Section 3: Response area (takes remaining space)
-	responseHeight := p.height - observerInputHeight - 3 // input + status + padding
-	responseSection := p.renderResponse(contentWidth, responseHeight)
-	sections = append(sections, responseSection)
+	// Section 3: Input area (at the bottom)
+	p.input.SetWidth(contentWidth)
+	inputSection := p.input.View()
+	sections = append(sections, inputSection)
 
 	return strings.Join(sections, "\n")
 }
@@ -254,41 +403,9 @@ func (p ObserverPane) renderStatusBar(width int) string {
 	}
 
 	// Show hint when idle
-	hint := "Enter: submit | Ctrl+C: cancel | Esc: clear"
+	msgCount := len(p.history)
+	hint := fmt.Sprintf("%d messages | Enter: send | up/down: scroll | Esc: close", msgCount)
 	return styles.Footer.Width(width).Render(hint)
-}
-
-// renderResponse renders the response area.
-func (p ObserverPane) renderResponse(width, height int) string {
-	if height < 1 {
-		height = 1
-	}
-
-	if p.response == "" {
-		placeholder := "Response will appear here..."
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Width(width).
-			Height(height).
-			Render(placeholder)
-	}
-
-	// Word wrap and truncate response to fit
-	wrapped := wordWrap(p.response, width)
-	lines := strings.Split(wrapped, "\n")
-
-	// Take only what fits in the available height
-	if len(lines) > height {
-		lines = lines[:height]
-		lines[height-1] = lines[height-1][:max(0, len(lines[height-1])-3)] + "..."
-	}
-
-	// Pad with empty lines if needed
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-
-	return strings.Join(lines, "\n")
 }
 
 // SetSize updates the pane dimensions.
@@ -296,6 +413,17 @@ func (p *ObserverPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
 	p.input.SetWidth(safeWidth(width - 4))
+
+	// Update viewport size
+	historyHeight := height - observerInputHeight - 3
+	if historyHeight < 1 {
+		historyHeight = 1
+	}
+	p.viewport.Width = safeWidth(width - 4)
+	p.viewport.Height = historyHeight
+
+	// Rebuild content with new width
+	p.updateViewportContent()
 }
 
 // SetFocused updates the focus state.
@@ -320,8 +448,9 @@ func (p ObserverPane) IsLoading() bool {
 
 // ClearResponse clears the current response and error.
 func (p *ObserverPane) ClearResponse() {
-	p.response = ""
+	p.history = nil
 	p.errorMsg = ""
+	p.updateViewportContent()
 }
 
 // truncateString truncates a string to maxLen with ellipsis.

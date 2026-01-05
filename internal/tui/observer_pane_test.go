@@ -15,8 +15,8 @@ func TestNewObserverPane(t *testing.T) {
 	if pane.loading {
 		t.Error("expected loading to be false initially")
 	}
-	if pane.response != "" {
-		t.Error("expected response to be empty initially")
+	if len(pane.history) != 0 {
+		t.Error("expected history to be empty initially")
 	}
 	if pane.errorMsg != "" {
 		t.Error("expected errorMsg to be empty initially")
@@ -85,6 +85,7 @@ func TestObserverPane_EscClearsError(t *testing.T) {
 
 func TestObserverPane_HandleResultSuccess(t *testing.T) {
 	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
 	pane.loading = true
 
 	msg := observerResultMsg{response: "test response", err: nil}
@@ -93,8 +94,14 @@ func TestObserverPane_HandleResultSuccess(t *testing.T) {
 	if newPane.loading {
 		t.Error("expected loading to be false after result")
 	}
-	if newPane.response != "test response" {
-		t.Errorf("expected response='test response', got %q", newPane.response)
+	if len(newPane.history) != 1 {
+		t.Errorf("expected 1 message in history, got %d", len(newPane.history))
+	}
+	if newPane.history[0].content != "test response" {
+		t.Errorf("expected response='test response', got %q", newPane.history[0].content)
+	}
+	if newPane.history[0].role != roleAssistant {
+		t.Errorf("expected role=roleAssistant, got %d", newPane.history[0].role)
 	}
 	if newPane.errorMsg != "" {
 		t.Errorf("expected no error, got %q", newPane.errorMsg)
@@ -111,8 +118,8 @@ func TestObserverPane_HandleResultError(t *testing.T) {
 	if newPane.loading {
 		t.Error("expected loading to be false after result")
 	}
-	if newPane.response != "" {
-		t.Errorf("expected empty response, got %q", newPane.response)
+	if len(newPane.history) != 0 {
+		t.Errorf("expected no messages in history on error, got %d", len(newPane.history))
 	}
 	if newPane.errorMsg != "query failed" {
 		t.Errorf("expected error='query failed', got %q", newPane.errorMsg)
@@ -163,13 +170,17 @@ func TestObserverPane_SpinnerTickWhenNotLoading(t *testing.T) {
 
 func TestObserverPane_ClearResponse(t *testing.T) {
 	pane := NewObserverPane(nil)
-	pane.response = "some response"
+	pane.SetSize(80, 24)
+	pane.history = []chatMessage{
+		{role: roleUser, content: "question"},
+		{role: roleAssistant, content: "answer"},
+	}
 	pane.errorMsg = "some error"
 
 	pane.ClearResponse()
 
-	if pane.response != "" {
-		t.Errorf("expected response to be cleared, got %q", pane.response)
+	if len(pane.history) != 0 {
+		t.Errorf("expected history to be cleared, got %d messages", len(pane.history))
 	}
 	if pane.errorMsg != "" {
 		t.Errorf("expected errorMsg to be cleared, got %q", pane.errorMsg)
@@ -195,20 +206,27 @@ func TestObserverPane_ViewWithSize(t *testing.T) {
 	if view == "" {
 		t.Error("expected non-empty view when size is set")
 	}
-	// Should contain placeholder text
-	if !strings.Contains(view, "Response will appear") {
-		t.Error("expected view to contain placeholder text")
+	// Should contain placeholder text (updated for chat history)
+	if !strings.Contains(view, "Conversation history") {
+		t.Error("expected view to contain placeholder text about conversation history")
 	}
 }
 
-func TestObserverPane_ViewWithResponse(t *testing.T) {
+func TestObserverPane_ViewWithHistory(t *testing.T) {
 	pane := NewObserverPane(nil)
 	pane.SetSize(80, 24)
-	pane.response = "This is a test response"
+	pane.history = []chatMessage{
+		{role: roleUser, content: "What is happening?", time: time.Now()},
+		{role: roleAssistant, content: "This is a test response", time: time.Now()},
+	}
+	pane.updateViewportContent()
 
 	view := pane.View()
-	if !strings.Contains(view, "This is a test response") {
-		t.Error("expected view to contain response text")
+	if !strings.Contains(view, "You:") {
+		t.Error("expected view to contain 'You:' prefix")
+	}
+	if !strings.Contains(view, "Claude:") {
+		t.Error("expected view to contain 'Claude:' prefix")
 	}
 }
 
@@ -236,6 +254,46 @@ func TestObserverPane_ViewWithLoading(t *testing.T) {
 	if !strings.Contains(view, "Asking Claude") {
 		t.Error("expected view to show loading status")
 	}
+}
+
+func TestObserverPane_HistoryScrolling(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+
+	// Add multiple messages to have content to scroll
+	for i := 0; i < 20; i++ {
+		pane.history = append(pane.history, chatMessage{
+			role:    roleUser,
+			content: "Question " + string(rune('A'+i)),
+			time:    time.Now(),
+		})
+		pane.history = append(pane.history, chatMessage{
+			role:    roleAssistant,
+			content: "Answer " + string(rune('A'+i)),
+			time:    time.Now(),
+		})
+	}
+	pane.updateViewportContent()
+
+	// Test scroll up
+	msg := tea.KeyMsg{Type: tea.KeyUp}
+	newPane, _ := pane.Update(msg)
+	_ = newPane // Scrolling should work without error
+
+	// Test scroll down
+	msg = tea.KeyMsg{Type: tea.KeyDown}
+	newPane, _ = pane.Update(msg)
+	_ = newPane
+
+	// Test page up
+	msg = tea.KeyMsg{Type: tea.KeyPgUp}
+	newPane, _ = pane.Update(msg)
+	_ = newPane
+
+	// Test page down
+	msg = tea.KeyMsg{Type: tea.KeyPgDown}
+	newPane, _ = pane.Update(msg)
+	_ = newPane
 }
 
 func TestTruncateString(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/observer"
 )
@@ -101,6 +102,9 @@ type model struct {
 	autoScroll  bool
 	focusedPane FocusedPane
 
+	// Events state
+	eventsOpen bool
+
 	// Observer state
 	observerPane ObserverPane
 	observerOpen bool
@@ -134,6 +138,12 @@ func newModel(
 	obs *observer.Observer,
 	graphFetcher BeadFetcher,
 ) model {
+	// Create default graph config for the graph pane
+	graphCfg := &config.GraphConfig{
+		Enabled: true,
+		Density: "standard",
+	}
+
 	return model{
 		eventChan:    eventChan,
 		status:       "idle",
@@ -142,11 +152,33 @@ func newModel(
 		onResume:     onResume,
 		onQuit:       onQuit,
 		statsGetter:  statsGetter,
+		eventsOpen:   true, // Events panel visible by default
 		observerPane: NewObserverPane(obs),
+		graphPane:    NewGraphPane(graphCfg, graphFetcher, "horizontal"),
 		layout:       LayoutHorizontal,
 		focusMode:    FocusModeNone,
 		detailModal:  NewDetailModal(graphFetcher),
 	}
+}
+
+// toggleEvents toggles the events pane visibility.
+func (m *model) toggleEvents() {
+	// Don't allow closing events if it's the only panel
+	if m.eventsOpen && !m.observerOpen && !m.graphOpen {
+		return
+	}
+	m.eventsOpen = !m.eventsOpen
+	if !m.eventsOpen && m.focusedPane == FocusEvents {
+		// Move focus to another open pane
+		if m.observerOpen {
+			m.focusedPane = FocusObserver
+			m.observerPane.SetFocused(true)
+		} else if m.graphOpen {
+			m.focusedPane = FocusGraph
+			m.graphPane.SetFocused(true)
+		}
+	}
+	m.updatePaneSizes()
 }
 
 // toggleObserver toggles the observer pane visibility.
@@ -328,25 +360,39 @@ func (m *model) cycleFocus() {
 	m.observerPane.SetFocused(false)
 	m.graphPane.SetFocused(false)
 
+	// Build list of open panes in order: Events, Observer, Graph
+	var openPanes []FocusedPane
+	if m.eventsOpen {
+		openPanes = append(openPanes, FocusEvents)
+	}
+	if m.observerOpen {
+		openPanes = append(openPanes, FocusObserver)
+	}
+	if m.graphOpen {
+		openPanes = append(openPanes, FocusGraph)
+	}
+
+	if len(openPanes) <= 1 {
+		return // Can't cycle with only one pane
+	}
+
+	// Find current position and advance to next
+	currentIdx := 0
+	for i, pane := range openPanes {
+		if pane == m.focusedPane {
+			currentIdx = i
+			break
+		}
+	}
+	nextIdx := (currentIdx + 1) % len(openPanes)
+	m.focusedPane = openPanes[nextIdx]
+
+	// Set focus on the appropriate pane
 	switch m.focusedPane {
-	case FocusEvents:
-		if m.observerOpen {
-			m.focusedPane = FocusObserver
-			m.observerPane.SetFocused(true)
-		} else if m.graphOpen {
-			m.focusedPane = FocusGraph
-			m.graphPane.SetFocused(true)
-		}
-		// If neither is open, stay on events
 	case FocusObserver:
-		if m.graphOpen {
-			m.focusedPane = FocusGraph
-			m.graphPane.SetFocused(true)
-		} else {
-			m.focusedPane = FocusEvents
-		}
+		m.observerPane.SetFocused(true)
 	case FocusGraph:
-		m.focusedPane = FocusEvents
+		m.graphPane.SetFocused(true)
 	}
 }
 

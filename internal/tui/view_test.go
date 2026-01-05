@@ -439,7 +439,9 @@ func TestRenderFooter_Focus(t *testing.T) {
 		name          string
 		focus         FocusedPane
 		status        string
+		eventsOpen    bool
 		observerOpen  bool
+		graphOpen     bool
 		shouldContain []string
 		shouldNotHave []string
 	}{
@@ -447,29 +449,32 @@ func TestRenderFooter_Focus(t *testing.T) {
 			name:          "events focused idle observer closed",
 			focus:         FocusEvents,
 			status:        "idle",
+			eventsOpen:    true,
 			observerOpen:  false,
-			shouldContain: []string{"o: observer", "p: pause", "q: quit"},
+			shouldContain: []string{"e/o/b: panels", "p: pause", "q: quit"},
 		},
 		{
 			name:          "events focused paused observer closed",
 			focus:         FocusEvents,
 			status:        "paused",
+			eventsOpen:    true,
 			observerOpen:  false,
-			shouldContain: []string{"o: observer", "r: resume"},
+			shouldContain: []string{"e/o/b: panels", "r: resume"},
 			shouldNotHave: []string{"p: pause"},
 		},
 		{
 			name:          "events focused observer open",
 			focus:         FocusEvents,
 			status:        "idle",
+			eventsOpen:    true,
 			observerOpen:  true,
-			shouldContain: []string{"tab: switch", "p: pause", "q: quit"},
-			shouldNotHave: []string{"o: observer"},
+			shouldContain: []string{"tab: switch", "p: pause", "q: quit", "e/o/b: panels"},
 		},
 		{
 			name:          "observer focused",
 			focus:         FocusObserver,
 			status:        "idle",
+			eventsOpen:    true,
 			observerOpen:  true,
 			shouldContain: []string{"tab: switch", "esc: close", "ctrl+c: quit", "enter: ask"},
 			shouldNotHave: []string{"p: pause", "r: resume", "scroll"},
@@ -478,7 +483,7 @@ func TestRenderFooter_Focus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := model{focusedPane: tt.focus, status: tt.status, observerOpen: tt.observerOpen}
+			m := model{focusedPane: tt.focus, status: tt.status, eventsOpen: tt.eventsOpen, observerOpen: tt.observerOpen, graphOpen: tt.graphOpen}
 			result := m.renderFooter()
 
 			for _, s := range tt.shouldContain {

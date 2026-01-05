@@ -625,18 +625,20 @@ func TestCycleFocus(t *testing.T) {
 	tests := []struct {
 		name         string
 		startFocus   FocusedPane
+		eventsOpen   bool
 		observerOpen bool
 		expectFocus  FocusedPane
 	}{
-		{"events to observer", FocusEvents, true, FocusObserver},
-		{"observer to events", FocusObserver, true, FocusEvents},
-		{"events stays on events when no panes open", FocusEvents, false, FocusEvents},
+		{"events to observer", FocusEvents, true, true, FocusObserver},
+		{"observer to events", FocusObserver, true, true, FocusEvents},
+		{"events stays on events when no other panes open", FocusEvents, true, false, FocusEvents},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := model{
 				focusedPane:  tt.startFocus,
+				eventsOpen:   tt.eventsOpen,
 				observerOpen: tt.observerOpen,
 				observerPane: NewObserverPane(nil),
 				graphPane:    NewGraphPane(nil, nil, "horizontal"),
@@ -684,8 +686,10 @@ func TestHandleKey_Tab_CyclesFocus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := model{
 				focusedPane:  tt.startFocus,
+				eventsOpen:   true, // Events pane must be open for focus cycling
 				observerOpen: true, // Tab only cycles focus when observer is open
 				observerPane: NewObserverPane(nil),
+				graphPane:    NewGraphPane(nil, nil, "horizontal"),
 				status:       "idle",
 			}
 			newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
