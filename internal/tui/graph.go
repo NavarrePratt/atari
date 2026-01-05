@@ -131,13 +131,8 @@ func (g *Graph) buildFromBeads(beads []GraphBead) {
 		}
 	}
 
-	// Compute layout
+	// Compute layout (handles both grid and list positioning)
 	g.computeLayout()
-
-	// Compute list order if in list mode
-	if g.layoutMode == GraphLayoutList {
-		g.computeListOrder()
-	}
 
 	// Validate selected node still exists
 	if g.selected != "" && g.nodes[g.selected] == nil {
@@ -213,8 +208,15 @@ func (g *Graph) computeLayout() {
 		}
 	}
 
-	// Position nodes within layers
-	g.positionNodes()
+	// Position nodes based on layout mode
+	if g.layoutMode == GraphLayoutList {
+		// List mode: compute list order first, then position nodes linearly
+		g.computeListOrder()
+		g.positionNodesForList()
+	} else {
+		// Grid mode: position nodes within layers
+		g.positionNodes()
+	}
 }
 
 // assignLayers assigns nodes to layers using BFS from roots.
@@ -412,6 +414,9 @@ func (g *Graph) SetLayoutMode(mode GraphLayoutMode) {
 	g.layoutMode = mode
 	if mode == GraphLayoutList {
 		g.computeListOrder()
+		g.positionNodesForList()
+	} else {
+		g.positionNodes()
 	}
 }
 
@@ -429,8 +434,10 @@ func (g *Graph) CycleLayoutMode() {
 	if g.layoutMode == GraphLayoutGrid {
 		g.layoutMode = GraphLayoutList
 		g.computeListOrder()
+		g.positionNodesForList()
 	} else {
 		g.layoutMode = GraphLayoutGrid
+		g.positionNodes()
 	}
 }
 
@@ -476,6 +483,65 @@ func (g *Graph) nodeDimensions() (int, int) {
 		return 26, 3
 	default: // DensityStandard
 		return 26, 2
+	}
+}
+
+// nodeHeight returns node height based on density (for list mode).
+func (g *Graph) nodeHeight() int {
+	_, h := g.nodeDimensions()
+	return h
+}
+
+// positionNodesForList computes positions for list mode layout.
+// Y = cumulative line count (density-aware node height)
+// X = depth * 2 (2-space indent per level), clamped to prevent overflow
+// Width = viewport.Width - X
+// Must be called with mu held.
+func (g *Graph) positionNodesForList() {
+	if g.computed == nil {
+		return
+	}
+
+	// Get node height based on density
+	nodeH := g.nodeHeight()
+
+	// Track cumulative Y position for visible nodes
+	y := 0
+
+	// Maximum X indent: limit to 1/4 of viewport width to prevent overflow
+	maxIndent := g.viewport.Width / 4
+	if maxIndent < 2 {
+		maxIndent = 2
+	}
+
+	for _, item := range g.listOrder {
+		// Calculate X as depth * 2 (2-space indent per level)
+		x := item.Depth * 2
+
+		// Clamp X to prevent overflow
+		if x > maxIndent {
+			x = maxIndent
+		}
+
+		// Calculate width as remaining space after indent
+		w := g.viewport.Width - x
+		if w < 1 {
+			w = 1 // Minimum width of 1
+		}
+
+		// Store position for all nodes (visible and hidden)
+		// Hidden nodes get positioned but won't be rendered
+		g.computed.Positions[item.ID] = Position{
+			X: x,
+			Y: y,
+			W: w,
+			H: nodeH,
+		}
+
+		// Only increment Y for visible nodes
+		if item.Visible {
+			y += nodeH
+		}
 	}
 }
 
@@ -623,9 +689,10 @@ func (g *Graph) ToggleCollapse(nodeID string) {
 
 	g.collapsed[nodeID] = !g.collapsed[nodeID]
 
-	// Recompute list order to update visibility
+	// Recompute list order and positions to update visibility
 	if g.layoutMode == GraphLayoutList {
 		g.computeListOrder()
+		g.positionNodesForList()
 	}
 }
 
@@ -810,7 +877,11 @@ func (g *Graph) CycleDensity() {
 
 	// Recompute layout with new dimensions
 	if len(g.nodes) > 0 {
-		g.positionNodes()
+		if g.layoutMode == GraphLayoutList {
+			g.positionNodesForList()
+		} else {
+			g.positionNodes()
+		}
 	}
 }
 
