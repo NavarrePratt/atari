@@ -277,7 +277,7 @@ func TestObserver_BuildArgs(t *testing.T) {
 			model:     "haiku",
 			sessionID: "",
 			prompt:    "test prompt",
-			wantArgs:  []string{"-p", "test prompt", "--output-format", "text"},
+			wantArgs:  []string{"-p", "test prompt", "--output-format", "text", "--model", "haiku"},
 		},
 		{
 			name:      "custom model",
@@ -291,7 +291,7 @@ func TestObserver_BuildArgs(t *testing.T) {
 			model:     "haiku",
 			sessionID: "session-123",
 			prompt:    "test prompt",
-			wantArgs:  []string{"--resume", "session-123", "-p", "test prompt", "--output-format", "text"},
+			wantArgs:  []string{"--resume", "session-123", "-p", "test prompt", "--output-format", "text", "--model", "haiku"},
 		},
 	}
 

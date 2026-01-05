@@ -171,8 +171,8 @@ func (o *Observer) buildArgs(prompt string) []string {
 	}
 	o.mu.Unlock()
 
-	// Add model if specified and not default
-	if o.config != nil && o.config.Model != "" && o.config.Model != "haiku" {
+	// Add model if specified
+	if o.config != nil && o.config.Model != "" {
 		args = append(args, "--model", o.config.Model)
 	}
 
