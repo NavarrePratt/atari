@@ -274,12 +274,7 @@ func (g *Graph) computeListOrder() {
 	g.listOrder = nil
 
 	// Build adjacency list for children (hierarchy edges)
-	children := make(map[string][]string)
-	for _, edge := range g.edges {
-		if edge.Type == EdgeHierarchy {
-			children[edge.From] = append(children[edge.From], edge.To)
-		}
-	}
+	children := g.getChildrenMap()
 
 	// Sort children for deterministic ordering
 	for parent := range children {
@@ -310,9 +305,18 @@ func (g *Graph) computeListOrder() {
 		return roots[i] < roots[j]
 	})
 
+	// Track visited nodes to prevent cycles
+	visited := make(map[string]bool)
+
 	// DFS traversal to build list order
 	var dfs func(nodeID string, depth int, parentID string)
 	dfs = func(nodeID string, depth int, parentID string) {
+		// Cycle protection: skip already visited nodes
+		if visited[nodeID] {
+			return
+		}
+		visited[nodeID] = true
+
 		visible := g.isNodeVisible(nodeID)
 		g.listOrder = append(g.listOrder, ListNode{
 			ID:       nodeID,
@@ -335,6 +339,20 @@ func (g *Graph) computeListOrder() {
 		dfs(root, 0, "")
 	}
 
+	// Add orphan nodes not reached through hierarchy edges
+	// (e.g., nodes only connected via dependency edges)
+	var orphans []string
+	for id := range g.nodes {
+		if !visited[id] && id != "_hidden_deps" {
+			orphans = append(orphans, id)
+		}
+	}
+	// Sort orphans for deterministic ordering
+	sort.Strings(orphans)
+	for _, id := range orphans {
+		dfs(id, 0, "")
+	}
+
 	// Add pseudo-node at the end if it exists
 	if _, ok := g.nodes["_hidden_deps"]; ok {
 		g.listOrder = append(g.listOrder, ListNode{
@@ -349,6 +367,42 @@ func (g *Graph) computeListOrder() {
 	if g.computed != nil {
 		g.computed.ListOrder = g.listOrder
 	}
+}
+
+// getChildrenMap builds an adjacency list for children (hierarchy edges).
+// Must be called with mu held.
+func (g *Graph) getChildrenMap() map[string][]string {
+	children := make(map[string][]string)
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy {
+			children[edge.From] = append(children[edge.From], edge.To)
+		}
+	}
+	return children
+}
+
+// getChildren returns the child node IDs for a given node via hierarchy edges.
+// Must be called with mu held.
+func (g *Graph) getChildren(nodeID string) []string {
+	var children []string
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy && edge.From == nodeID {
+			children = append(children, edge.To)
+		}
+	}
+	sort.Strings(children)
+	return children
+}
+
+// getParent returns the parent node ID for a given node via hierarchy edges.
+// Returns empty string if no parent exists. Must be called with mu held.
+func (g *Graph) getParent(nodeID string) string {
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy && edge.To == nodeID {
+			return edge.From
+		}
+	}
+	return ""
 }
 
 // SetLayoutMode sets the layout mode (Grid or List).
@@ -1082,19 +1136,14 @@ func (g *Graph) allNodeIDs() []string {
 // isNodeVisible returns true if the node should be rendered.
 // Returns false if any ancestor is collapsed.
 func (g *Graph) isNodeVisible(nodeID string) bool {
-	// Check if any parent in hierarchy is collapsed
-	for _, edge := range g.edges {
-		if edge.Type == EdgeHierarchy && edge.To == nodeID {
-			if g.collapsed[edge.From] {
-				return false
-			}
-			// Recursively check grandparents
-			if !g.isNodeVisible(edge.From) {
-				return false
-			}
-		}
+	parentID := g.getParent(nodeID)
+	if parentID == "" {
+		return true // Root nodes are always visible
 	}
-	return true
+	if g.collapsed[parentID] {
+		return false
+	}
+	return g.isNodeVisible(parentID)
 }
 
 // renderNodeToGrid renders a single node to the grid.
@@ -1141,13 +1190,7 @@ func (g *Graph) renderNodeToGrid(grid *charGrid, nodeID string) {
 
 // countChildren counts hierarchy children of a node.
 func (g *Graph) countChildren(nodeID string) int {
-	count := 0
-	for _, edge := range g.edges {
-		if edge.Type == EdgeHierarchy && edge.From == nodeID {
-			count++
-		}
-	}
-	return count
+	return len(g.getChildren(nodeID))
 }
 
 // formatNode formats a node for display based on density.
