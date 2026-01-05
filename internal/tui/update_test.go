@@ -717,6 +717,7 @@ func TestHandleKey_Esc_ReturnsFocusToEvents(t *testing.T) {
 		m := model{
 			focusedPane:  FocusObserver,
 			observerOpen: true,
+			eventsOpen:   true, // Events must be open for focus to return there
 			observerPane: obsPane,
 			graphPane:    NewGraphPane(nil, nil, "horizontal"),
 			status:       "idle",

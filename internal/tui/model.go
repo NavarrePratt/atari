@@ -189,8 +189,14 @@ func (m *model) toggleObserver() {
 		m.observerPane.SetFocused(true)
 		m.graphPane.SetFocused(false)
 	} else {
-		m.focusedPane = FocusEvents
 		m.observerPane.SetFocused(false)
+		// Move focus to an open pane
+		if m.eventsOpen {
+			m.focusedPane = FocusEvents
+		} else if m.graphOpen {
+			m.focusedPane = FocusGraph
+			m.graphPane.SetFocused(true)
+		}
 	}
 	m.updatePaneSizes()
 }
@@ -203,8 +209,14 @@ func (m *model) toggleGraph() {
 		m.graphPane.SetFocused(true)
 		m.observerPane.SetFocused(false)
 	} else {
-		m.focusedPane = FocusEvents
 		m.graphPane.SetFocused(false)
+		// Move focus to an open pane
+		if m.eventsOpen {
+			m.focusedPane = FocusEvents
+		} else if m.observerOpen {
+			m.focusedPane = FocusObserver
+			m.observerPane.SetFocused(true)
+		}
 	}
 	m.updatePaneSizes()
 }
