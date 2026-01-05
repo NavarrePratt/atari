@@ -113,7 +113,7 @@ func (m model) renderSplitView() string {
 	return m.renderVerticalSplit()
 }
 
-// renderHorizontalSplit renders events left, secondary panes right with shared header.
+// renderHorizontalSplit renders events left, secondary panes right with shared header and footer.
 func (m model) renderHorizontalSplit() string {
 	// Count visible panes
 	numPanes := 0
@@ -139,8 +139,12 @@ func (m model) renderHorizontalSplit() string {
 		Width(m.width - 2).
 		Render(headerContent)
 
-	// Remaining height for panes
-	paneHeight := m.height - headerHeight - 2
+	// Footer spans full width (1 line)
+	footerHeight := 1
+	footer := m.renderGlobalFooter(m.width - 2)
+
+	// Remaining height for panes (subtract header, footer, and some padding)
+	paneHeight := m.height - headerHeight - footerHeight - 2
 
 	// Calculate equal widths for all panes
 	paneWidth := m.width / numPanes
@@ -150,7 +154,7 @@ func (m model) renderHorizontalSplit() string {
 	var panes []string
 	panesRendered := 0
 
-	// Events pane (no header, just events + footer)
+	// Events pane (no header or footer, just events content)
 	if m.eventsOpen {
 		panesRendered++
 		eventsW := paneWidth
@@ -158,7 +162,7 @@ func (m model) renderHorizontalSplit() string {
 			eventsW = remainingWidth
 		}
 		remainingWidth -= eventsW
-		panes = append(panes, m.renderEventsPaneNoHeader(eventsW, paneHeight))
+		panes = append(panes, m.renderEventsPaneContent(eventsW, paneHeight))
 	}
 
 	// Observer pane (if open)
@@ -180,8 +184,8 @@ func (m model) renderHorizontalSplit() string {
 	// Join panes horizontally
 	panesRow := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 
-	// Stack header on top of panes
-	return lipgloss.JoinVertical(lipgloss.Left, header, panesRow)
+	// Stack header, panes, and footer vertically
+	return lipgloss.JoinVertical(lipgloss.Left, header, panesRow, footer)
 }
 
 // renderVerticalSplit renders events top, secondary panes bottom.
@@ -294,21 +298,17 @@ func (m model) renderSharedHeader(w int) string {
 	return strings.Join([]string{statusLine, beadLine, statsLine, divider}, "\n")
 }
 
-// renderEventsPaneNoHeader renders events pane without header (for split view with shared header).
-func (m model) renderEventsPaneNoHeader(width, height int) string {
+// renderEventsPaneContent renders events pane content only (no header or footer, for split view).
+func (m model) renderEventsPaneContent(width, height int) string {
 	// Account for borders
 	innerWidth := safeWidth(width - 2)
 	innerHeight := height - 2
 
-	// Calculate visible lines (only footer takes space)
-	visibleLines := max(1, innerHeight-1)
+	// All height available for events
+	visibleLines := max(1, innerHeight)
 
-	// Build the view
-	var sections []string
-	sections = append(sections, m.renderEventsForSize(innerWidth, visibleLines))
-	sections = append(sections, m.renderFooter())
-
-	content := strings.Join(sections, "\n")
+	// Get events content
+	content := m.renderEventsForSize(innerWidth, visibleLines)
 
 	// Get focus-aware container style
 	containerStyle := m.containerStyleForFocus(FocusEvents)
@@ -649,6 +649,26 @@ func (m model) renderFooter() string {
 	}
 
 	return styles.Footer.Render(help)
+}
+
+// renderGlobalFooter renders a global footer bar that spans the full width.
+func (m model) renderGlobalFooter(width int) string {
+	var help string
+
+	// Show different help based on focus
+	switch {
+	case m.isObserverFocused() && m.observerOpen:
+		help = "enter: ask  e/o/b: panels  tab: switch  esc: close  q: quit"
+
+	case m.isGraphFocused() && m.graphOpen:
+		help = "↑/↓/←/→: nav  d: density  a: view  R: refresh  e/o/b: panels  tab: switch  q: quit"
+
+	default:
+		help = m.renderEventsFooter()
+	}
+
+	// Style the footer to span the full width
+	return styles.Footer.Width(width).Render(help)
 }
 
 // renderEventsFooter returns footer help when events pane is focused.
