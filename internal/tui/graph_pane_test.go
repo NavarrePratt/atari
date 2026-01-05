@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -441,5 +442,196 @@ func TestGraphPane_IsLoading(t *testing.T) {
 	pane.loading = true
 	if !pane.IsLoading() {
 		t.Error("expected IsLoading to be true when loading")
+	}
+}
+
+// slowMockFetcher simulates a slow fetch operation for testing async behavior.
+type slowMockFetcher struct {
+	delay       time.Duration
+	activeBeads []GraphBead
+	activeErr   error
+}
+
+func (m *slowMockFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(m.delay):
+		if m.activeErr != nil {
+			return nil, m.activeErr
+		}
+		return m.activeBeads, nil
+	}
+}
+
+func (m *slowMockFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(m.delay):
+		return nil, nil
+	}
+}
+
+func (m *slowMockFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(m.delay):
+		return nil, nil
+	}
+}
+
+func TestGraphPane_RefreshCmdReturnsCommands(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Test", Status: "open", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+
+	// refreshCmd should return commands when not already loading
+	cmd := pane.refreshCmd()
+	if cmd == nil {
+		t.Error("expected refreshCmd to return commands")
+	}
+}
+
+func TestGraphPane_RefreshCmdReturnsNilWhenLoading(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+	pane.loading = true
+
+	cmd := pane.refreshCmd()
+	if cmd != nil {
+		t.Error("expected refreshCmd to return nil when already loading")
+	}
+}
+
+func TestGraphPane_FetchCmdWithFastFetcher(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Test", Status: "open", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+
+	// Execute the fetch command directly
+	cmd := pane.fetchCmd(1)
+	result := cmd()
+
+	msg, ok := result.(graphResultMsg)
+	if !ok {
+		t.Fatalf("expected graphResultMsg, got %T", result)
+	}
+	if msg.err != nil {
+		t.Errorf("unexpected error: %v", msg.err)
+	}
+	if len(msg.beads) != 1 {
+		t.Errorf("expected 1 bead, got %d", len(msg.beads))
+	}
+	if msg.requestID != 1 {
+		t.Errorf("expected requestID=1, got %d", msg.requestID)
+	}
+}
+
+func TestGraphPane_FetchCmdWithSlowFetcher(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &slowMockFetcher{
+		delay: 50 * time.Millisecond,
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Test", Status: "open", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+
+	start := time.Now()
+	cmd := pane.fetchCmd(1)
+	result := cmd()
+	elapsed := time.Since(start)
+
+	// Should have taken at least the delay time
+	if elapsed < 40*time.Millisecond {
+		t.Errorf("fetch completed too quickly: %v", elapsed)
+	}
+
+	msg, ok := result.(graphResultMsg)
+	if !ok {
+		t.Fatalf("expected graphResultMsg, got %T", result)
+	}
+	if msg.err != nil {
+		t.Errorf("unexpected error: %v", msg.err)
+	}
+	if len(msg.beads) != 1 {
+		t.Errorf("expected 1 bead, got %d", len(msg.beads))
+	}
+}
+
+func TestGraphPane_FetchCmdWithNilFetcher(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	pane := NewGraphPane(cfg, nil, "horizontal")
+
+	cmd := pane.fetchCmd(1)
+	result := cmd()
+
+	msg, ok := result.(graphResultMsg)
+	if !ok {
+		t.Fatalf("expected graphResultMsg, got %T", result)
+	}
+	// Nil fetcher should return no error and nil beads
+	if msg.err != nil {
+		t.Errorf("unexpected error: %v", msg.err)
+	}
+	if msg.beads != nil {
+		t.Errorf("expected nil beads, got %v", msg.beads)
+	}
+}
+
+func TestGraphPane_FetchCmdBacklogView(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		backlogBeads: []GraphBead{
+			{ID: "bd-deferred", Title: "Deferred Task", Status: "deferred", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+	pane.graph.SetView(ViewBacklog)
+
+	cmd := pane.fetchCmd(1)
+	result := cmd()
+
+	msg, ok := result.(graphResultMsg)
+	if !ok {
+		t.Fatalf("expected graphResultMsg, got %T", result)
+	}
+	if msg.err != nil {
+		t.Errorf("unexpected error: %v", msg.err)
+	}
+	if len(msg.beads) != 1 {
+		t.Errorf("expected 1 bead, got %d", len(msg.beads))
+	}
+	if len(msg.beads) > 0 && msg.beads[0].ID != "bd-deferred" {
+		t.Errorf("expected bd-deferred, got %s", msg.beads[0].ID)
+	}
+}
+
+func TestGraphPane_KeyRefresh(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Test", Status: "open", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+	pane.SetFocused(true)
+
+	// Press 'R' to trigger manual refresh
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+	_, cmd := pane.Update(msg)
+
+	if cmd == nil {
+		t.Error("expected R key to trigger refresh command")
 	}
 }

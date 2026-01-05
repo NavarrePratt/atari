@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/npratt/atari/internal/testutil"
 )
@@ -376,3 +377,113 @@ func TestParseBeads_EmptyInput(t *testing.T) {
 		t.Errorf("expected nil beads for empty input, got %v", beads)
 	}
 }
+
+func TestBDFetcher_FetchActive_ContextCancellation(t *testing.T) {
+	runner := testutil.NewMockRunner()
+
+	// Use DynamicResponse to simulate a slow command that respects context
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		// Check if context is cancelled before returning
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err(), true
+		default:
+			return []byte(testutil.GraphActiveBeadsJSON), nil, true
+		}
+	}
+
+	fetcher := NewBDFetcher(runner)
+
+	// Create a pre-cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := fetcher.FetchActive(ctx)
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got %v", err)
+	}
+}
+
+func TestBDFetcher_FetchActive_ContextTimeout(t *testing.T) {
+	runner := testutil.NewMockRunner()
+
+	// Use DynamicResponse to simulate a command that takes too long
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err(), true
+		case <-time.After(100 * time.Millisecond):
+			return []byte(testutil.GraphActiveBeadsJSON), nil, true
+		}
+	}
+
+	fetcher := NewBDFetcher(runner)
+
+	// Create a context with very short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	_, err := fetcher.FetchActive(ctx)
+	if err == nil {
+		t.Error("expected error for timeout, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded error, got %v", err)
+	}
+}
+
+func TestBDFetcher_FetchBacklog_ContextCancellation(t *testing.T) {
+	runner := testutil.NewMockRunner()
+
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err(), true
+		default:
+			return []byte(testutil.GraphBacklogBeadsJSON), nil, true
+		}
+	}
+
+	fetcher := NewBDFetcher(runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := fetcher.FetchBacklog(ctx)
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got %v", err)
+	}
+}
+
+func TestBDFetcher_FetchBead_ContextCancellation(t *testing.T) {
+	runner := testutil.NewMockRunner()
+
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err(), true
+		default:
+			return []byte(`[{"id": "bd-001", "title": "Test", "status": "open", "issue_type": "task"}]`), nil, true
+		}
+	}
+
+	fetcher := NewBDFetcher(runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := fetcher.FetchBead(ctx, "bd-001")
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got %v", err)
+	}
+}
+
