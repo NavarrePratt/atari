@@ -105,6 +105,44 @@ var GraphSingleBeadJSON = `[
   }
 ]`
 
+// GraphMixedWithAgentJSON is a bd list response that includes agent beads
+// which should be filtered out from graph visualization.
+var GraphMixedWithAgentJSON = `[
+  {
+    "id": "bd-task-001",
+    "title": "Regular task",
+    "description": "A normal task",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T10:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T10:00:00Z"
+  },
+  {
+    "id": "bd-agent-001",
+    "title": "Agent tracking bead",
+    "description": "Internal agent state",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "agent",
+    "created_at": "2024-01-15T10:00:00Z",
+    "created_by": "atari",
+    "updated_at": "2024-01-15T10:00:00Z"
+  },
+  {
+    "id": "bd-task-002",
+    "title": "Another task",
+    "description": "Another normal task",
+    "status": "in_progress",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T11:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T11:00:00Z"
+  }
+]`
+
 // GraphComplexHierarchyJSON is a bd list response with a more complex hierarchy.
 var GraphComplexHierarchyJSON = `[
   {

@@ -29,6 +29,7 @@ func NewBDFetcher(runner testutil.CommandRunner) *BDFetcher {
 }
 
 // FetchActive retrieves beads with open, in_progress, or blocked status.
+// Agent beads are filtered out as they are internal tracking beads.
 func (f *BDFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
 	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json")
 	if err != nil {
@@ -40,10 +41,12 @@ func (f *BDFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
 		return nil, err
 	}
 
-	return filterByStatus(beads, "open", "in_progress", "blocked"), nil
+	beads = filterByStatus(beads, "open", "in_progress", "blocked")
+	return filterOutAgentBeads(beads), nil
 }
 
 // FetchBacklog retrieves beads with deferred status.
+// Agent beads are filtered out as they are internal tracking beads.
 func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json")
 	if err != nil {
@@ -55,7 +58,8 @@ func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 		return nil, err
 	}
 
-	return filterByStatus(beads, "deferred"), nil
+	beads = filterByStatus(beads, "deferred")
+	return filterOutAgentBeads(beads), nil
 }
 
 // FetchBead retrieves full details for a single bead by ID.
@@ -116,6 +120,23 @@ func filterByStatus(beads []GraphBead, statuses ...string) []GraphBead {
 	result := make([]GraphBead, 0, len(beads))
 	for _, b := range beads {
 		if statusSet[b.Status] {
+			result = append(result, b)
+		}
+	}
+
+	return result
+}
+
+// filterOutAgentBeads removes beads with issue_type="agent" from the slice.
+// Agent beads are internal tracking beads that should not appear in the graph.
+func filterOutAgentBeads(beads []GraphBead) []GraphBead {
+	if len(beads) == 0 {
+		return nil
+	}
+
+	result := make([]GraphBead, 0, len(beads))
+	for _, b := range beads {
+		if b.IssueType != "agent" {
 			result = append(result, b)
 		}
 	}

@@ -447,6 +447,90 @@ func TestFilterByStatus_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestFilterOutAgentBeads(t *testing.T) {
+	beads := []GraphBead{
+		{ID: "task-1", IssueType: "task"},
+		{ID: "agent-1", IssueType: "agent"},
+		{ID: "epic-1", IssueType: "epic"},
+		{ID: "agent-2", IssueType: "agent"},
+		{ID: "bug-1", IssueType: "bug"},
+	}
+
+	result := filterOutAgentBeads(beads)
+
+	if len(result) != 3 {
+		t.Fatalf("got %d beads, want 3", len(result))
+	}
+
+	wantIDs := []string{"task-1", "epic-1", "bug-1"}
+	for i, want := range wantIDs {
+		if result[i].ID != want {
+			t.Errorf("result[%d].ID = %q, want %q", i, result[i].ID, want)
+		}
+	}
+}
+
+func TestFilterOutAgentBeads_EmptyInput(t *testing.T) {
+	result := filterOutAgentBeads(nil)
+	if result != nil {
+		t.Errorf("expected nil for nil input, got %v", result)
+	}
+
+	result = filterOutAgentBeads([]GraphBead{})
+	if result != nil {
+		t.Errorf("expected nil for empty input, got %v", result)
+	}
+}
+
+func TestFilterOutAgentBeads_AllAgents(t *testing.T) {
+	beads := []GraphBead{
+		{ID: "agent-1", IssueType: "agent"},
+		{ID: "agent-2", IssueType: "agent"},
+	}
+
+	result := filterOutAgentBeads(beads)
+
+	if len(result) != 0 {
+		t.Errorf("got %d beads, want 0", len(result))
+	}
+}
+
+func TestFilterOutAgentBeads_NoAgents(t *testing.T) {
+	beads := []GraphBead{
+		{ID: "task-1", IssueType: "task"},
+		{ID: "epic-1", IssueType: "epic"},
+	}
+
+	result := filterOutAgentBeads(beads)
+
+	if len(result) != 2 {
+		t.Errorf("got %d beads, want 2", len(result))
+	}
+}
+
+func TestBDFetcher_FetchActive_FiltersAgentBeads(t *testing.T) {
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("bd", []string{"list", "--json"}, []byte(testutil.GraphMixedWithAgentJSON))
+
+	fetcher := NewBDFetcher(runner)
+	beads, err := fetcher.FetchActive(context.Background())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 2 beads (task-001 and task-002), not 3 (agent-001 filtered out)
+	if len(beads) != 2 {
+		t.Errorf("got %d beads, want 2 (agent bead should be filtered)", len(beads))
+	}
+
+	for _, b := range beads {
+		if b.IssueType == "agent" {
+			t.Errorf("agent bead %q should have been filtered out", b.ID)
+		}
+	}
+}
+
 func TestBDFetcher_FetchActive_ContextCancellation(t *testing.T) {
 	runner := testutil.NewMockRunner()
 
