@@ -586,7 +586,9 @@ func (g *Graph) GetSelected() *GraphNode {
 	return nil
 }
 
-// SelectNext moves selection to the next sibling in the current layer.
+// SelectNext moves selection to the next node.
+// In list mode: moves to next visible node in list order (no wrap).
+// In grid mode: moves to next sibling in current layer (wraps around).
 func (g *Graph) SelectNext() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -595,7 +597,13 @@ func (g *Graph) SelectNext() {
 		return
 	}
 
-	// Find current layer and position
+	// List mode: linear traversal through visible nodes
+	if g.layoutMode == GraphLayoutList {
+		g.selectNextInList()
+		return
+	}
+
+	// Grid mode: layer-based navigation with wrap
 	for _, layer := range g.computed.Layers {
 		for i, nodeID := range layer {
 			if nodeID == g.selected {
@@ -609,7 +617,37 @@ func (g *Graph) SelectNext() {
 	}
 }
 
-// SelectPrev moves selection to the previous sibling in the current layer.
+// selectNextInList moves to the next visible node in list order.
+// No wrapping: stops at last visible node.
+// Must be called with mu held.
+func (g *Graph) selectNextInList() {
+	// Find current index in list order
+	currentIdx := -1
+	for i, item := range g.listOrder {
+		if item.ID == g.selected {
+			currentIdx = i
+			break
+		}
+	}
+
+	if currentIdx < 0 {
+		return
+	}
+
+	// Find next visible node
+	for i := currentIdx + 1; i < len(g.listOrder); i++ {
+		if g.listOrder[i].Visible {
+			g.selected = g.listOrder[i].ID
+			g.adjustViewport()
+			return
+		}
+	}
+	// No next visible node: stay at current (no wrap)
+}
+
+// SelectPrev moves selection to the previous node.
+// In list mode: moves to previous visible node in list order (no wrap).
+// In grid mode: moves to previous sibling in current layer (wraps around).
 func (g *Graph) SelectPrev() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -618,7 +656,13 @@ func (g *Graph) SelectPrev() {
 		return
 	}
 
-	// Find current layer and position
+	// List mode: linear traversal through visible nodes
+	if g.layoutMode == GraphLayoutList {
+		g.selectPrevInList()
+		return
+	}
+
+	// Grid mode: layer-based navigation with wrap
 	for _, layer := range g.computed.Layers {
 		for i, nodeID := range layer {
 			if nodeID == g.selected {
@@ -633,6 +677,34 @@ func (g *Graph) SelectPrev() {
 			}
 		}
 	}
+}
+
+// selectPrevInList moves to the previous visible node in list order.
+// No wrapping: stops at first visible node.
+// Must be called with mu held.
+func (g *Graph) selectPrevInList() {
+	// Find current index in list order
+	currentIdx := -1
+	for i, item := range g.listOrder {
+		if item.ID == g.selected {
+			currentIdx = i
+			break
+		}
+	}
+
+	if currentIdx < 0 {
+		return
+	}
+
+	// Find previous visible node
+	for i := currentIdx - 1; i >= 0; i-- {
+		if g.listOrder[i].Visible {
+			g.selected = g.listOrder[i].ID
+			g.adjustViewport()
+			return
+		}
+	}
+	// No previous visible node: stay at current (no wrap)
 }
 
 // SelectParent moves selection to the parent node (if any).
@@ -687,13 +759,97 @@ func (g *Graph) ToggleCollapse(nodeID string) {
 		return // Can only collapse epics
 	}
 
+	wasExpanded := !g.collapsed[nodeID]
 	g.collapsed[nodeID] = !g.collapsed[nodeID]
 
 	// Recompute list order and positions to update visibility
 	if g.layoutMode == GraphLayoutList {
 		g.computeListOrder()
 		g.positionNodesForList()
+
+		// Handle selection recovery if we just collapsed and selected node is now invisible
+		if wasExpanded && g.selected != "" {
+			g.recoverSelectionAfterCollapse()
+		}
 	}
+}
+
+// recoverSelectionAfterCollapse ensures the selected node is visible after a collapse.
+// If the selected node is now invisible, finds the nearest visible node.
+// Must be called with mu held.
+func (g *Graph) recoverSelectionAfterCollapse() {
+	// Check if selected node is still visible
+	if g.isNodeVisible(g.selected) {
+		return
+	}
+
+	// First: try to find a visible ancestor
+	ancestor := g.findVisibleAncestor(g.selected)
+	if ancestor != "" {
+		g.selected = ancestor
+		g.adjustViewport()
+		return
+	}
+
+	// Second: find nearest visible node by list index
+	// Find where selected node was in list order
+	selectedIdx := -1
+	for i, item := range g.listOrder {
+		if item.ID == g.selected {
+			selectedIdx = i
+			break
+		}
+	}
+
+	if selectedIdx >= 0 {
+		// Look backward for nearest visible node
+		for i := selectedIdx - 1; i >= 0; i-- {
+			if g.listOrder[i].Visible {
+				g.selected = g.listOrder[i].ID
+				g.adjustViewport()
+				return
+			}
+		}
+		// Look forward for nearest visible node
+		for i := selectedIdx + 1; i < len(g.listOrder); i++ {
+			if g.listOrder[i].Visible {
+				g.selected = g.listOrder[i].ID
+				g.adjustViewport()
+				return
+			}
+		}
+	}
+
+	// Fallback: select first visible node
+	for _, item := range g.listOrder {
+		if item.Visible {
+			g.selected = item.ID
+			g.adjustViewport()
+			return
+		}
+	}
+
+	// No visible nodes at all
+	g.selected = ""
+}
+
+// findVisibleAncestor walks the parent chain and returns the first ancestor
+// where all its ancestors are expanded (making it visible).
+// Returns empty string if no visible ancestor exists.
+// Must be called with mu held.
+func (g *Graph) findVisibleAncestor(nodeID string) string {
+	parentID := g.getParent(nodeID)
+	if parentID == "" {
+		return "" // No parent, no visible ancestor
+	}
+
+	// If parent is visible, return it
+	if g.isNodeVisible(parentID) {
+		return parentID
+	}
+
+	// Otherwise, recurse to find a visible ancestor of the parent
+	return g.findVisibleAncestor(parentID)
 }
 
 // IsCollapsed returns whether a node is collapsed.
