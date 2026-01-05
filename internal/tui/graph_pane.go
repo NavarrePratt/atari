@@ -94,6 +94,11 @@ func (p GraphPane) Update(msg tea.Msg) (GraphPane, tea.Cmd) {
 		p.requestID = msg.requestID
 		p.loading = true
 		p.startedAt = time.Now()
+		// If startFetch is set, start the actual fetch now that requestID is set.
+		// This ensures the staleness check in graphResultMsg works correctly.
+		if msg.startFetch {
+			return p, tea.Batch(p.fetchCmd(msg.requestID), p.tickCmd())
+		}
 		return p, nil
 
 	case graphResultMsg:
@@ -226,19 +231,23 @@ func (p GraphPane) refreshCmd() tea.Cmd {
 	// Generate new requestID (will be tracked when startLoadingMsg is handled)
 	reqID := p.requestID + 1
 
+	// Return only graphStartLoadingMsg first. The fetch will be started
+	// after this message is processed, ensuring requestID is set before
+	// any results arrive. This fixes a race condition where fast fetches
+	// would complete before requestID was updated, causing results to be
+	// dropped as "stale".
 	return tea.Batch(
 		p.spinner.Tick,
 		func() tea.Msg {
-			return graphStartLoadingMsg{requestID: reqID}
+			return graphStartLoadingMsg{requestID: reqID, startFetch: true}
 		},
-		p.fetchCmd(reqID),
-		p.tickCmd(),
 	)
 }
 
 // graphStartLoadingMsg signals the start of a loading operation.
 type graphStartLoadingMsg struct {
-	requestID int
+	requestID  int
+	startFetch bool // when true, start the fetch after processing this message
 }
 
 // fetchCmd returns a command that fetches bead data in the background.

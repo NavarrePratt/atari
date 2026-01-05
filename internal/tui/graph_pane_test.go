@@ -635,3 +635,105 @@ func TestGraphPane_KeyRefresh(t *testing.T) {
 		t.Error("expected R key to trigger refresh command")
 	}
 }
+
+// TestGraphPane_StartLoadingMsgStartsFetch verifies that processing graphStartLoadingMsg
+// with startFetch=true returns a command to start the fetch. This is critical for fixing
+// the race condition where fast fetches would complete before requestID was set.
+func TestGraphPane_StartLoadingMsgStartsFetch(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Standalone Task", Status: "in_progress", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+
+	// Process graphStartLoadingMsg with startFetch=true
+	msg := graphStartLoadingMsg{requestID: 1, startFetch: true}
+	pane, cmd := pane.Update(msg)
+
+	// State should be updated
+	if pane.requestID != 1 {
+		t.Errorf("requestID not set: got %d, want 1", pane.requestID)
+	}
+	if !pane.loading {
+		t.Error("loading not set to true")
+	}
+
+	// Should return a command to start the fetch
+	if cmd == nil {
+		t.Error("expected startFetch=true to return fetch command")
+	}
+}
+
+// TestGraphPane_FullRefreshFlow verifies the complete refresh flow works correctly,
+// ensuring results aren't dropped as stale when the fetch completes quickly.
+func TestGraphPane_FullRefreshFlow(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-standalone", Title: "Standalone Task", Status: "in_progress", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+	pane.SetSize(80, 24)
+
+	// Initially should have no beads (graph was created but not refreshed)
+	if pane.graph.NodeCount() != 0 {
+		t.Errorf("expected 0 nodes initially, got %d", pane.graph.NodeCount())
+	}
+
+	// Step 1: refreshCmd returns graphStartLoadingMsg with startFetch=true
+	refreshCmd := pane.refreshCmd()
+	if refreshCmd == nil {
+		t.Fatal("refreshCmd returned nil")
+	}
+
+	// Execute batch to get the graphStartLoadingMsg
+	// The batch contains spinner tick and graphStartLoadingMsg
+	// We need to find and execute the graphStartLoadingMsg
+	msg := graphStartLoadingMsg{requestID: 1, startFetch: true}
+
+	// Step 2: Process graphStartLoadingMsg - this sets requestID and returns fetch command
+	pane, fetchCmd := pane.Update(msg)
+	if pane.requestID != 1 {
+		t.Errorf("requestID not set after graphStartLoadingMsg: got %d, want 1", pane.requestID)
+	}
+	if !pane.loading {
+		t.Error("loading should be true after graphStartLoadingMsg")
+	}
+	if fetchCmd == nil {
+		t.Fatal("expected fetchCmd to be returned")
+	}
+
+	// Step 3: Execute the fetch command - this simulates the fetch completing
+	// We need to extract and run the actual fetchCmd from the batch
+	actualFetchCmd := pane.fetchCmd(1)
+	fetchResult := actualFetchCmd()
+
+	resultMsg, ok := fetchResult.(graphResultMsg)
+	if !ok {
+		t.Fatalf("expected graphResultMsg, got %T", fetchResult)
+	}
+	if resultMsg.requestID != 1 {
+		t.Errorf("result requestID=%d, want 1", resultMsg.requestID)
+	}
+
+	// Step 4: Process the result - this should NOT be dropped as stale
+	// because requestID was set BEFORE the fetch started
+	pane, _ = pane.Update(resultMsg)
+
+	// Verify the graph now has the bead
+	if pane.graph.NodeCount() != 1 {
+		t.Errorf("expected 1 node after result, got %d", pane.graph.NodeCount())
+	}
+	if pane.loading {
+		t.Error("loading should be false after result processed")
+	}
+
+	// Verify the standalone bead is visible
+	nodes := pane.graph.GetNodes()
+	if _, ok := nodes["bd-standalone"]; !ok {
+		t.Error("standalone bead should be in graph")
+	}
+}
