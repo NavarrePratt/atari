@@ -194,47 +194,21 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
-	}
 
-	// When observer is focused, forward keys to observer pane
-	if m.observerOpen && m.isObserverFocused() {
-		var cmd tea.Cmd
-		m.observerPane, cmd = m.observerPane.Update(msg)
-		return m, cmd
-	}
-
-	// When graph is focused, forward keys to graph pane
-	if m.graphOpen && m.isGraphFocused() {
-		var cmd tea.Cmd
-		m.graphPane, cmd = m.graphPane.Update(msg)
-		return m, cmd
-	}
-
-	// Events pane focused: normal key handling
-	switch key {
-	case "q":
-		if m.onQuit != nil {
-			m.onQuit()
-		}
-		return m, tea.Quit
-
+	// Panel toggle keys - always global so you can switch panels from anywhere
 	case "e":
-		// Toggle events pane
 		m.toggleEvents()
 		return m, nil
 
 	case "o":
-		// Toggle observer pane
 		m.toggleObserver()
 		return m, nil
 
 	case "b":
-		// Toggle graph pane
 		m.toggleGraph()
 		return m, m.graphPane.Init()
 
 	case "E":
-		// Toggle fullscreen events mode
 		if m.eventsOpen {
 			if m.focusMode == FocusEvents {
 				m.focusMode = FocusModeNone
@@ -248,7 +222,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "B":
-		// Toggle fullscreen graph mode
 		if m.graphOpen {
 			if m.focusMode == FocusGraph {
 				m.focusMode = FocusModeNone
@@ -262,7 +235,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "O":
-		// Toggle fullscreen observer mode
 		if m.observerOpen {
 			if m.focusMode == FocusObserver {
 				m.focusMode = FocusModeNone
@@ -274,6 +246,23 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+
+	// When observer is focused, forward keys to observer pane
+	// Observer has text input, so q/p/r shouldn't quit/pause - they're typing
+	if m.observerOpen && m.isObserverFocused() {
+		var cmd tea.Cmd
+		m.observerPane, cmd = m.observerPane.Update(msg)
+		return m, cmd
+	}
+
+	// Global control keys - work when not in text input (observer)
+	switch key {
+	case "q":
+		if m.onQuit != nil {
+			m.onQuit()
+		}
+		return m, tea.Quit
 
 	case "p":
 		if m.onPause != nil {
@@ -288,7 +277,17 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "resuming..."
 		return m, nil
+	}
 
+	// When graph is focused, forward remaining keys to graph pane
+	if m.graphOpen && m.isGraphFocused() {
+		var cmd tea.Cmd
+		m.graphPane, cmd = m.graphPane.Update(msg)
+		return m, cmd
+	}
+
+	// Events pane focused: scrolling keys
+	switch key {
 	case "up", "k":
 		m.autoScroll = false
 		if m.scrollPos > 0 {
