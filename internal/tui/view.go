@@ -198,13 +198,13 @@ func (m model) renderHeaderOnlyView() string {
 	w := safeWidth(m.width - 4) // Account for container borders
 
 	// Build the view with header, centered message, and footer
+	// No divider after header - the box border provides separation
 	var sections []string
 	sections = append(sections, m.renderHeaderForWidth(w))
-	sections = append(sections, m.renderDividerForWidth(w))
 
 	// Calculate space for centered content
-	// Total height minus header (3), dividers (2), footer (1), borders (2) = 8
-	contentHeight := m.height - 8
+	// Total height minus header (3), divider (1), footer (1), borders (2) = 7
+	contentHeight := m.height - 7
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
