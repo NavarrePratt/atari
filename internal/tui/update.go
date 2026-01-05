@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/npratt/atari/internal/events"
 )
@@ -83,6 +84,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case graphTickMsg, graphResultMsg, graphStartLoadingMsg:
 		// Forward graph messages to graph pane
 		if m.graphOpen {
+			var cmd tea.Cmd
+			m.graphPane, cmd = m.graphPane.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case spinner.TickMsg:
+		// Forward spinner ticks to panes that are loading, regardless of focus.
+		// This ensures spinner animation continues when pane is visible but not focused.
+		if m.observerOpen && m.observerPane.IsLoading() {
+			var cmd tea.Cmd
+			m.observerPane, cmd = m.observerPane.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if m.graphOpen && m.graphPane.IsLoading() {
 			var cmd tea.Cmd
 			m.graphPane, cmd = m.graphPane.Update(msg)
 			if cmd != nil {

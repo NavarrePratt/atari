@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
@@ -1473,6 +1474,186 @@ func TestHandleKey_NormalMode_PanelTogglesWork(t *testing.T) {
 			t.Error("e should toggle events pane closed in NORMAL mode")
 		}
 	})
+}
+
+// Spinner routing tests - ensure spinner.TickMsg is forwarded regardless of focus
+
+func TestUpdate_SpinnerTickMsg_ForwardedToObserverWhenLoading(t *testing.T) {
+	t.Run("forwards to observer when loading and not focused", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.loading = true
+
+		m := model{
+			focusedPane:  FocusEvents, // Events is focused, NOT observer
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+		}
+
+		// Get the spinner TickMsg type from the spinner package
+		spinnerTickMsg := spinner.TickMsg{}
+		newM, cmd := m.Update(spinnerTickMsg)
+		resultM := newM.(model)
+
+		// Spinner should still animate (return a command for next tick)
+		// The observer pane's spinner.Update returns a tea.Cmd for the next tick
+		if cmd == nil {
+			t.Error("spinner.TickMsg should produce a command when observer is loading")
+		}
+
+		// The model should still reference a loading observer
+		if !resultM.observerPane.IsLoading() {
+			t.Error("observer should still be loading")
+		}
+	})
+
+	t.Run("not forwarded when observer is closed", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.loading = true
+
+		m := model{
+			focusedPane:  FocusEvents,
+			observerOpen: false, // Observer is closed
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+		}
+
+		spinnerTickMsg := spinner.TickMsg{}
+		_, cmd := m.Update(spinnerTickMsg)
+
+		// Should return nil command since observer is closed
+		if cmd != nil {
+			t.Error("spinner.TickMsg should NOT produce a command when observer is closed")
+		}
+	})
+
+	t.Run("not forwarded when observer is not loading", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.loading = false // Not loading
+
+		m := model{
+			focusedPane:  FocusEvents,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+		}
+
+		spinnerTickMsg := spinner.TickMsg{}
+		_, cmd := m.Update(spinnerTickMsg)
+
+		// Should return nil command since observer is not loading
+		if cmd != nil {
+			t.Error("spinner.TickMsg should NOT produce a command when observer is not loading")
+		}
+	})
+}
+
+func TestUpdate_SpinnerTickMsg_ForwardedToGraphWhenLoading(t *testing.T) {
+	t.Run("forwards to graph when loading and not focused", func(t *testing.T) {
+		graphPane := NewGraphPane(nil, nil, "horizontal")
+		graphPane.loading = true
+
+		m := model{
+			focusedPane:  FocusEvents, // Events is focused, NOT graph
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+		}
+
+		spinnerTickMsg := spinner.TickMsg{}
+		newM, cmd := m.Update(spinnerTickMsg)
+		resultM := newM.(model)
+
+		// Spinner should still animate (return a command for next tick)
+		if cmd == nil {
+			t.Error("spinner.TickMsg should produce a command when graph is loading")
+		}
+
+		// The model should still reference a loading graph
+		if !resultM.graphPane.IsLoading() {
+			t.Error("graph should still be loading")
+		}
+	})
+
+	t.Run("not forwarded when graph is closed", func(t *testing.T) {
+		graphPane := NewGraphPane(nil, nil, "horizontal")
+		graphPane.loading = true
+
+		m := model{
+			focusedPane:  FocusEvents,
+			graphOpen:    false, // Graph is closed
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+		}
+
+		spinnerTickMsg := spinner.TickMsg{}
+		_, cmd := m.Update(spinnerTickMsg)
+
+		// Should return nil command since graph is closed
+		if cmd != nil {
+			t.Error("spinner.TickMsg should NOT produce a command when graph is closed")
+		}
+	})
+
+	t.Run("not forwarded when graph is not loading", func(t *testing.T) {
+		graphPane := NewGraphPane(nil, nil, "horizontal")
+		graphPane.loading = false // Not loading
+
+		m := model{
+			focusedPane:  FocusEvents,
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+		}
+
+		spinnerTickMsg := spinner.TickMsg{}
+		_, cmd := m.Update(spinnerTickMsg)
+
+		// Should return nil command since graph is not loading
+		if cmd != nil {
+			t.Error("spinner.TickMsg should NOT produce a command when graph is not loading")
+		}
+	})
+}
+
+func TestUpdate_SpinnerTickMsg_ForwardedToBothPanesWhenBothLoading(t *testing.T) {
+	obsPane := NewObserverPane(nil)
+	obsPane.loading = true
+
+	graphPane := NewGraphPane(nil, nil, "horizontal")
+	graphPane.loading = true
+
+	m := model{
+		focusedPane:  FocusEvents, // Neither observer nor graph is focused
+		observerOpen: true,
+		graphOpen:    true,
+		eventsOpen:   true,
+		observerPane: obsPane,
+		graphPane:    graphPane,
+	}
+
+	spinnerTickMsg := spinner.TickMsg{}
+	newM, cmd := m.Update(spinnerTickMsg)
+	resultM := newM.(model)
+
+	// Should return a batched command for both panes
+	if cmd == nil {
+		t.Error("spinner.TickMsg should produce a command when both panes are loading")
+	}
+
+	// Both panes should still be loading
+	if !resultM.observerPane.IsLoading() {
+		t.Error("observer should still be loading")
+	}
+	if !resultM.graphPane.IsLoading() {
+		t.Error("graph should still be loading")
+	}
 }
 
 // TestFullscreen_VisualDifference ensures fullscreen actually looks different.
