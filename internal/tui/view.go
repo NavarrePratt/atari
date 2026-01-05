@@ -30,6 +30,9 @@ func (m model) View() string {
 	// Check for fullscreen focus mode
 	if m.focusMode != FocusModeNone {
 		baseContent = m.renderFullscreenPane()
+	} else if m.allPanesClosed() {
+		// All panels closed: show header-only monitoring view
+		baseContent = m.renderHeaderOnlyView()
 	} else if m.anyPaneOpen() {
 		// If any secondary pane is open, render split layout
 		baseContent = m.renderSplitView()
@@ -187,6 +190,86 @@ func (m model) renderEventsOnlyView() string {
 
 	// Place container at top-left of terminal
 	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, rendered)
+}
+
+// renderHeaderOnlyView renders a minimal view with just header, status info, and footer
+// when all panes are closed. This allows users to monitor status and cost without panels.
+func (m model) renderHeaderOnlyView() string {
+	w := safeWidth(m.width - 4) // Account for container borders
+
+	// Build the view with header, centered message, and footer
+	var sections []string
+	sections = append(sections, m.renderHeaderForWidth(w))
+	sections = append(sections, m.renderDividerForWidth(w))
+
+	// Calculate space for centered content
+	// Total height minus header (3), dividers (2), footer (1), borders (2) = 8
+	contentHeight := m.height - 8
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Create centered monitoring message
+	msg := "All panels closed - monitoring only"
+	hint := "Press e/o/b to open panels"
+	centeredMsg := lipgloss.PlaceHorizontal(w, lipgloss.Center, styles.Divider.Render(msg))
+	centeredHint := lipgloss.PlaceHorizontal(w, lipgloss.Center, styles.Footer.Render(hint))
+
+	// Pad to center vertically
+	topPadding := (contentHeight - 2) / 2
+	bottomPadding := contentHeight - 2 - topPadding
+	if topPadding < 0 {
+		topPadding = 0
+	}
+	if bottomPadding < 0 {
+		bottomPadding = 0
+	}
+
+	var contentLines []string
+	for i := 0; i < topPadding; i++ {
+		contentLines = append(contentLines, "")
+	}
+	contentLines = append(contentLines, centeredMsg)
+	contentLines = append(contentLines, centeredHint)
+	for i := 0; i < bottomPadding; i++ {
+		contentLines = append(contentLines, "")
+	}
+	sections = append(sections, strings.Join(contentLines, "\n"))
+
+	sections = append(sections, m.renderDividerForWidth(w))
+	sections = append(sections, m.renderHeaderOnlyFooter())
+
+	content := strings.Join(sections, "\n")
+
+	// Use unfocused border style since no pane is focused
+	rendered := styles.UnfocusedBorder.
+		Width(safeWidth(m.width - 2)).
+		Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, rendered)
+}
+
+// renderHeaderOnlyFooter returns footer help when all panels are closed.
+func (m model) renderHeaderOnlyFooter() string {
+	var parts []string
+
+	// Pause/resume based on status
+	switch m.status {
+	case "paused", "pausing...", "pausing":
+		parts = append(parts, "r: resume")
+	case "stopped":
+		// No pause/resume for stopped state
+	default:
+		parts = append(parts, "p: pause")
+	}
+
+	// Panel open hints
+	parts = append(parts, "e: events", "o: observer", "b: beads")
+
+	// Quit
+	parts = append(parts, "q: quit")
+
+	return styles.Footer.Render(strings.Join(parts, "  "))
 }
 
 // renderSplitView renders the split layout with events and secondary panes.

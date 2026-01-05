@@ -499,3 +499,189 @@ func TestRenderFooter_Focus(t *testing.T) {
 		})
 	}
 }
+
+// All panels closed tests
+
+func TestAllPanesClosed(t *testing.T) {
+	tests := []struct {
+		name         string
+		eventsOpen   bool
+		observerOpen bool
+		graphOpen    bool
+		expected     bool
+	}{
+		{"all open", true, true, true, false},
+		{"events only", true, false, false, false},
+		{"observer only", false, true, false, false},
+		{"graph only", false, false, true, false},
+		{"events and observer", true, true, false, false},
+		{"all closed", false, false, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := model{
+				eventsOpen:   tt.eventsOpen,
+				observerOpen: tt.observerOpen,
+				graphOpen:    tt.graphOpen,
+			}
+			if got := m.allPanesClosed(); got != tt.expected {
+				t.Errorf("allPanesClosed() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRenderHeaderOnlyView(t *testing.T) {
+	t.Run("renders with all panels closed", func(t *testing.T) {
+		m := model{
+			width:        80,
+			height:       25,
+			status:       "idle",
+			eventsOpen:   false,
+			observerOpen: false,
+			graphOpen:    false,
+			stats: modelStats{
+				TotalCost:  0.1234,
+				TotalTurns: 10,
+				Completed:  5,
+				Failed:     2,
+				Abandoned:  1,
+			},
+		}
+
+		result := m.renderHeaderOnlyView()
+
+		// Should contain status info from header
+		if !strings.Contains(result, "IDLE") {
+			t.Error("header-only view should contain status IDLE")
+		}
+		if !strings.Contains(result, "0.1234") {
+			t.Error("header-only view should contain cost")
+		}
+		// Should contain the centered message
+		if !strings.Contains(result, "All panels closed") {
+			t.Error("header-only view should show 'All panels closed' message")
+		}
+		// Should contain hint to open panels
+		if !strings.Contains(result, "e/o/b to open panels") {
+			t.Error("header-only view should show hint to open panels")
+		}
+	})
+
+	t.Run("renders with current bead info", func(t *testing.T) {
+		m := model{
+			width:        80,
+			height:       25,
+			status:       "working",
+			eventsOpen:   false,
+			observerOpen: false,
+			graphOpen:    false,
+			currentBead: &beadInfo{
+				ID:    "bd-test",
+				Title: "Test bead title",
+			},
+			stats: modelStats{
+				TotalCost: 0.5,
+			},
+		}
+
+		result := m.renderHeaderOnlyView()
+
+		if !strings.Contains(result, "WORKING") {
+			t.Error("header-only view should show WORKING status")
+		}
+		if !strings.Contains(result, "bd-test") {
+			t.Error("header-only view should show bead ID")
+		}
+	})
+}
+
+func TestRenderHeaderOnlyFooter(t *testing.T) {
+	tests := []struct {
+		name          string
+		status        string
+		shouldContain []string
+		shouldNotHave []string
+	}{
+		{
+			name:          "idle",
+			status:        "idle",
+			shouldContain: []string{"p: pause", "e: events", "o: observer", "b: beads", "q: quit"},
+		},
+		{
+			name:          "paused",
+			status:        "paused",
+			shouldContain: []string{"r: resume", "e: events", "o: observer", "b: beads", "q: quit"},
+			shouldNotHave: []string{"p: pause"},
+		},
+		{
+			name:          "stopped",
+			status:        "stopped",
+			shouldContain: []string{"e: events", "o: observer", "b: beads", "q: quit"},
+			shouldNotHave: []string{"p: pause", "r: resume"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := model{status: tt.status}
+			result := m.renderHeaderOnlyFooter()
+
+			for _, s := range tt.shouldContain {
+				if !strings.Contains(result, s) {
+					t.Errorf("footer for %s should contain %q, got: %s", tt.status, s, result)
+				}
+			}
+			for _, s := range tt.shouldNotHave {
+				if strings.Contains(result, s) {
+					t.Errorf("footer for %s should not contain %q, got: %s", tt.status, s, result)
+				}
+			}
+		})
+	}
+}
+
+func TestView_AllPanesClosed(t *testing.T) {
+	t.Run("renders header-only view when all panes closed", func(t *testing.T) {
+		m := model{
+			width:        80,
+			height:       25,
+			status:       "idle",
+			eventsOpen:   false,
+			observerOpen: false,
+			graphOpen:    false,
+			focusMode:    FocusModeNone,
+		}
+
+		result := m.View()
+
+		// Should show header-only content, not events view
+		if !strings.Contains(result, "All panels closed") {
+			t.Error("View should render header-only view when all panes closed")
+		}
+		// Should NOT show "Waiting for events" (events view placeholder)
+		if strings.Contains(result, "Waiting for events") {
+			t.Error("View should NOT render events view when all panes closed")
+		}
+	})
+}
+
+func TestToggleEvents_CanCloseLastPanel(t *testing.T) {
+	t.Run("can close events when it is the only panel", func(t *testing.T) {
+		m := model{
+			eventsOpen:   true,
+			observerOpen: false,
+			graphOpen:    false,
+			focusedPane:  FocusEvents,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+		}
+
+		m.toggleEvents()
+
+		if m.eventsOpen {
+			t.Error("should be able to close events even when it is the only panel")
+		}
+	})
+}

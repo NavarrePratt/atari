@@ -163,13 +163,9 @@ func newModel(
 
 // toggleEvents toggles the events pane visibility.
 func (m *model) toggleEvents() {
-	// Don't allow closing events if it's the only panel
-	if m.eventsOpen && !m.observerOpen && !m.graphOpen {
-		return
-	}
 	m.eventsOpen = !m.eventsOpen
 	if !m.eventsOpen && m.focusedPane == FocusEvents {
-		// Move focus to another open pane
+		// Move focus to another open pane, or clear focus if none open
 		if m.observerOpen {
 			m.focusedPane = FocusObserver
 			m.observerPane.SetFocused(true)
@@ -177,6 +173,7 @@ func (m *model) toggleEvents() {
 			m.focusedPane = FocusGraph
 			m.graphPane.SetFocused(true)
 		}
+		// If no panes open, focusedPane stays as FocusEvents (will be used when reopening)
 	}
 	m.updatePaneSizes()
 }
@@ -421,4 +418,9 @@ func (m model) isGraphFocused() bool {
 // anyPaneOpen returns true if observer or graph pane is open.
 func (m model) anyPaneOpen() bool {
 	return m.observerOpen || m.graphOpen
+}
+
+// allPanesClosed returns true if events, observer, and graph panes are all closed.
+func (m model) allPanesClosed() bool {
+	return !m.eventsOpen && !m.observerOpen && !m.graphOpen
 }
