@@ -30,25 +30,32 @@ func NewBDFetcher(runner testutil.CommandRunner) *BDFetcher {
 
 // FetchActive retrieves beads with open, in_progress, or blocked status.
 func (f *BDFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json",
-		"--status", "open",
-		"--status", "in_progress",
-		"--status", "blocked")
+	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("bd list active failed: %w", err)
 	}
 
-	return parseBeads(output)
+	beads, err := parseBeads(output)
+	if err != nil {
+		return nil, err
+	}
+
+	return filterByStatus(beads, "open", "in_progress", "blocked"), nil
 }
 
 // FetchBacklog retrieves beads with deferred status.
 func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json", "--status", "deferred")
+	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("bd list backlog failed: %w", err)
 	}
 
-	return parseBeads(output)
+	beads, err := parseBeads(output)
+	if err != nil {
+		return nil, err
+	}
+
+	return filterByStatus(beads, "deferred"), nil
 }
 
 // FetchBead retrieves full details for a single bead by ID.
@@ -93,6 +100,27 @@ func parseBeads(data []byte) ([]GraphBead, error) {
 	}
 
 	return beads, nil
+}
+
+// filterByStatus returns beads matching any of the given statuses.
+func filterByStatus(beads []GraphBead, statuses ...string) []GraphBead {
+	if len(beads) == 0 {
+		return nil
+	}
+
+	statusSet := make(map[string]bool, len(statuses))
+	for _, s := range statuses {
+		statusSet[s] = true
+	}
+
+	result := make([]GraphBead, 0, len(beads))
+	for _, b := range beads {
+		if statusSet[b.Status] {
+			result = append(result, b)
+		}
+	}
+
+	return result
 }
 
 // ToNodesAndEdges converts a slice of GraphBeads to nodes and edges.

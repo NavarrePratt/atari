@@ -48,9 +48,9 @@ func TestBDFetcher_FetchActive(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := testutil.NewMockRunner()
 			if tt.err != nil {
-				runner.SetError("bd", []string{"list", "--json", "--status", "open", "--status", "in_progress", "--status", "blocked"}, tt.err)
+				runner.SetError("bd", []string{"list", "--json"}, tt.err)
 			} else {
-				runner.SetResponse("bd", []string{"list", "--json", "--status", "open", "--status", "in_progress", "--status", "blocked"}, tt.response)
+				runner.SetResponse("bd", []string{"list", "--json"}, tt.response)
 			}
 
 			fetcher := NewBDFetcher(runner)
@@ -104,9 +104,9 @@ func TestBDFetcher_FetchBacklog(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := testutil.NewMockRunner()
 			if tt.err != nil {
-				runner.SetError("bd", []string{"list", "--json", "--status", "deferred"}, tt.err)
+				runner.SetError("bd", []string{"list", "--json"}, tt.err)
 			} else {
-				runner.SetResponse("bd", []string{"list", "--json", "--status", "deferred"}, tt.response)
+				runner.SetResponse("bd", []string{"list", "--json"}, tt.response)
 			}
 
 			fetcher := NewBDFetcher(runner)
@@ -375,6 +375,75 @@ func TestParseBeads_EmptyInput(t *testing.T) {
 	}
 	if beads != nil {
 		t.Errorf("expected nil beads for empty input, got %v", beads)
+	}
+}
+
+func TestFilterByStatus(t *testing.T) {
+	beads := []GraphBead{
+		{ID: "open-1", Status: "open"},
+		{ID: "in-progress-1", Status: "in_progress"},
+		{ID: "blocked-1", Status: "blocked"},
+		{ID: "closed-1", Status: "closed"},
+		{ID: "deferred-1", Status: "deferred"},
+	}
+
+	tests := []struct {
+		name     string
+		statuses []string
+		wantIDs  []string
+	}{
+		{
+			name:     "filter active statuses",
+			statuses: []string{"open", "in_progress", "blocked"},
+			wantIDs:  []string{"open-1", "in-progress-1", "blocked-1"},
+		},
+		{
+			name:     "filter deferred only",
+			statuses: []string{"deferred"},
+			wantIDs:  []string{"deferred-1"},
+		},
+		{
+			name:     "filter closed only",
+			statuses: []string{"closed"},
+			wantIDs:  []string{"closed-1"},
+		},
+		{
+			name:     "no matching status",
+			statuses: []string{"unknown"},
+			wantIDs:  []string{},
+		},
+		{
+			name:     "empty statuses",
+			statuses: []string{},
+			wantIDs:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterByStatus(beads, tt.statuses...)
+			if len(result) != len(tt.wantIDs) {
+				t.Errorf("got %d beads, want %d", len(result), len(tt.wantIDs))
+				return
+			}
+			for i, want := range tt.wantIDs {
+				if result[i].ID != want {
+					t.Errorf("result[%d].ID = %q, want %q", i, result[i].ID, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFilterByStatus_EmptyInput(t *testing.T) {
+	result := filterByStatus(nil, "open")
+	if result != nil {
+		t.Errorf("expected nil for nil input, got %v", result)
+	}
+
+	result = filterByStatus([]GraphBead{}, "open")
+	if result != nil {
+		t.Errorf("expected nil for empty input, got %v", result)
 	}
 }
 
