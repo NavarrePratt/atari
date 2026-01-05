@@ -157,7 +157,12 @@ func (m model) renderFullscreenObserverView() string {
 
 // renderFullscreenGraphFooter returns footer help when graph is in fullscreen mode.
 func (m model) renderFullscreenGraphFooter() string {
-	help := "↑/↓/←/→: nav  d: density  a: view  R: refresh  B/esc: exit fullscreen  q: quit"
+	var help string
+	if m.graphPane.IsShowingDetail() {
+		help = "enter: fullscreen  esc: back  j/k: scroll  B: exit fullscreen  q: quit"
+	} else {
+		help = "↑/↓/←/→: nav  d: density  a: view  R: refresh  B/esc: exit fullscreen  q: quit"
+	}
 	return styles.Footer.Render(help)
 }
 
@@ -815,7 +820,11 @@ func (m model) renderFooter() string {
 		help = "enter: ask  tab: switch  esc: close  ctrl+c: quit"
 
 	case m.isGraphFocused() && m.graphOpen:
-		help = "↑/↓/←/→: nav  d: density  a: view  R: refresh  tab: switch  esc: close"
+		if m.graphPane.IsShowingDetail() {
+			help = "enter: fullscreen  esc: back  j/k: scroll  tab: switch"
+		} else {
+			help = "↑/↓/←/→: nav  d: density  a: view  R: refresh  tab: switch  esc: close"
+		}
 
 	case m.focusedPane == FocusEvents:
 		help = m.renderEventsFooter()
@@ -834,7 +843,11 @@ func (m model) renderGlobalFooter(width int) string {
 		help = "enter: ask  e/o/b: panels  tab: switch  esc: close  q: quit"
 
 	case m.isGraphFocused() && m.graphOpen:
-		help = "↑/↓/←/→: nav  d: density  a: view  R: refresh  e/o/b: panels  tab: switch  q: quit"
+		if m.graphPane.IsShowingDetail() {
+			help = "enter: fullscreen  esc: back  j/k: scroll  e/o/b: panels  tab: switch  q: quit"
+		} else {
+			help = "↑/↓/←/→: nav  d: density  a: view  R: refresh  e/o/b: panels  tab: switch  q: quit"
+		}
 
 	default:
 		help = m.renderEventsFooter()

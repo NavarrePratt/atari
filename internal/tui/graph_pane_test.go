@@ -281,7 +281,7 @@ func TestGraphPane_KeyEscUnfocuses(t *testing.T) {
 	}
 }
 
-func TestGraphPane_KeyEnterEmitsModalMsg(t *testing.T) {
+func TestGraphPane_KeyEnterTwoStepBehavior(t *testing.T) {
 	cfg := &config.GraphConfig{Density: "standard"}
 	fetcher := &mockFetcher{
 		activeBeads: []GraphBead{
@@ -292,21 +292,70 @@ func TestGraphPane_KeyEnterEmitsModalMsg(t *testing.T) {
 	pane.SetFocused(true)
 	pane.rebuildGraph(fetcher.activeBeads)
 
+	// First Enter: opens inline detail view
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
-	_, cmd := pane.Update(msg)
+	pane, cmd := pane.Update(msg)
 
 	if cmd == nil {
-		t.Fatal("expected Enter to return a command")
+		t.Fatal("expected first Enter to return a command for async fetch")
+	}
+	if !pane.IsShowingDetail() {
+		t.Error("expected pane to be showing detail after first Enter")
 	}
 
-	// Execute the command to get the message
+	// Execute the command - should be graphDetailResultMsg for async fetch
 	resultMsg := cmd()
+	_, ok := resultMsg.(graphDetailResultMsg)
+	if !ok {
+		t.Fatalf("expected graphDetailResultMsg from first Enter, got %T", resultMsg)
+	}
+
+	// Second Enter: opens full-screen modal
+	pane, cmd = pane.Update(msg)
+
+	if cmd == nil {
+		t.Fatal("expected second Enter to return a command for modal")
+	}
+
+	// Execute the command - should be GraphOpenModalMsg
+	resultMsg = cmd()
 	modalMsg, ok := resultMsg.(GraphOpenModalMsg)
 	if !ok {
-		t.Fatalf("expected GraphOpenModalMsg, got %T", resultMsg)
+		t.Fatalf("expected GraphOpenModalMsg from second Enter, got %T", resultMsg)
 	}
 	if modalMsg.NodeID != "bd-test-123" {
 		t.Errorf("expected NodeID='bd-test-123', got %q", modalMsg.NodeID)
+	}
+}
+
+func TestGraphPane_EscapeClosesDetailView(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-test-123", Title: "Test", Status: "open", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+	pane.SetFocused(true)
+	pane.rebuildGraph(fetcher.activeBeads)
+
+	// First Enter: opens inline detail view
+	enterMsg := tea.KeyMsg{Type: tea.KeyEnter}
+	pane, _ = pane.Update(enterMsg)
+
+	if !pane.IsShowingDetail() {
+		t.Fatal("expected pane to be showing detail after Enter")
+	}
+
+	// Escape: closes detail view and returns to graph
+	escMsg := tea.KeyMsg{Type: tea.KeyEsc}
+	pane, _ = pane.Update(escMsg)
+
+	if pane.IsShowingDetail() {
+		t.Error("expected detail view to be closed after Escape")
+	}
+	if !pane.IsFocused() {
+		t.Error("expected pane to remain focused after closing detail view")
 	}
 }
 

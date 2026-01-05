@@ -262,9 +262,9 @@ func TestGraphPane_NavigationUpdatesSelectedNode(t *testing.T) {
 	}
 }
 
-// TestGraphPane_EnterKeyEmitsOpenModalMsg verifies that pressing Enter
-// emits a GraphOpenModalMsg with the correct node ID.
-func TestGraphPane_EnterKeyEmitsOpenModalMsg(t *testing.T) {
+// TestGraphPane_EnterKeyTwoStepSelection verifies that pressing Enter
+// first shows inline detail view, and a second Enter emits GraphOpenModalMsg.
+func TestGraphPane_EnterKeyTwoStepSelection(t *testing.T) {
 	env := newGraphTestEnv(t)
 
 	pane := env.newPane()
@@ -283,19 +283,36 @@ func TestGraphPane_EnterKeyEmitsOpenModalMsg(t *testing.T) {
 		t.Fatal("expected node to be selected")
 	}
 
-	// Press Enter
+	// First Enter: opens inline detail view
 	keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
-	_, cmd := pane.Update(keyMsg)
+	pane, cmd := pane.Update(keyMsg)
 
 	if cmd == nil {
-		t.Fatal("Enter should return a command")
+		t.Fatal("first Enter should return a command for async fetch")
+	}
+	if !pane.IsShowingDetail() {
+		t.Error("expected pane to be showing detail after first Enter")
+	}
+
+	// Execute the command - should be graphDetailResultMsg
+	msg := cmd()
+	_, ok := msg.(graphDetailResultMsg)
+	if !ok {
+		t.Fatalf("expected graphDetailResultMsg from first Enter, got %T", msg)
+	}
+
+	// Second Enter: emits GraphOpenModalMsg for fullscreen
+	pane, cmd = pane.Update(keyMsg)
+
+	if cmd == nil {
+		t.Fatal("second Enter should return a command for modal")
 	}
 
 	// Execute the command to get the message
-	msg := cmd()
+	msg = cmd()
 	openMsg, ok := msg.(GraphOpenModalMsg)
 	if !ok {
-		t.Fatalf("expected GraphOpenModalMsg, got %T", msg)
+		t.Fatalf("expected GraphOpenModalMsg from second Enter, got %T", msg)
 	}
 
 	if openMsg.NodeID != expectedID {

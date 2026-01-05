@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -33,6 +34,15 @@ type GraphPane struct {
 	focused   bool
 	visible   bool // Whether the pane is visible (for auto-refresh)
 	requestID int  // For staleness detection
+
+	// Inline detail view state (shown before full-screen modal)
+	showingDetail   bool        // Whether inline detail view is active
+	detailNode      *GraphNode  // Node summary being displayed
+	detailBead      *GraphBead  // Full bead data (loaded async)
+	detailLoading   bool        // Whether detail fetch is in progress
+	detailError     string      // Error from detail fetch
+	detailRequestID int         // For staleness detection of detail fetches
+	detailScrollPos int         // Scroll position within detail view
 }
 
 // graphTickMsg signals a tick for updating elapsed time during refresh.
@@ -47,6 +57,13 @@ type graphResultMsg struct {
 
 // graphAutoRefreshMsg signals that auto-refresh interval has elapsed.
 type graphAutoRefreshMsg struct{}
+
+// graphDetailResultMsg carries the result of a bead detail fetch operation.
+type graphDetailResultMsg struct {
+	bead      *GraphBead
+	err       error
+	requestID int
+}
 
 // NewGraphPane creates a new GraphPane with the given configuration.
 func NewGraphPane(cfg *config.GraphConfig, fetcher BeadFetcher, layout string) GraphPane {
@@ -152,6 +169,20 @@ func (p GraphPane) Update(msg tea.Msg) (GraphPane, tea.Cmd) {
 		}
 		return p, tea.Batch(cmds...)
 
+	case graphDetailResultMsg:
+		// Drop stale results
+		if msg.requestID != p.detailRequestID {
+			return p, nil
+		}
+		p.detailLoading = false
+		if msg.err != nil {
+			p.detailError = msg.err.Error()
+		} else {
+			p.detailError = ""
+			p.detailBead = msg.bead
+		}
+		return p, nil
+
 	default:
 		return p, nil
 	}
@@ -160,6 +191,28 @@ func (p GraphPane) Update(msg tea.Msg) (GraphPane, tea.Cmd) {
 // handleKey processes keyboard input when focused.
 func (p GraphPane) handleKey(msg tea.KeyMsg) (GraphPane, tea.Cmd) {
 	key := msg.String()
+
+	// When showing detail view, handle scrolling separately
+	if p.showingDetail {
+		switch key {
+		case "up", "k":
+			if p.detailScrollPos > 0 {
+				p.detailScrollPos--
+			}
+			return p, nil
+		case "down", "j":
+			// Scroll down - cap is handled in renderDetailView
+			p.detailScrollPos++
+			return p, nil
+		case "home", "g":
+			p.detailScrollPos = 0
+			return p, nil
+		case "end", "G":
+			p.detailScrollPos = 9999 // Will be capped in renderDetailView
+			return p, nil
+		}
+		// Fall through to enter/esc handling below
+	}
 
 	switch key {
 	case "up", "k":
@@ -223,13 +276,30 @@ func (p GraphPane) handleKey(msg tea.KeyMsg) (GraphPane, tea.Cmd) {
 		return p, p.refreshCmd()
 
 	case "enter":
-		// Return a command to signal modal should open
-		// The parent model handles this
-		return p, func() tea.Msg {
-			return GraphOpenModalMsg{NodeID: p.graph.GetSelectedID()}
+		// Two-step selection:
+		// 1. First Enter: show inline detail view
+		// 2. Second Enter (while showing detail): open full-screen modal
+		if p.showingDetail {
+			// Already showing detail, open full-screen modal
+			return p, func() tea.Msg {
+				return GraphOpenModalMsg{NodeID: p.detailNode.ID}
+			}
 		}
+		// Not showing detail yet, open inline detail view
+		if p.graph != nil {
+			node := p.graph.GetSelected()
+			if node != nil {
+				return p.openDetailView(node)
+			}
+		}
+		return p, nil
 
 	case "esc":
+		// If showing detail, close it and return to graph
+		if p.showingDetail {
+			p.closeDetailView()
+			return p, nil
+		}
 		// If there's an error, clear it
 		if p.errorMsg != "" {
 			p.errorMsg = ""
@@ -345,8 +415,13 @@ func (p GraphPane) View() string {
 		return ""
 	}
 
-	contentWidth := safeWidth(p.width - 4)   // Account for padding
+	contentWidth := safeWidth(p.width - 4)    // Account for padding
 	contentHeight := safeHeight(p.height - 3) // Account for status bar and padding
+
+	// If showing inline detail view, render that instead of the graph
+	if p.showingDetail {
+		return p.renderDetailView(contentWidth, contentHeight)
+	}
 
 	var sections []string
 
@@ -472,6 +547,214 @@ func (p GraphPane) GetSelectedNode() *GraphNode {
 // Refresh triggers an async refresh of the graph data.
 func (p *GraphPane) Refresh() tea.Cmd {
 	return p.refreshCmd()
+}
+
+// IsShowingDetail returns true if inline detail view is active.
+func (p GraphPane) IsShowingDetail() bool {
+	return p.showingDetail
+}
+
+// openDetailView opens the inline detail view for a node and starts fetching full details.
+func (p GraphPane) openDetailView(node *GraphNode) (GraphPane, tea.Cmd) {
+	p.showingDetail = true
+	p.detailNode = node
+	p.detailBead = nil
+	p.detailLoading = true
+	p.detailError = ""
+	p.detailScrollPos = 0
+	p.detailRequestID++
+
+	if p.fetcher == nil || node == nil {
+		p.detailLoading = false
+		return p, nil
+	}
+
+	reqID := p.detailRequestID
+	return p, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		bead, err := p.fetcher.FetchBead(ctx, node.ID)
+		return graphDetailResultMsg{bead: bead, err: err, requestID: reqID}
+	}
+}
+
+// closeDetailView closes the inline detail view and returns to graph.
+func (p *GraphPane) closeDetailView() {
+	p.showingDetail = false
+	p.detailNode = nil
+	p.detailBead = nil
+	p.detailLoading = false
+	p.detailError = ""
+	p.detailScrollPos = 0
+}
+
+// renderDetailView renders the inline bead detail view.
+func (p GraphPane) renderDetailView(width, height int) string {
+	if p.detailNode == nil {
+		return ""
+	}
+
+	var content strings.Builder
+
+	// Header with bead ID
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("205"))
+	content.WriteString(titleStyle.Render(p.detailNode.ID))
+	content.WriteString("\n")
+
+	// Status | Priority | Type row
+	metaStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245"))
+	statusText := fmt.Sprintf("Status: %s | Priority: %d | Type: %s",
+		p.detailNode.Status, p.detailNode.Priority, p.detailNode.Type)
+	content.WriteString(metaStyle.Render(statusText))
+	content.WriteString("\n\n")
+
+	// Loading or error state
+	if p.detailLoading {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("205")).
+			Italic(true)
+		content.WriteString(loadingStyle.Render("Loading details..."))
+		content.WriteString("\n")
+	} else if p.detailError != "" {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196"))
+		content.WriteString(errorStyle.Render("Error: " + p.detailError))
+		content.WriteString("\n")
+	}
+
+	// Full bead details if loaded
+	if p.detailBead != nil {
+		content.WriteString(p.renderDetailContent(width))
+	} else if !p.detailLoading && p.detailError == "" {
+		// Show summary from node if no full bead
+		sectionStyle := lipgloss.NewStyle().Bold(true)
+		content.WriteString(sectionStyle.Render("Title:"))
+		content.WriteString("\n")
+		content.WriteString(wordWrap(p.detailNode.Title, width))
+		content.WriteString("\n\n")
+		content.WriteString(metaStyle.Render("(Full details not available)"))
+		content.WriteString("\n")
+	}
+
+	// Build the full content
+	fullContent := content.String()
+	lines := strings.Split(fullContent, "\n")
+
+	// Calculate visible area (reserve 2 lines for footer)
+	visibleHeight := height - 2
+	if visibleHeight < 3 {
+		visibleHeight = 3
+	}
+
+	// Cap scroll position
+	maxScroll := len(lines) - visibleHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if p.detailScrollPos > maxScroll {
+		p.detailScrollPos = maxScroll
+	}
+
+	// Extract visible lines
+	startLine := p.detailScrollPos
+	endLine := startLine + visibleHeight
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+
+	visibleContent := strings.Join(lines[startLine:endLine], "\n")
+
+	// Footer with key hints
+	footerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Italic(true)
+
+	scrollInfo := ""
+	if maxScroll > 0 {
+		scrollInfo = fmt.Sprintf(" | Line %d/%d", p.detailScrollPos+1, len(lines))
+	}
+	footer := footerStyle.Render("[Enter] fullscreen | [Esc] back | [j/k] scroll" + scrollInfo)
+
+	return visibleContent + "\n\n" + footer
+}
+
+// renderDetailContent renders the full bead details for inline view.
+func (p GraphPane) renderDetailContent(width int) string {
+	if p.detailBead == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	sectionStyle := lipgloss.NewStyle().Bold(true)
+
+	// Title section
+	sb.WriteString(sectionStyle.Render("Title:"))
+	sb.WriteString("\n")
+	sb.WriteString(wordWrap(p.detailBead.Title, width))
+	sb.WriteString("\n\n")
+
+	// Description section
+	if p.detailBead.Description != "" {
+		sb.WriteString(sectionStyle.Render("Description:"))
+		sb.WriteString("\n")
+		// Clean ANSI codes from description
+		cleanDesc := stripANSI(p.detailBead.Description)
+		sb.WriteString(wordWrap(cleanDesc, width))
+		sb.WriteString("\n\n")
+	}
+
+	// Dependencies section
+	if len(p.detailBead.Dependencies) > 0 {
+		sb.WriteString(sectionStyle.Render("Dependencies:"))
+		sb.WriteString("\n")
+		for _, dep := range p.detailBead.Dependencies {
+			depLine := "  - " + dep.ID + ": " + truncateString(dep.Title, 30) + " (" + dep.Status + ")"
+			sb.WriteString(depLine)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Dependents section
+	if len(p.detailBead.Dependents) > 0 {
+		sb.WriteString(sectionStyle.Render("Dependents:"))
+		sb.WriteString("\n")
+		for _, dep := range p.detailBead.Dependents {
+			depLine := "  - " + dep.ID + ": " + truncateString(dep.Title, 30) + " (" + dep.Status + ")"
+			sb.WriteString(depLine)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Notes section
+	if p.detailBead.Notes != "" {
+		sb.WriteString(sectionStyle.Render("Notes:"))
+		sb.WriteString("\n")
+		cleanNotes := stripANSI(p.detailBead.Notes)
+		sb.WriteString(wordWrap(cleanNotes, width))
+		sb.WriteString("\n\n")
+	}
+
+	// Metadata
+	metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	sb.WriteString(metaStyle.Render("Created: " + p.detailBead.CreatedAt + " by " + p.detailBead.CreatedBy))
+	sb.WriteString("\n")
+	if p.detailBead.UpdatedAt != "" {
+		sb.WriteString(metaStyle.Render("Updated: " + p.detailBead.UpdatedAt))
+		sb.WriteString("\n")
+	}
+	if p.detailBead.ClosedAt != "" {
+		sb.WriteString(metaStyle.Render("Closed: " + p.detailBead.ClosedAt))
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
 
 // safeHeight ensures height is at least 1.
