@@ -31,6 +31,8 @@ const (
 	ViewActive GraphView = iota
 	// ViewBacklog shows deferred beads.
 	ViewBacklog
+	// ViewClosed shows beads closed in the last 7 days.
+	ViewClosed
 )
 
 // String returns a string representation of the GraphView.
@@ -40,6 +42,8 @@ func (v GraphView) String() string {
 		return "active"
 	case ViewBacklog:
 		return "backlog"
+	case ViewClosed:
+		return "closed"
 	default:
 		return "unknown"
 	}
@@ -202,5 +206,46 @@ func ParseDensity(s string) NodeDensity {
 		return DensityDetailed
 	default:
 		return DensityStandard
+	}
+}
+
+// GraphLayoutMode indicates how nodes should be rendered.
+type GraphLayoutMode int
+
+const (
+	// GraphLayoutGrid renders nodes as boxes in a 2D grid (default).
+	GraphLayoutGrid GraphLayoutMode = iota
+	// GraphLayoutList renders nodes as a vertical list with tree glyphs.
+	GraphLayoutList
+)
+
+// String returns a string representation of the GraphLayoutMode.
+func (m GraphLayoutMode) String() string {
+	switch m {
+	case GraphLayoutGrid:
+		return "grid"
+	case GraphLayoutList:
+		return "list"
+	default:
+		return "unknown"
+	}
+}
+
+// ListNode represents a node in the list view with its tree position.
+type ListNode struct {
+	ID       string // Node ID
+	Depth    int    // Tree depth (0 = root)
+	ParentID string // Immediate parent ID for selection recovery
+	Visible  bool   // Whether this node should be rendered
+}
+
+// ParseLayoutMode converts a string to GraphLayoutMode.
+// Returns GraphLayoutGrid for invalid input.
+func ParseLayoutMode(s string) GraphLayoutMode {
+	switch s {
+	case "list":
+		return GraphLayoutList
+	default:
+		return GraphLayoutGrid
 	}
 }

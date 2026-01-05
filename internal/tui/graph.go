@@ -14,8 +14,9 @@ import (
 // Layout holds the computed positions of nodes in the graph.
 type Layout struct {
 	Direction LayoutDirection
-	Layers    [][]string           // Node IDs organized by layer (root at layer 0)
-	Positions map[string]Position  // Computed positions for each node
+	Layers    [][]string          // Node IDs organized by layer (root at layer 0)
+	Positions map[string]Position // Computed positions for each node
+	ListOrder []ListNode          // Ordered list of nodes for list mode
 }
 
 // Graph manages the bead graph visualization state.
@@ -33,6 +34,8 @@ type Graph struct {
 	collapsed   map[string]bool  // Collapsed epic IDs
 	view        GraphView        // Active or Backlog
 	currentBead string           // Currently processing bead (highlighted)
+	layoutMode  GraphLayoutMode  // Grid or List
+	listOrder   []ListNode       // Ordered list of nodes for list mode
 }
 
 // NewGraph creates a new Graph with the given configuration.
@@ -58,10 +61,15 @@ func (g *Graph) Refresh(ctx context.Context) error {
 	view := g.view
 	g.mu.RUnlock()
 
-	if view == ViewActive {
+	switch view {
+	case ViewActive:
 		beads, err = g.fetcher.FetchActive(ctx)
-	} else {
+	case ViewBacklog:
 		beads, err = g.fetcher.FetchBacklog(ctx)
+	case ViewClosed:
+		beads, err = g.fetcher.FetchClosed(ctx)
+	default:
+		beads, err = g.fetcher.FetchActive(ctx)
 	}
 	if err != nil {
 		return err
@@ -125,6 +133,11 @@ func (g *Graph) buildFromBeads(beads []GraphBead) {
 
 	// Compute layout
 	g.computeLayout()
+
+	// Compute list order if in list mode
+	if g.layoutMode == GraphLayoutList {
+		g.computeListOrder()
+	}
 
 	// Validate selected node still exists
 	if g.selected != "" && g.nodes[g.selected] == nil {
@@ -253,6 +266,118 @@ func (g *Graph) assignLayers(roots []string) [][]string {
 	}
 
 	return layers
+}
+
+// computeListOrder computes the list order using DFS traversal.
+// Must be called with mu held.
+func (g *Graph) computeListOrder() {
+	g.listOrder = nil
+
+	// Build adjacency list for children (hierarchy edges)
+	children := make(map[string][]string)
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy {
+			children[edge.From] = append(children[edge.From], edge.To)
+		}
+	}
+
+	// Sort children for deterministic ordering
+	for parent := range children {
+		sort.Strings(children[parent])
+	}
+
+	// Find root nodes (nodes with no incoming hierarchy edges)
+	hasParent := make(map[string]bool)
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy {
+			hasParent[edge.To] = true
+		}
+	}
+
+	var roots []string
+	for id := range g.nodes {
+		if !hasParent[id] && id != "_hidden_deps" {
+			roots = append(roots, id)
+		}
+	}
+
+	// Sort roots for deterministic ordering (epics first, then by ID)
+	sort.Slice(roots, func(i, j int) bool {
+		ni, nj := g.nodes[roots[i]], g.nodes[roots[j]]
+		if ni.IsEpic != nj.IsEpic {
+			return ni.IsEpic // Epics first
+		}
+		return roots[i] < roots[j]
+	})
+
+	// DFS traversal to build list order
+	var dfs func(nodeID string, depth int, parentID string)
+	dfs = func(nodeID string, depth int, parentID string) {
+		visible := g.isNodeVisible(nodeID)
+		g.listOrder = append(g.listOrder, ListNode{
+			ID:       nodeID,
+			Depth:    depth,
+			ParentID: parentID,
+			Visible:  visible,
+		})
+
+		// Don't recurse into collapsed epics
+		if g.collapsed[nodeID] {
+			return
+		}
+
+		for _, childID := range children[nodeID] {
+			dfs(childID, depth+1, nodeID)
+		}
+	}
+
+	for _, root := range roots {
+		dfs(root, 0, "")
+	}
+
+	// Add pseudo-node at the end if it exists
+	if _, ok := g.nodes["_hidden_deps"]; ok {
+		g.listOrder = append(g.listOrder, ListNode{
+			ID:       "_hidden_deps",
+			Depth:    0,
+			ParentID: "",
+			Visible:  true,
+		})
+	}
+
+	// Also store in Layout for external access
+	if g.computed != nil {
+		g.computed.ListOrder = g.listOrder
+	}
+}
+
+// SetLayoutMode sets the layout mode (Grid or List).
+func (g *Graph) SetLayoutMode(mode GraphLayoutMode) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.layoutMode = mode
+	if mode == GraphLayoutList {
+		g.computeListOrder()
+	}
+}
+
+// GetLayoutMode returns the current layout mode.
+func (g *Graph) GetLayoutMode() GraphLayoutMode {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.layoutMode
+}
+
+// CycleLayoutMode cycles between layout modes.
+func (g *Graph) CycleLayoutMode() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.layoutMode == GraphLayoutGrid {
+		g.layoutMode = GraphLayoutList
+		g.computeListOrder()
+	} else {
+		g.layoutMode = GraphLayoutGrid
+	}
 }
 
 // positionNodes computes positions for all nodes.
@@ -443,6 +568,11 @@ func (g *Graph) ToggleCollapse(nodeID string) {
 	}
 
 	g.collapsed[nodeID] = !g.collapsed[nodeID]
+
+	// Recompute list order to update visibility
+	if g.layoutMode == GraphLayoutList {
+		g.computeListOrder()
+	}
 }
 
 // IsCollapsed returns whether a node is collapsed.
@@ -646,6 +776,11 @@ func (g *Graph) Render(width, height int) string {
 		return g.renderEmpty(width, height)
 	}
 
+	// Use list mode rendering if enabled
+	if g.layoutMode == GraphLayoutList {
+		return g.renderListMode(width, height)
+	}
+
 	// Create a 2D character grid
 	grid := newGrid(width, height)
 
@@ -661,6 +796,236 @@ func (g *Graph) Render(width, height int) string {
 	}
 
 	return grid.String()
+}
+
+// renderListMode renders the graph as a vertical list with tree glyphs.
+// Must be called with mu held (RLock).
+func (g *Graph) renderListMode(width, height int) string {
+	var lines []string
+
+	// Build adjacency list for children to determine sibling relationships
+	children := make(map[string][]string)
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy {
+			children[edge.From] = append(children[edge.From], edge.To)
+		}
+	}
+	for parent := range children {
+		sort.Strings(children[parent])
+	}
+
+	// Build visible list items (respecting viewport offset)
+	var visibleItems []ListNode
+	for _, item := range g.listOrder {
+		if item.Visible {
+			visibleItems = append(visibleItems, item)
+		}
+	}
+
+	// Apply viewport offset
+	startIdx := g.viewport.OffsetY
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if startIdx >= len(visibleItems) {
+		startIdx = 0
+	}
+
+	endIdx := startIdx + height
+	if endIdx > len(visibleItems) {
+		endIdx = len(visibleItems)
+	}
+
+	// Track which items are last at their depth for glyph calculation
+	// We need to know: for each visible item, is it the last sibling at its depth?
+	isLastAtDepth := make(map[int]bool) // depth -> isLast for current branch
+
+	for i := startIdx; i < endIdx; i++ {
+		item := visibleItems[i]
+		node := g.nodes[item.ID]
+		if node == nil {
+			continue
+		}
+
+		// Determine if this is the last sibling at its depth
+		isLast := g.isLastSibling(item.ID, visibleItems, i, children)
+
+		// Update depth tracking for ancestors
+		isLastAtDepth[item.Depth] = isLast
+
+		// Build tree glyphs
+		glyphs := g.buildTreeGlyphs(item.Depth, isLastAtDepth, visibleItems, i)
+
+		// Format node content
+		line := g.formatListNode(node, item, glyphs, width, children)
+		lines = append(lines, line)
+	}
+
+	// Pad with empty lines if needed
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// isLastSibling determines if a node is the last sibling among visible nodes.
+func (g *Graph) isLastSibling(nodeID string, visibleItems []ListNode, currentIdx int, children map[string][]string) bool {
+	if currentIdx >= len(visibleItems) {
+		return true
+	}
+
+	currentItem := visibleItems[currentIdx]
+	currentDepth := currentItem.Depth
+
+	// Look ahead for siblings at the same depth
+	for i := currentIdx + 1; i < len(visibleItems); i++ {
+		nextItem := visibleItems[i]
+		if nextItem.Depth < currentDepth {
+			// We've moved to a higher level (parent's sibling), so current is last
+			return true
+		}
+		if nextItem.Depth == currentDepth {
+			// Found a sibling at the same depth
+			return false
+		}
+		// nextItem.Depth > currentDepth means we're looking at children, continue
+	}
+
+	// No more items or no siblings found
+	return true
+}
+
+// buildTreeGlyphs builds the tree glyph prefix for a list item.
+func (g *Graph) buildTreeGlyphs(depth int, isLastAtDepth map[int]bool, visibleItems []ListNode, currentIdx int) string {
+	if depth == 0 {
+		return ""
+	}
+
+	var glyphs strings.Builder
+
+	// For each ancestor level, determine if we need a continuation line
+	for d := 1; d < depth; d++ {
+		// Check if there are more siblings below at this depth
+		hasMoreAtDepth := g.hasMoreSiblingsAtDepth(d, visibleItems, currentIdx)
+		if hasMoreAtDepth {
+			glyphs.WriteString("│  ")
+		} else {
+			glyphs.WriteString("   ")
+		}
+	}
+
+	// Add the glyph for the current node
+	if g.isLastSibling(visibleItems[currentIdx].ID, visibleItems, currentIdx, nil) {
+		glyphs.WriteString("└─ ")
+	} else {
+		glyphs.WriteString("├─ ")
+	}
+
+	return glyphs.String()
+}
+
+// hasMoreSiblingsAtDepth checks if there are more nodes at the given depth after currentIdx.
+func (g *Graph) hasMoreSiblingsAtDepth(targetDepth int, visibleItems []ListNode, currentIdx int) bool {
+	// Look ahead to see if any item at targetDepth appears before we go back to a lower depth
+	foundDepthOrLower := false
+	for i := currentIdx + 1; i < len(visibleItems); i++ {
+		item := visibleItems[i]
+		if item.Depth < targetDepth {
+			// We've gone above the target depth, no more siblings
+			return foundDepthOrLower
+		}
+		if item.Depth == targetDepth {
+			return true
+		}
+	}
+	return false
+}
+
+// formatListNode formats a node for list display.
+func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, width int, children map[string][]string) string {
+	icon := statusIcon(node.Status)
+	isCurrent := node.ID == g.currentBead
+	isSelected := node.ID == g.selected
+	isCollapsedEpic := node.IsEpic && g.collapsed[node.ID]
+
+	// Calculate available width for title
+	glyphWidth := len(glyphs)
+	iconWidth := 2 // icon + space
+	idWidth := len(node.ID) + 1 // ID + space
+
+	// Count blocking dependencies
+	depCount := g.countBlockingDeps(node.ID)
+
+	// Badge width: " [N deps]" or " [1 dep]"
+	badgeWidth := 0
+	badge := ""
+	if depCount > 0 {
+		if depCount == 1 {
+			badge = " [1 dep]"
+		} else {
+			badge = fmt.Sprintf(" [%d deps]", depCount)
+		}
+		badgeWidth = len(badge)
+	}
+
+	// Collapsed indicator
+	collapsedBadge := ""
+	if isCollapsedEpic {
+		childCount := len(children[node.ID])
+		if childCount > 0 {
+			collapsedBadge = fmt.Sprintf(" +%d", childCount)
+		}
+	}
+	collapsedWidth := len(collapsedBadge)
+
+	// Calculate title width
+	titleWidth := width - glyphWidth - iconWidth - idWidth - badgeWidth - collapsedWidth
+	if titleWidth < 0 {
+		titleWidth = 0
+	}
+
+	title := truncate(node.Title, titleWidth)
+
+	// Build the line content (plain text)
+	var content strings.Builder
+	content.WriteString(glyphs)
+	content.WriteString(icon)
+	content.WriteString(" ")
+	content.WriteString(node.ID)
+	content.WriteString(" ")
+	content.WriteString(title)
+	content.WriteString(collapsedBadge)
+	content.WriteString(badge)
+
+	// Pad to full width
+	line := content.String()
+	if len(line) < width {
+		line += strings.Repeat(" ", width-len(line))
+	} else if len(line) > width {
+		line = line[:width]
+	}
+
+	// Apply styling
+	style := graphStyles.Node
+	if isCurrent {
+		style = graphStyles.NodeCurrent
+	} else if isSelected {
+		style = graphStyles.NodeSelected
+	}
+
+	return style.Render(line)
+}
+
+// countBlockingDeps counts the number of blocking dependencies for a node.
+func (g *Graph) countBlockingDeps(nodeID string) int {
+	count := 0
+	for _, edge := range g.edges {
+		if edge.To == nodeID && edge.Type == EdgeDependency {
+			count++
+		}
+	}
+	return count
 }
 
 // renderEmpty renders a placeholder for an empty graph.

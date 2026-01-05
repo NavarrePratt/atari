@@ -13,9 +13,11 @@ import (
 type mockFetcher struct {
 	activeBeads  []GraphBead
 	backlogBeads []GraphBead
+	closedBeads  []GraphBead
 	beadByID     map[string]GraphBead
 	activeErr    error
 	backlogErr   error
+	closedErr    error
 	beadErr      error
 }
 
@@ -31,6 +33,13 @@ func (m *mockFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 		return nil, m.backlogErr
 	}
 	return m.backlogBeads, nil
+}
+
+func (m *mockFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
+	if m.closedErr != nil {
+		return nil, m.closedErr
+	}
+	return m.closedBeads, nil
 }
 
 func (m *mockFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
@@ -50,6 +59,12 @@ func (m *mockFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, err
 	}
 	// Search in backlog beads
 	for _, b := range m.backlogBeads {
+		if b.ID == id {
+			return &b, nil
+		}
+	}
+	// Search in closed beads
+	for _, b := range m.closedBeads {
 		if b.ID == id {
 			return &b, nil
 		}

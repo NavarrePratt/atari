@@ -527,6 +527,15 @@ func (m *slowMockFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error)
 	}
 }
 
+func (m *slowMockFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(m.delay):
+		return nil, nil
+	}
+}
+
 func (m *slowMockFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
 	select {
 	case <-ctx.Done():

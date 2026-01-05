@@ -133,8 +133,8 @@ func TestGraphPane_RefreshKeyTriggersNewFetch(t *testing.T) {
 	}
 }
 
-// TestGraphPane_ViewToggleSwitchesViews verifies that pressing 'a' toggles
-// between Active and Backlog views.
+// TestGraphPane_ViewToggleSwitchesViews verifies that pressing 'a' cycles
+// through Active, Backlog, and Closed views.
 func TestGraphPane_ViewToggleSwitchesViews(t *testing.T) {
 	env := newGraphTestEnv(t)
 	env.setActiveBeads(testutil.GraphActiveBeadsJSON)
@@ -162,13 +162,22 @@ func TestGraphPane_ViewToggleSwitchesViews(t *testing.T) {
 		t.Errorf("expected view Backlog after toggle, got %v", pane.graph.GetView())
 	}
 
-	// Press 'a' again to toggle back
+	// Press 'a' again to toggle to Closed
+	newPane, _ = pane.Update(keyMsg)
+	pane = newPane
+
+	// View should now be Closed
+	if pane.graph.GetView() != ViewClosed {
+		t.Errorf("expected view Closed after second toggle, got %v", pane.graph.GetView())
+	}
+
+	// Press 'a' again to cycle back to Active
 	newPane, _ = pane.Update(keyMsg)
 	pane = newPane
 
 	// View should be Active again
 	if pane.graph.GetView() != ViewActive {
-		t.Errorf("expected view Active after second toggle, got %v", pane.graph.GetView())
+		t.Errorf("expected view Active after third toggle, got %v", pane.graph.GetView())
 	}
 }
 
