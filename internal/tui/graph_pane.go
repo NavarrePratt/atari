@@ -244,11 +244,16 @@ func (p GraphPane) handleKey(msg tea.KeyMsg) (GraphPane, tea.Cmd) {
 		return p, nil
 
 	case "a":
-		// Toggle Active/Backlog view
+		// Cycle through Active/Backlog/Closed views
 		if p.graph != nil {
-			if p.graph.GetView() == ViewActive {
+			switch p.graph.GetView() {
+			case ViewActive:
 				p.graph.SetView(ViewBacklog)
-			} else {
+			case ViewBacklog:
+				p.graph.SetView(ViewClosed)
+			case ViewClosed:
+				p.graph.SetView(ViewActive)
+			default:
 				p.graph.SetView(ViewActive)
 			}
 			return p, p.refreshCmd()
@@ -274,6 +279,13 @@ func (p GraphPane) handleKey(msg tea.KeyMsg) (GraphPane, tea.Cmd) {
 	case "R":
 		// Manual refresh
 		return p, p.refreshCmd()
+
+	case "L":
+		// Toggle layout mode (Grid <-> List)
+		if p.graph != nil {
+			p.graph.CycleLayoutMode()
+		}
+		return p, nil
 
 	case "enter":
 		// Two-step selection:
@@ -366,10 +378,15 @@ func (p GraphPane) fetchCmd(requestID int) tea.Cmd {
 			view = p.graph.GetView()
 		}
 
-		if view == ViewActive {
+		switch view {
+		case ViewActive:
 			beads, err = p.fetcher.FetchActive(ctx)
-		} else {
+		case ViewBacklog:
 			beads, err = p.fetcher.FetchBacklog(ctx)
+		case ViewClosed:
+			beads, err = p.fetcher.FetchClosed(ctx)
+		default:
+			beads, err = p.fetcher.FetchActive(ctx)
 		}
 
 		return graphResultMsg{beads: beads, err: err, requestID: requestID}
@@ -457,13 +474,20 @@ func (p GraphPane) renderStatusBar(width int) string {
 		densityStr = "standard"
 	}
 
+	var layoutStr string
+	if p.graph != nil {
+		layoutStr = p.graph.GetLayoutMode().String()
+	} else {
+		layoutStr = "grid"
+	}
+
 	nodeCount := 0
 	if p.graph != nil {
 		nodeCount = p.graph.NodeCount()
 	}
 
-	info := viewStr + " | " + densityStr + " | " + pluralize(nodeCount, "node", "nodes")
-	hint := " | a:view d:density R:refresh c:collapse"
+	info := viewStr + " | " + layoutStr + " | " + densityStr + " | " + pluralize(nodeCount, "node", "nodes")
+	hint := " | a:view L:layout d:density R:refresh c:collapse"
 
 	// Add loading indicator at the very end if refreshing
 	loadingIndicator := ""
