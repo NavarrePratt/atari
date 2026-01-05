@@ -202,6 +202,10 @@ func (p ObserverPane) handleInsertModeKey(msg tea.KeyMsg, key string) (ObserverP
 // handleNormalModeKey processes keys when in normal mode.
 func (p ObserverPane) handleNormalModeKey(msg tea.KeyMsg, key string) (ObserverPane, tea.Cmd) {
 	switch key {
+	case "q":
+		// Quit application
+		return p, tea.Quit
+
 	case "i":
 		// Enter insert mode
 		p.insertMode = true

@@ -785,40 +785,123 @@ func TestHandleKey_CtrlC_AlwaysQuits(t *testing.T) {
 	}
 }
 
-func TestHandleKey_ObserverFocused_SuppressesGlobalKeys(t *testing.T) {
-	// Keys that should be suppressed when observer is focused and open
-	keys := []string{"q", "p", "r", "up", "down", "k", "j", "home", "end", "g", "G"}
+func TestHandleKey_ObserverFocused_NormalMode_GlobalKeysWork(t *testing.T) {
+	// In normal mode (not insert mode), global keys q/p/r should still work
+	t.Run("q quits in normal mode", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			observerPane: NewObserverPane(nil),
+			status:       "idle",
+			onQuit:       func() { quitCalled = true },
+		}
+
+		_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+
+		if !quitCalled {
+			t.Error("q should call onQuit when observer is in normal mode")
+		}
+		if cmd == nil {
+			t.Error("q should return quit command")
+		}
+	})
+
+	t.Run("p pauses in normal mode", func(t *testing.T) {
+		pauseCalled := false
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			observerPane: NewObserverPane(nil),
+			status:       "idle",
+			onPause:      func() { pauseCalled = true },
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+		resultM := newM.(model)
+
+		if !pauseCalled {
+			t.Error("p should call onPause when observer is in normal mode")
+		}
+		if resultM.status != "pausing..." {
+			t.Error("p should set status to pausing...")
+		}
+	})
+
+	t.Run("r resumes in normal mode", func(t *testing.T) {
+		resumeCalled := false
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			observerPane: NewObserverPane(nil),
+			status:       "paused",
+			onResume:     func() { resumeCalled = true },
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+		resultM := newM.(model)
+
+		if !resumeCalled {
+			t.Error("r should call onResume when observer is in normal mode")
+		}
+		if resultM.status != "resuming..." {
+			t.Error("r should set status to resuming...")
+		}
+	})
+}
+
+func TestHandleKey_ObserverFocused_InsertMode_SuppressesGlobalKeys(t *testing.T) {
+	// In insert mode, q/p/r should be suppressed (they're for typing)
+	keys := []string{"q", "p", "r"}
 
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
 			callbackCalled := false
+			observerPane := NewObserverPane(nil)
+			observerPane.insertMode = true // Put in insert mode
+
+			m := model{
+				focusedPane:  FocusObserver,
+				observerOpen: true,
+				observerPane: observerPane,
+				status:       "idle",
+				onQuit:       func() { callbackCalled = true },
+				onPause:      func() { callbackCalled = true },
+				onResume:     func() { callbackCalled = true },
+			}
+
+			m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+
+			if callbackCalled {
+				t.Errorf("key %q should not trigger callback when observer is in insert mode", key)
+			}
+		})
+	}
+}
+
+func TestHandleKey_ObserverFocused_NavigationForwarded(t *testing.T) {
+	// Navigation keys should be forwarded to observer pane, not affect main scroll
+	keys := []string{"up", "down", "k", "j", "home", "end", "g", "G"}
+
+	for _, key := range keys {
+		t.Run(key, func(t *testing.T) {
 			m := model{
 				focusedPane:  FocusObserver,
 				observerOpen: true,
 				observerPane: NewObserverPane(nil),
 				status:       "idle",
-				onQuit:       func() { callbackCalled = true },
-				onPause:      func() { callbackCalled = true },
-				onResume:     func() { callbackCalled = true },
 				scrollPos:    5,
 				autoScroll:   true,
 				height:       20,
 				eventLines:   make([]eventLine, 30),
 			}
 
-			newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+			newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 			resultM := newM.(model)
 
-			if callbackCalled {
-				t.Errorf("key %q should not trigger callback when observer focused", key)
-			}
-			// When observer is focused, keys are forwarded to observer pane
-			// The observer pane may return a command (e.g., for textarea input)
-			// so we don't check cmd == nil here
-			_ = cmd
-			// Scroll position should not change
+			// Main scroll position should not change - keys forwarded to observer
 			if resultM.scrollPos != 5 {
-				t.Errorf("key %q should not change scroll when observer focused", key)
+				t.Errorf("key %q should not change main scroll when observer focused", key)
 			}
 		})
 	}

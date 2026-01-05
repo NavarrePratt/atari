@@ -279,15 +279,40 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// When observer is focused, forward keys to observer pane
-	// Observer has text input, so q/p/r shouldn't quit/pause - they're typing
+	// Global control keys - work when observer is in normal mode (not typing)
+	// In insert mode, these keys go to the textarea instead
+	if !m.observerPane.IsInsertMode() {
+		switch key {
+		case "q":
+			if m.onQuit != nil {
+				m.onQuit()
+			}
+			return m, tea.Quit
+
+		case "p":
+			if m.onPause != nil {
+				m.onPause()
+			}
+			m.status = "pausing..."
+			return m, nil
+
+		case "r":
+			if m.onResume != nil {
+				m.onResume()
+			}
+			m.status = "resuming..."
+			return m, nil
+		}
+	}
+
+	// When observer is focused, forward remaining keys to observer pane
 	if m.observerOpen && m.isObserverFocused() {
 		var cmd tea.Cmd
 		m.observerPane, cmd = m.observerPane.Update(msg)
 		return m, cmd
 	}
 
-	// Global control keys - work when not in text input (observer)
+	// Global control keys for non-observer focus (graph pane, events pane)
 	switch key {
 	case "q":
 		if m.onQuit != nil {
