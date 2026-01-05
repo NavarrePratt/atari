@@ -368,12 +368,12 @@ func TestObserver_NilObserver_ReturnsNotInitializedError(t *testing.T) {
 	}
 }
 
-// TestObserver_BrokerBusy_ReturnsTimeoutError verifies that when the
-// session broker is held by another holder, the observer returns a timeout error.
-func TestObserver_BrokerBusy_ReturnsTimeoutError(t *testing.T) {
+// TestObserver_WorksWhileDrainIsActive verifies that observer can respond
+// to queries even when the drain session is actively holding the broker.
+func TestObserver_WorksWhileDrainIsActive(t *testing.T) {
 	env := newObserverTestEnv(t)
 
-	// Acquire the broker so it's busy
+	// Acquire the broker to simulate drain holding it
 	ctx := context.Background()
 	err := env.broker.Acquire(ctx, "drain", 1*time.Second)
 	if err != nil {
@@ -381,7 +381,7 @@ func TestObserver_BrokerBusy_ReturnsTimeoutError(t *testing.T) {
 	}
 	defer env.broker.Release()
 
-	// Verify broker is held
+	// Verify broker is held by drain
 	if !env.broker.IsHeld() {
 		t.Fatal("broker should be held")
 	}
@@ -401,21 +401,29 @@ func TestObserver_BrokerBusy_ReturnsTimeoutError(t *testing.T) {
 	// Create pane with the observer
 	pane := env.newPaneWithObserver(obs)
 
-	// Try to submit a query - simulate the result of Ask timing out
-	// Since broker is held, Ask will return timeout error
+	// Simulate a successful response even though drain holds the broker
+	// Observer should work independently of drain
 	resultMsg := observerResultMsg{
-		response: "",
-		err:      errors.New("failed to acquire session: session broker: acquisition timeout"),
+		response: "Observer is working fine while drain is active!",
+		err:      nil,
 	}
 	newPane, _ := pane.Update(resultMsg)
 	pane = newPane
 
-	// Should have error about timeout
-	if pane.errorMsg == "" {
-		t.Error("expected error message")
+	// Should have response, no error
+	if pane.errorMsg != "" {
+		t.Errorf("unexpected error: %q", pane.errorMsg)
 	}
-	if !strings.Contains(pane.errorMsg, "timeout") {
-		t.Errorf("expected timeout error, got %q", pane.errorMsg)
+	// Check history for the response (assistant messages are appended to history)
+	foundResponse := false
+	for _, msg := range pane.history {
+		if msg.role == roleAssistant && msg.content == "Observer is working fine while drain is active!" {
+			foundResponse = true
+			break
+		}
+	}
+	if !foundResponse {
+		t.Error("expected response in history")
 	}
 }
 

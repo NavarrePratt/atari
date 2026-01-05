@@ -138,8 +138,8 @@ func TestObserverBasicQuery(t *testing.T) {
 	}
 }
 
-// TestObserverBrokerCoordination tests that the observer acquires the broker.
-func TestObserverBrokerCoordination(t *testing.T) {
+// TestObserverRunsIndependentlyOfDrain tests that observer works while drain holds the broker.
+func TestObserverRunsIndependentlyOfDrain(t *testing.T) {
 	env := newObserverTestEnv(t)
 	defer env.cleanup()
 
@@ -150,43 +150,23 @@ func TestObserverBrokerCoordination(t *testing.T) {
 
 	obs := env.createObserver(nil)
 
-	// Acquire the broker first (simulating drain holding it)
+	// Acquire the broker (simulating drain holding it)
 	err := env.broker.Acquire(context.Background(), "drain", time.Second)
 	if err != nil {
 		t.Fatalf("failed to acquire broker: %v", err)
 	}
+	defer env.broker.Release()
 
-	// Observer should timeout trying to acquire
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	// Observer should work even while drain holds the broker
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = obs.Ask(ctx, "test question")
-	if err == nil {
-		t.Error("expected error when broker is held")
-	}
-
-	// Should contain timeout-related error
-	if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "deadline") {
-		t.Logf("got error: %v", err)
-	}
-
-	// Release and verify observer can now acquire
-	env.broker.Release()
-
-	// Update mock to return quickly
-	if err := testutil.CreateMockClaudeForObserver(env.mockPath, "Success!"); err != nil {
-		t.Fatalf("failed to update mock: %v", err)
-	}
-
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel2()
-
-	response, err := obs.Ask(ctx2, "test question")
+	response, err := obs.Ask(ctx, "test question")
 	if err != nil {
-		t.Fatalf("unexpected error after release: %v", err)
+		t.Fatalf("unexpected error while drain is active: %v", err)
 	}
 	if response == "" {
-		t.Error("expected response after broker released")
+		t.Error("expected response while drain is active")
 	}
 }
 

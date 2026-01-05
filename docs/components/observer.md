@@ -72,7 +72,7 @@ func (o *Observer) Reset()    // Clear session for fresh start
 | Component | Usage |
 |-----------|-------|
 | config.ObserverConfig | Model, event count, display settings |
-| SessionBroker | Coordinates access to Claude CLI (one session at a time) |
+| SessionBroker | Available for future coordination features (observer runs independently of drain) |
 | ContextBuilder | Builds structured prompts from log events |
 | LogReader | Reads events from `.atari/atari.log` |
 | DrainStateProvider | Current drain state and statistics |
@@ -294,15 +294,9 @@ func shortID(toolID string) string {
 
 ```go
 // Ask executes a query and returns the response synchronously.
-// It acquires the session broker, builds context, and runs claude CLI.
+// It builds context and runs claude CLI. Observer runs independently of
+// drain sessions - they use different models and processes.
 func (o *Observer) Ask(ctx context.Context, question string) (string, error) {
-    // Acquire session broker with timeout (coordinates with drain session)
-    err := o.broker.Acquire(ctx, holderName, defaultAcquireTimeout)
-    if err != nil {
-        return "", fmt.Errorf("failed to acquire session: %w", err)
-    }
-    defer o.broker.Release()
-
     // Build context from drain state and log events
     state := DrainState{}
     if o.stateProvider != nil {

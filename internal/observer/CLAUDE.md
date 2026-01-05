@@ -6,9 +6,9 @@ Provides the TUI observer mode for real-time Q&A about drain activity.
 
 ### SessionBroker (broker.go)
 
-Coordinates access to the Claude CLI process. Ensures only one Claude process runs at a time - either a drain session or an observer query.
+Provides coordination primitives for Claude CLI processes. Currently used by the drain controller. Observer runs independently of drain sessions since they use different models and are separate processes.
 
-**Usage:**
+**Usage (by drain controller):**
 ```go
 broker := NewSessionBroker()
 
@@ -19,14 +19,8 @@ if err != nil {
 }
 defer broker.Release()
 
-// Non-blocking attempt
-if broker.TryAcquire("observer") {
-    defer broker.Release()
-    // Run observer query
-}
-
 // Check current state
-holder := broker.Holder() // "drain", "observer", or ""
+holder := broker.Holder() // "drain" or ""
 isHeld := broker.IsHeld()
 ```
 
@@ -36,6 +30,8 @@ isHeld := broker.IsHeld()
 - Configurable timeout on acquisition
 - Safe to call Release multiple times
 - Holder tracking for debugging
+
+**Note:** Observer does not acquire the broker - it runs independently while drain is active.
 
 ## Future Components (planned)
 

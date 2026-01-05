@@ -17,17 +17,11 @@ const (
 	// defaultQueryTimeout is the default timeout for observer queries.
 	defaultQueryTimeout = 60 * time.Second
 
-	// defaultAcquireTimeout is the timeout for acquiring the session broker lock.
-	defaultAcquireTimeout = 5 * time.Second
-
 	// maxOutputBytes is the maximum output size before truncation (100KB).
 	maxOutputBytes = 100 * 1024
 
 	// outputTruncationMarker is appended to truncated output.
 	outputTruncationMarker = "\n\n[Output truncated - exceeded 100KB limit]"
-
-	// holderName identifies the observer in the session broker.
-	holderName = "observer"
 )
 
 var (
@@ -79,15 +73,9 @@ func NewObserver(
 }
 
 // Ask executes a query and returns the response.
-// It acquires the session broker, builds context, and runs claude CLI.
+// It builds context and runs claude CLI. Observer runs independently of
+// drain sessions - they use different models and processes.
 func (o *Observer) Ask(ctx context.Context, question string) (string, error) {
-	// Acquire session broker with timeout
-	err := o.broker.Acquire(ctx, holderName, defaultAcquireTimeout)
-	if err != nil {
-		return "", fmt.Errorf("failed to acquire session: %w", err)
-	}
-	defer o.broker.Release()
-
 	// Build context
 	state := DrainState{}
 	if o.stateProvider != nil {

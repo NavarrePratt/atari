@@ -3,7 +3,6 @@ package observer
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -122,34 +121,43 @@ func TestObserver_Ask_Success(t *testing.T) {
 	}
 }
 
-func TestObserver_Ask_BrokerTimeout(t *testing.T) {
+func TestObserver_Ask_RunsIndependentlyOfBroker(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
 	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	// Acquire the broker first to simulate it being held
+	// Acquire the broker to simulate drain holding it
 	err := broker.Acquire(context.Background(), "drain", time.Second)
 	if err != nil {
 		t.Fatalf("failed to acquire broker: %v", err)
 	}
+	defer broker.Release()
 
 	obs := NewObserver(cfg, broker, builder, nil)
 
-	// Ask should timeout waiting for broker
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	// Mock runner that returns expected output
+	expectedOutput := "Response while drain is active"
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		return &mockRunner{
+			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(expectedOutput)), io.NopCloser(strings.NewReader("")), nil
+			},
+		}
+	})
+
+	// Observer should work even when broker is held by drain
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = obs.Ask(ctx, "What is happening?")
+	result, err := obs.Ask(ctx, "What is happening?")
 
-	if err == nil {
-		t.Error("expected error when broker is held")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "timeout") {
-		t.Errorf("expected timeout error, got: %v", err)
+	if result != expectedOutput {
+		t.Errorf("expected %q, got %q", expectedOutput, result)
 	}
-
-	broker.Release()
 }
 
 func TestObserver_Ask_OutputTruncation(t *testing.T) {
