@@ -1,8 +1,10 @@
 package observer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +14,22 @@ import (
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/runner"
 )
+
+// streamEvent represents a Claude stream-json event (simplified for Observer).
+type streamEvent struct {
+	Type    string `json:"type"`
+	Result  string `json:"result,omitempty"`
+	Message *struct {
+		Content []json.RawMessage `json:"content"`
+	} `json:"message,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// contentBlock represents a content item within a message.
+type contentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
 
 const (
 	// defaultQueryTimeout is the default timeout for observer queries.
@@ -183,7 +201,7 @@ func (o *Observer) executeQuery(ctx context.Context, prompt string) (string, err
 func (o *Observer) buildArgs(prompt string) []string {
 	args := []string{
 		"-p", prompt,
-		"--output-format", "text",
+		"--output-format", "stream-json",
 	}
 
 	// Add --resume if we have a session ID
@@ -201,42 +219,113 @@ func (o *Observer) buildArgs(prompt string) []string {
 	return args
 }
 
-// readOutput reads from stdout and stderr with a size limit.
-func (o *Observer) readOutput(stdout, stderr io.ReadCloser) (string, error) {
-	var output bytes.Buffer
-	limitedWriter := &limitedWriter{
-		w:     &output,
-		limit: maxOutputBytes,
-	}
-
-	// Read stdout
-	_, err := io.Copy(limitedWriter, stdout)
-	if err != nil && err != errLimitReached {
-		return output.String(), err
-	}
-
-	// If we hit the limit, add truncation marker
-	if limitedWriter.truncated {
-		output.WriteString(outputTruncationMarker)
-	}
-
-	// Also capture stderr if there's any (for error messages)
-	var stderrBuf bytes.Buffer
-	_, _ = io.Copy(&stderrBuf, stderr)
-	if stderrBuf.Len() > 0 && output.Len() == 0 {
-		return stderrBuf.String(), nil
-	}
-
-	return output.String(), nil
+// parseResult holds the parsed output from stream-json.
+type parseResult struct {
+	text      string
+	sessionID string
 }
 
-// extractSessionID attempts to extract the session ID from Claude output.
-// Claude typically outputs session info that we can use for --resume.
-// For now, we don't have a reliable way to extract it, so we leave this
-// as a placeholder for future enhancement.
+// readOutput reads stream-json from stdout and parses it.
+// It extracts session_id from result events and text from assistant events.
+// The session_id is captured BEFORE truncation applies.
+func (o *Observer) readOutput(stdout, stderr io.ReadCloser) (string, error) {
+	result := o.parseStreamJSON(stdout)
+
+	// Store session_id if extracted (thread-safe)
+	if result.sessionID != "" {
+		o.mu.Lock()
+		o.sessionID = result.sessionID
+		o.mu.Unlock()
+	}
+
+	// Check stderr if no text was extracted
+	if result.text == "" {
+		var stderrBuf bytes.Buffer
+		_, _ = io.Copy(&stderrBuf, stderr)
+		if stderrBuf.Len() > 0 {
+			return stderrBuf.String(), nil
+		}
+	}
+
+	return result.text, nil
+}
+
+// parseStreamJSON parses Claude's stream-json output.
+// Returns extracted text and session_id separately.
+func (o *Observer) parseStreamJSON(r io.Reader) parseResult {
+	var result parseResult
+	var textBuilder bytes.Buffer
+	truncated := false
+
+	scanner := bufio.NewScanner(r)
+	// Use larger buffer for potentially large JSON lines
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var event streamEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			// Skip invalid JSON lines
+			continue
+		}
+
+		switch event.Type {
+		case "assistant":
+			// Extract text from assistant messages
+			if event.Message != nil {
+				for _, rawContent := range event.Message.Content {
+					var block contentBlock
+					if err := json.Unmarshal(rawContent, &block); err != nil {
+						continue
+					}
+					if block.Type == "text" && block.Text != "" {
+						// Apply truncation limit to text only
+						if !truncated {
+							remaining := maxOutputBytes - textBuilder.Len()
+							if remaining > 0 {
+								if len(block.Text) > remaining {
+									textBuilder.WriteString(block.Text[:remaining])
+									truncated = true
+								} else {
+									textBuilder.WriteString(block.Text)
+								}
+							}
+						}
+					}
+				}
+			}
+
+		case "result":
+			// Extract session_id from result event (BEFORE truncation check)
+			// Session ID is captured regardless of text truncation
+			if event.SessionID != "" {
+				result.sessionID = event.SessionID
+			}
+			// Use result text if no assistant text was collected
+			if textBuilder.Len() == 0 && event.Result != "" {
+				textBuilder.WriteString(event.Result)
+			}
+		}
+	}
+
+	// Add truncation marker if needed
+	if truncated {
+		textBuilder.WriteString(outputTruncationMarker)
+	}
+
+	result.text = textBuilder.String()
+	return result
+}
+
+// extractSessionID is a no-op placeholder for backward compatibility.
+// Session ID extraction is now handled directly in parseStreamJSON.
 func (o *Observer) extractSessionID(_ string) {
-	// TODO: Extract session ID from output when Claude provides it
-	// For now, each query starts fresh
+	// Session ID extraction moved to parseStreamJSON/readOutput
 }
 
 // Cancel terminates the current query if one is running.
@@ -266,14 +355,13 @@ func (o *Observer) SetRunnerFactory(factory func() runner.ProcessRunner) {
 }
 
 // limitedWriter wraps a writer with a size limit.
+// Note: This is still used by tests (TestLimitedWriter).
 type limitedWriter struct {
 	w         io.Writer
 	limit     int
 	written   int
 	truncated bool
 }
-
-var errLimitReached = errors.New("output limit reached")
 
 func (lw *limitedWriter) Write(p []byte) (int, error) {
 	if lw.truncated {

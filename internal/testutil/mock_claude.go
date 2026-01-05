@@ -7,7 +7,7 @@ import (
 )
 
 // MockClaudeScript generates a mock claude script for observer testing.
-// Unlike the stream-json mock used for drain tests, this outputs plain text.
+// It outputs stream-json format to match actual Claude CLI behavior.
 type MockClaudeScript struct {
 	// Response is the text response to return.
 	Response string
@@ -23,6 +23,9 @@ type MockClaudeScript struct {
 
 	// SessionID to check when VerifyResume is true.
 	ExpectedSessionID string
+
+	// OutputSessionID is the session ID to include in the result event.
+	OutputSessionID string
 }
 
 // Write creates the mock claude script at the given path.
@@ -53,16 +56,22 @@ func (m *MockClaudeScript) buildSuccessScript() string {
 		delay = "0"
 	}
 
+	sessionID := m.OutputSessionID
+	if sessionID == "" {
+		sessionID = "mock-session-" + delay
+	}
+
+	// Output stream-json format to match actual Claude CLI behavior
 	return `#!/bin/bash
-# Mock claude for observer testing - returns plain text
+# Mock claude for observer testing - returns stream-json format
 
 # Optional delay
 sleep ` + delay + `
 
-# Output response
-cat << 'RESPONSE_EOF'
-` + m.Response + `
-RESPONSE_EOF
+# Output stream-json events
+echo '{"type":"system","subtype":"init","model":"haiku","tools":[]}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"` + m.Response + `"}]}}'
+echo '{"type":"result","result":"` + m.Response + `","session_id":"` + sessionID + `","num_turns":1}'
 `
 }
 
@@ -85,8 +94,13 @@ func (m *MockClaudeScript) buildResumeVerifyScript() string {
 		expectedID = "test-session-123"
 	}
 
+	sessionID := m.OutputSessionID
+	if sessionID == "" {
+		sessionID = expectedID
+	}
+
 	return `#!/bin/bash
-# Mock claude that verifies --resume flag
+# Mock claude that verifies --resume flag and outputs stream-json
 
 # Check for --resume flag
 RESUME_FLAG=""
@@ -97,7 +111,9 @@ for arg in "$@"; do
     if [ "$RESUME_FLAG" = "found" ] && [ "$arg" != "--resume" ]; then
         if [ "$arg" = "` + expectedID + `" ]; then
             sleep ` + delay + `
-            echo "Follow-up response with session context preserved."
+            echo '{"type":"system","subtype":"init","model":"haiku","tools":[]}'
+            echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Follow-up response with session context preserved."}]}}'
+            echo '{"type":"result","result":"Follow-up response with session context preserved.","session_id":"` + sessionID + `","num_turns":1}'
             exit 0
         else
             echo "Error: unexpected session ID: $arg" >&2
@@ -108,14 +124,14 @@ done
 
 # No --resume flag - this is the first question
 sleep ` + delay + `
-cat << 'RESPONSE_EOF'
-` + m.Response + `
-RESPONSE_EOF
+echo '{"type":"system","subtype":"init","model":"haiku","tools":[]}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"` + m.Response + `"}]}}'
+echo '{"type":"result","result":"` + m.Response + `","session_id":"` + sessionID + `","num_turns":1}'
 `
 }
 
 // CreateMockClaudeForObserver creates a simple mock claude script for observer tests.
-// It returns plain text output (not stream-json).
+// It returns stream-json format output.
 func CreateMockClaudeForObserver(path, response string) error {
 	script := &MockClaudeScript{Response: response}
 	return script.Write(path)

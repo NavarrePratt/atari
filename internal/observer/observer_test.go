@@ -77,6 +77,18 @@ func TestNewObserver(t *testing.T) {
 	}
 }
 
+// makeStreamJSON creates a stream-json response with the given text and session ID.
+func makeStreamJSON(text, sessionID string) string {
+	lines := []string{
+		`{"type":"system","subtype":"init","model":"haiku","tools":[]}`,
+	}
+	if text != "" {
+		lines = append(lines, `{"type":"assistant","message":{"content":[{"type":"text","text":"`+text+`"}]}}`)
+	}
+	lines = append(lines, `{"type":"result","result":"`+text+`","session_id":"`+sessionID+`","num_turns":1}`)
+	return strings.Join(lines, "\n") + "\n"
+}
+
 func TestObserver_Ask_Success(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
 	broker := NewSessionBroker()
@@ -85,8 +97,9 @@ func TestObserver_Ask_Success(t *testing.T) {
 
 	obs := NewObserver(cfg, broker, builder, nil)
 
-	// Mock runner that returns expected output
+	// Mock runner that returns stream-json output
 	expectedOutput := "This is the answer to your question."
+	streamJSON := makeStreamJSON(expectedOutput, "test-session-123")
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
 		return &mockRunner{
 			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
@@ -107,7 +120,7 @@ func TestObserver_Ask_Success(t *testing.T) {
 					t.Error("expected -p flag in args")
 				}
 
-				return io.NopCloser(strings.NewReader(expectedOutput)), io.NopCloser(strings.NewReader("")), nil
+				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
 			},
 		}
 	})
@@ -137,12 +150,13 @@ func TestObserver_Ask_RunsIndependentlyOfBroker(t *testing.T) {
 
 	obs := NewObserver(cfg, broker, builder, nil)
 
-	// Mock runner that returns expected output
+	// Mock runner that returns stream-json output
 	expectedOutput := "Response while drain is active"
+	streamJSON := makeStreamJSON(expectedOutput, "test-session-456")
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
 		return &mockRunner{
 			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
-				return io.NopCloser(strings.NewReader(expectedOutput)), io.NopCloser(strings.NewReader("")), nil
+				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
 			},
 		}
 	})
@@ -169,13 +183,14 @@ func TestObserver_Ask_OutputTruncation(t *testing.T) {
 
 	obs := NewObserver(cfg, broker, builder, nil)
 
-	// Create output larger than maxOutputBytes
-	largeOutput := strings.Repeat("a", maxOutputBytes+1000)
+	// Create stream-json with text larger than maxOutputBytes
+	largeText := strings.Repeat("a", maxOutputBytes+1000)
+	streamJSON := makeStreamJSON(largeText, "test-session-truncate")
 
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
 		return &mockRunner{
 			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
-				return io.NopCloser(strings.NewReader(largeOutput)), io.NopCloser(strings.NewReader("")), nil
+				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
 			},
 		}
 	})
@@ -278,21 +293,21 @@ func TestObserver_BuildArgs(t *testing.T) {
 			model:     "haiku",
 			sessionID: "",
 			prompt:    "test prompt",
-			wantArgs:  []string{"-p", "test prompt", "--output-format", "text", "--model", "haiku"},
+			wantArgs:  []string{"-p", "test prompt", "--output-format", "stream-json", "--model", "haiku"},
 		},
 		{
 			name:      "custom model",
 			model:     "sonnet",
 			sessionID: "",
 			prompt:    "test prompt",
-			wantArgs:  []string{"-p", "test prompt", "--output-format", "text", "--model", "sonnet"},
+			wantArgs:  []string{"-p", "test prompt", "--output-format", "stream-json", "--model", "sonnet"},
 		},
 		{
 			name:      "with session ID",
 			model:     "haiku",
 			sessionID: "session-123",
 			prompt:    "test prompt",
-			wantArgs:  []string{"--resume", "session-123", "-p", "test prompt", "--output-format", "text", "--model", "haiku"},
+			wantArgs:  []string{"--resume", "session-123", "-p", "test prompt", "--output-format", "stream-json", "--model", "haiku"},
 		},
 	}
 
@@ -344,6 +359,7 @@ func TestObserver_WithStateProvider(t *testing.T) {
 
 	// Mock runner to verify context is passed
 	var capturedPrompt string
+	streamJSON := makeStreamJSON("response", "test-session")
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
 		return &mockRunner{
 			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
@@ -353,7 +369,7 @@ func TestObserver_WithStateProvider(t *testing.T) {
 						break
 					}
 				}
-				return io.NopCloser(strings.NewReader("response")), io.NopCloser(strings.NewReader("")), nil
+				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
 			},
 		}
 	})
@@ -445,13 +461,13 @@ func TestObserver_HistoryTracking(t *testing.T) {
 
 	obs := NewObserver(cfg, broker, builder, nil)
 
-	// Set up mock runner that returns different responses
+	// Set up mock runner that returns different stream-json responses
 	responseNum := 0
 	responses := []string{"First response", "Second response"}
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
 		return &mockRunner{
 			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
-				resp := responses[responseNum]
+				resp := makeStreamJSON(responses[responseNum], "session-"+responses[responseNum])
 				responseNum++
 				return io.NopCloser(strings.NewReader(resp)), io.NopCloser(strings.NewReader("")), nil
 			},
@@ -505,11 +521,12 @@ func TestObserver_ResetClearsHistory(t *testing.T) {
 
 	obs := NewObserver(cfg, broker, builder, nil)
 
-	// Set up mock runner
+	// Set up mock runner with stream-json
+	streamJSON := makeStreamJSON("response", "test-session")
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
 		return &mockRunner{
 			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
-				return io.NopCloser(strings.NewReader("response")), io.NopCloser(strings.NewReader("")), nil
+				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
 			},
 		}
 	})

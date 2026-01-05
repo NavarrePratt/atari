@@ -167,15 +167,30 @@ claude -p "prompt" --max-turns 10
 **JSON output structure:**
 ```json
 {
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
   "result": "...",
-  "session_id": "abc123",
+  "session_id": "6b4c413d-0fb7-454d-adf5-e30ead75d9e2",
+  "num_turns": 5,
+  "duration_ms": 30000,
+  "duration_api_ms": 29500,
+  "total_cost_usd": 0.05,
   "usage": {
     "input_tokens": 1000,
-    "output_tokens": 500
+    "output_tokens": 500,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
   },
-  "total_cost_usd": 0.05,
-  "num_turns": 5,
-  "duration_ms": 30000
+  "modelUsage": {
+    "claude-opus-4-5-20251101": {
+      "inputTokens": 1000,
+      "outputTokens": 500,
+      "costUSD": 0.05
+    }
+  },
+  "permission_denials": [],
+  "uuid": "..."
 }
 ```
 
