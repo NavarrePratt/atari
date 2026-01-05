@@ -439,8 +439,13 @@ func TestGraphPane_ViewWithLoading(t *testing.T) {
 	pane.startedAt = time.Now()
 
 	view := pane.View()
-	if !strings.Contains(view, "Loading") {
-		t.Error("expected view to show loading status")
+	// When loading, the status bar should still show normal content (view, density)
+	// with a spinner appended at the end - not replace the whole header
+	if !strings.Contains(view, "active") {
+		t.Error("expected view to show view mode while loading")
+	}
+	if !strings.Contains(view, "standard") {
+		t.Error("expected view to show density while loading")
 	}
 }
 

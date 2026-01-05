@@ -438,15 +438,6 @@ func (p GraphPane) View() string {
 
 // renderStatusBar renders the status bar with view, density, and loading state.
 func (p GraphPane) renderStatusBar(width int) string {
-	if p.loading {
-		elapsed := time.Since(p.startedAt).Round(100 * time.Millisecond)
-		status := p.spinner.View() + " Loading beads... (" + elapsed.String() + " elapsed)"
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
-			Width(width).
-			Render(status)
-	}
-
 	if p.errorMsg != "" {
 		return styles.Error.Width(width).Render("Error: " + truncateString(p.errorMsg, width-7))
 	}
@@ -473,8 +464,17 @@ func (p GraphPane) renderStatusBar(width int) string {
 
 	info := viewStr + " | " + densityStr + " | " + pluralize(nodeCount, "node", "nodes")
 	hint := " | a:view d:density R:refresh c:collapse"
-	if len(info)+len(hint) <= width {
-		info += hint
+
+	// Add loading indicator at the very end if refreshing
+	loadingIndicator := ""
+	if p.loading {
+		loadingIndicator = " | " + p.spinner.View() + " refreshing"
+	}
+
+	if len(info)+len(hint)+len(loadingIndicator) <= width {
+		info += hint + loadingIndicator
+	} else if len(info)+len(loadingIndicator) <= width {
+		info += loadingIndicator
 	}
 
 	return styles.Footer.Width(width).Render(info)
