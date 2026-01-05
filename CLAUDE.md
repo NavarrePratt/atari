@@ -121,6 +121,17 @@ docs/               # Design and implementation docs
 4. **Unix socket**: Daemon control via `.atari/atari.sock`
 5. **Event-driven**: All significant actions emit events to unified stream
 
+## Bead Creation Boundary
+
+After creating a bead (via /bd-create skill OR manual `bd create`):
+- Report the bead ID
+- Return to previous task IMMEDIATELY
+- Do NOT start working on the newly created bead
+- Do NOT investigate, edit files, or implement anything for it
+
+The bead will be picked up later by atari or worked on in a future session.
+Exception: Only continue working if user explicitly says "and work on it now".
+
 ## Testing
 
 When implementing, always:
