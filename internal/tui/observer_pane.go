@@ -38,17 +38,18 @@ type chatMessage struct {
 
 // ObserverPane is a TUI component for interactive observer queries.
 type ObserverPane struct {
-	observer  *observer.Observer
-	input     textarea.Model
-	viewport  viewport.Model
-	spinner   spinner.Model
-	history   []chatMessage
-	loading   bool
-	startedAt time.Time
-	errorMsg  string
-	width     int
-	height    int
-	focused   bool
+	observer   *observer.Observer
+	input      textarea.Model
+	viewport   viewport.Model
+	spinner    spinner.Model
+	history    []chatMessage
+	loading    bool
+	startedAt  time.Time
+	errorMsg   string
+	width      int
+	height     int
+	focused    bool
+	insertMode bool // vim-style insert mode for text input
 }
 
 // observerTickMsg signals a tick for updating elapsed time.
@@ -153,7 +154,60 @@ func (p ObserverPane) Update(msg tea.Msg) (ObserverPane, tea.Cmd) {
 func (p ObserverPane) handleKey(msg tea.KeyMsg) (ObserverPane, tea.Cmd) {
 	key := msg.String()
 
+	// Handle insert mode: most keys go to textarea
+	if p.insertMode {
+		return p.handleInsertModeKey(msg, key)
+	}
+
+	// Normal mode: navigation and commands
+	return p.handleNormalModeKey(msg, key)
+}
+
+// handleInsertModeKey processes keys when in insert mode.
+func (p ObserverPane) handleInsertModeKey(msg tea.KeyMsg, key string) (ObserverPane, tea.Cmd) {
 	switch key {
+	case "esc":
+		// Exit insert mode
+		p.insertMode = false
+		p.input.Blur()
+		return p, nil
+
+	case "enter":
+		// Submit question if we have content and not already loading
+		if !p.loading && strings.TrimSpace(p.input.Value()) != "" {
+			return p.submitQuestion()
+		}
+		return p, nil
+
+	case "ctrl+c":
+		// Cancel in-progress query
+		if p.loading && p.observer != nil {
+			p.observer.Cancel()
+			p.loading = false
+			p.errorMsg = "Query cancelled"
+		}
+		return p, nil
+
+	default:
+		// Pass all other keys to textarea for typing
+		if !p.loading {
+			var cmd tea.Cmd
+			p.input, cmd = p.input.Update(msg)
+			return p, cmd
+		}
+		return p, nil
+	}
+}
+
+// handleNormalModeKey processes keys when in normal mode.
+func (p ObserverPane) handleNormalModeKey(msg tea.KeyMsg, key string) (ObserverPane, tea.Cmd) {
+	switch key {
+	case "i":
+		// Enter insert mode
+		p.insertMode = true
+		p.input.Focus()
+		return p, nil
+
 	case "enter":
 		// Submit question if we have content and not already loading
 		if !p.loading && strings.TrimSpace(p.input.Value()) != "" {
@@ -186,26 +240,14 @@ func (p ObserverPane) handleKey(msg tea.KeyMsg) (ObserverPane, tea.Cmd) {
 		return p, nil
 
 	case "up", "k":
-		// Scroll up in history when loading or input is empty
-		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
-			p.viewport.ScrollUp(1)
-			return p, nil
-		}
-		// Otherwise pass to textarea
-		var cmd tea.Cmd
-		p.input, cmd = p.input.Update(msg)
-		return p, cmd
+		// Scroll up in history
+		p.viewport.ScrollUp(1)
+		return p, nil
 
 	case "down", "j":
-		// Scroll down in history when loading or input is empty
-		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
-			p.viewport.ScrollDown(1)
-			return p, nil
-		}
-		// Otherwise pass to textarea
-		var cmd tea.Cmd
-		p.input, cmd = p.input.Update(msg)
-		return p, cmd
+		// Scroll down in history
+		p.viewport.ScrollDown(1)
+		return p, nil
 
 	case "pgup":
 		p.viewport.HalfPageUp()
@@ -216,30 +258,15 @@ func (p ObserverPane) handleKey(msg tea.KeyMsg) (ObserverPane, tea.Cmd) {
 		return p, nil
 
 	case "home", "g":
-		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
-			p.viewport.GotoTop()
-			return p, nil
-		}
-		var cmd tea.Cmd
-		p.input, cmd = p.input.Update(msg)
-		return p, cmd
+		p.viewport.GotoTop()
+		return p, nil
 
 	case "end", "G":
-		if p.loading || strings.TrimSpace(p.input.Value()) == "" {
-			p.viewport.GotoBottom()
-			return p, nil
-		}
-		var cmd tea.Cmd
-		p.input, cmd = p.input.Update(msg)
-		return p, cmd
+		p.viewport.GotoBottom()
+		return p, nil
 
 	default:
-		// Pass to textarea if not loading
-		if !p.loading {
-			var cmd tea.Cmd
-			p.input, cmd = p.input.Update(msg)
-			return p, cmd
-		}
+		// In normal mode, don't pass letter keys to textarea
 		return p, nil
 	}
 }
@@ -402,9 +429,21 @@ func (p ObserverPane) renderStatusBar(width int) string {
 		return styles.Error.Width(width).Render("Error: " + truncateString(p.errorMsg, width-7))
 	}
 
-	// Show hint when idle
+	// Show mode indicator and hints
 	msgCount := len(p.history)
-	hint := fmt.Sprintf("%d messages | Enter: send | up/down: scroll | Esc: close", msgCount)
+	var hint string
+	if p.insertMode {
+		modeIndicator := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).
+			Bold(true).
+			Render("[INSERT]")
+		hint = fmt.Sprintf("%s %d messages | Enter: send | Esc: normal mode", modeIndicator, msgCount)
+	} else {
+		modeIndicator := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Render("[NORMAL]")
+		hint = fmt.Sprintf("%s %d messages | i: insert | j/k: scroll | Esc: close", modeIndicator, msgCount)
+	}
 	return styles.Footer.Width(width).Render(hint)
 }
 
@@ -429,16 +468,22 @@ func (p *ObserverPane) SetSize(width, height int) {
 // SetFocused updates the focus state.
 func (p *ObserverPane) SetFocused(focused bool) {
 	p.focused = focused
-	if focused {
-		p.input.Focus()
-	} else {
+	if !focused {
+		// Exit insert mode when unfocused
+		p.insertMode = false
 		p.input.Blur()
 	}
+	// Note: when focused, user must press 'i' to enter insert mode
 }
 
 // IsFocused returns true if the pane is focused.
 func (p ObserverPane) IsFocused() bool {
 	return p.focused
+}
+
+// IsInsertMode returns true if the pane is in insert mode.
+func (p ObserverPane) IsInsertMode() bool {
+	return p.insertMode
 }
 
 // IsLoading returns true if a query is in progress.

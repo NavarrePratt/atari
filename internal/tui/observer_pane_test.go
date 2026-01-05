@@ -57,15 +57,143 @@ func TestObserverPane_EscClearsInput(t *testing.T) {
 	pane.SetSize(80, 24)
 	pane.SetFocused(true)
 
-	// Type some text
+	// Type some text (manually set for test)
 	pane.input.SetValue("test question")
 
-	// Press Esc to clear
+	// Press Esc to clear (in normal mode)
 	msg := tea.KeyMsg{Type: tea.KeyEsc}
 	newPane, _ := pane.Update(msg)
 
 	if newPane.input.Value() != "" {
 		t.Errorf("expected input to be cleared, got %q", newPane.input.Value())
+	}
+}
+
+func TestObserverPane_InsertMode_InitialState(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+
+	if pane.IsInsertMode() {
+		t.Error("expected pane to start in normal mode, not insert mode")
+	}
+}
+
+func TestObserverPane_InsertMode_EnterWithI(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+	pane.SetFocused(true)
+
+	// Press 'i' to enter insert mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}}
+	newPane, _ := pane.Update(msg)
+
+	if !newPane.IsInsertMode() {
+		t.Error("expected pane to be in insert mode after pressing 'i'")
+	}
+}
+
+func TestObserverPane_InsertMode_ExitWithEsc(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+	pane.SetFocused(true)
+	pane.insertMode = true
+
+	// Press Esc to exit insert mode
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	newPane, _ := pane.Update(msg)
+
+	if newPane.IsInsertMode() {
+		t.Error("expected pane to exit insert mode after pressing Esc")
+	}
+}
+
+func TestObserverPane_InsertMode_TypingWorks(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+	pane.SetFocused(true)
+
+	// Enter insert mode
+	iMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}}
+	pane, _ = pane.Update(iMsg)
+
+	// Type some characters
+	for _, r := range "hello" {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+		pane, _ = pane.Update(msg)
+	}
+
+	if pane.input.Value() != "hello" {
+		t.Errorf("expected input='hello', got %q", pane.input.Value())
+	}
+}
+
+func TestObserverPane_NormalMode_JKScrollsViewport(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+	pane.SetFocused(true)
+
+	// Ensure in normal mode (not insert mode)
+	if pane.IsInsertMode() {
+		t.Fatal("expected to start in normal mode")
+	}
+
+	// Press 'j' - should NOT add to input
+	jMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	newPane, _ := pane.Update(jMsg)
+
+	if newPane.input.Value() != "" {
+		t.Errorf("expected input to remain empty in normal mode, got %q", newPane.input.Value())
+	}
+}
+
+func TestObserverPane_InsertMode_JKTypesInTextarea(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+	pane.SetFocused(true)
+
+	// Enter insert mode first
+	iMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}}
+	pane, _ = pane.Update(iMsg)
+
+	// Press 'j' - should add to input in insert mode
+	jMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	newPane, _ := pane.Update(jMsg)
+
+	if newPane.input.Value() != "j" {
+		t.Errorf("expected input='j' in insert mode, got %q", newPane.input.Value())
+	}
+}
+
+func TestObserverPane_InsertMode_ExitOnUnfocus(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+	pane.SetFocused(true)
+	pane.insertMode = true
+
+	// Unfocus the pane
+	pane.SetFocused(false)
+
+	if pane.IsInsertMode() {
+		t.Error("expected insert mode to be disabled when pane is unfocused")
+	}
+}
+
+func TestObserverPane_ViewShowsModeIndicator(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+	pane.SetFocused(true)
+
+	// Normal mode
+	view := pane.View()
+	if !strings.Contains(view, "NORMAL") {
+		t.Error("expected view to show NORMAL mode indicator")
+	}
+
+	// Enter insert mode
+	pane.insertMode = true
+	view = pane.View()
+	if !strings.Contains(view, "INSERT") {
+		t.Error("expected view to show INSERT mode indicator")
 	}
 }
 
