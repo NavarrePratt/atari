@@ -861,15 +861,18 @@ func TestGraph_Render_DensityLevels(t *testing.T) {
 		},
 	}
 
-	// List mode has a consistent format regardless of density setting.
-	// All density levels show: status icon, ID, and title.
+	// Each density level shows different information:
+	// - Compact: icon + ID only (no title)
+	// - Standard: icon + ID + title
+	// - Detailed: icon + ID + priority + title (+ cost/attempts when available)
 	tests := []struct {
-		density  string
-		contains []string
+		density     string
+		contains    []string
+		notContains []string
 	}{
-		{"compact", []string{"bd-001", "o", "A Longer"}},
-		{"standard", []string{"bd-001", "o", "A Longer"}},
-		{"detailed", []string{"bd-001", "o", "A Longer"}},
+		{"compact", []string{"bd-001", "o"}, []string{"A Longer", "P1"}},
+		{"standard", []string{"bd-001", "o", "A Longer"}, []string{"P1"}},
+		{"detailed", []string{"bd-001", "o", "A Longer", "P1"}, nil},
 	}
 
 	for _, tt := range tests {
@@ -884,6 +887,11 @@ func TestGraph_Render_DensityLevels(t *testing.T) {
 			for _, want := range tt.contains {
 				if !strings.Contains(output, want) {
 					t.Errorf("density %s: output should contain %q, got %q", tt.density, want, output)
+				}
+			}
+			for _, notWant := range tt.notContains {
+				if strings.Contains(output, notWant) {
+					t.Errorf("density %s: output should NOT contain %q, got %q", tt.density, notWant, output)
 				}
 			}
 		})

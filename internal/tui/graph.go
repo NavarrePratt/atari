@@ -1071,31 +1071,21 @@ func (g *Graph) hasMoreSiblingsAtDepth(targetDepth int, visibleItems []ListNode,
 }
 
 // formatListNode formats a node for list display.
+// Output varies by density setting:
+// - Compact: glyphs + icon + ID only
+// - Standard: glyphs + icon + ID + truncated title
+// - Detailed: glyphs + icon + ID + priority + title + cost/attempts
 func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, width int, children map[string][]string) string {
 	icon := statusIcon(node.Status)
 	isCurrent := node.ID == g.currentBead
 	isSelected := node.ID == g.selected
 	isCollapsedEpic := node.IsEpic && g.collapsed[node.ID]
+	density := ParseDensity(g.config.Density)
 
-	// Calculate available width for title
+	// Calculate available width
 	glyphWidth := len(glyphs)
 	iconWidth := 2 // icon + space
 	idWidth := len(node.ID) + 1 // ID + space
-
-	// Count blocking dependencies
-	depCount := g.countBlockingDeps(node.ID)
-
-	// Badge width: " [N deps]" or " [1 dep]"
-	badgeWidth := 0
-	badge := ""
-	if depCount > 0 {
-		if depCount == 1 {
-			badge = " [1 dep]"
-		} else {
-			badge = fmt.Sprintf(" [%d deps]", depCount)
-		}
-		badgeWidth = len(badge)
-	}
 
 	// Collapsed indicator
 	collapsedBadge := ""
@@ -1107,24 +1097,71 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 	}
 	collapsedWidth := len(collapsedBadge)
 
-	// Calculate title width
-	titleWidth := width - glyphWidth - iconWidth - idWidth - badgeWidth - collapsedWidth
-	if titleWidth < 0 {
-		titleWidth = 0
-	}
-
-	title := truncate(node.Title, titleWidth)
-
-	// Build the line content (plain text)
+	// Build content based on density
 	var content strings.Builder
 	content.WriteString(glyphs)
 	content.WriteString(icon)
 	content.WriteString(" ")
 	content.WriteString(node.ID)
-	content.WriteString(" ")
-	content.WriteString(title)
-	content.WriteString(collapsedBadge)
-	content.WriteString(badge)
+
+	switch density {
+	case DensityCompact:
+		// Compact: just glyphs + icon + ID + collapsed badge
+		content.WriteString(collapsedBadge)
+
+	case DensityDetailed:
+		// Detailed: glyphs + icon + ID + priority + title + cost/attempts
+		priority := priorityLabel(node.Priority)
+		priorityWidth := len(priority) + 1 // priority + space
+
+		// Build metrics suffix
+		metrics := ""
+		if node.Cost > 0 || node.Attempts > 0 {
+			metrics = fmt.Sprintf(" $%.2f/%da", node.Cost, node.Attempts)
+		}
+		metricsWidth := len(metrics)
+
+		// Calculate title width
+		titleWidth := width - glyphWidth - iconWidth - idWidth - priorityWidth - collapsedWidth - metricsWidth
+		if titleWidth < 0 {
+			titleWidth = 0
+		}
+
+		title := truncate(node.Title, titleWidth)
+
+		content.WriteString(" ")
+		content.WriteString(priority)
+		content.WriteString(" ")
+		content.WriteString(title)
+		content.WriteString(collapsedBadge)
+		content.WriteString(metrics)
+
+	default: // DensityStandard
+		// Standard: glyphs + icon + ID + truncated title + deps badge
+		depCount := g.countBlockingDeps(node.ID)
+		badge := ""
+		if depCount > 0 {
+			if depCount == 1 {
+				badge = " [1 dep]"
+			} else {
+				badge = fmt.Sprintf(" [%d deps]", depCount)
+			}
+		}
+		badgeWidth := len(badge)
+
+		// Calculate title width
+		titleWidth := width - glyphWidth - iconWidth - idWidth - badgeWidth - collapsedWidth
+		if titleWidth < 0 {
+			titleWidth = 0
+		}
+
+		title := truncate(node.Title, titleWidth)
+
+		content.WriteString(" ")
+		content.WriteString(title)
+		content.WriteString(collapsedBadge)
+		content.WriteString(badge)
+	}
 
 	// Pad to full width
 	line := content.String()
