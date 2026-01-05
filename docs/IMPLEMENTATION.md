@@ -21,7 +21,7 @@ For detailed component specifications, see the [components/](components/) direct
 | 4 | Terminal UI | Bubbletea TUI | **Complete** |
 | 5 | Polish & Init | Config, log rotation, cost tracking | **Complete** |
 | 6 | Observer Mode | Interactive Q&A pane | **Complete** |
-| 7 | Bead Visualization | TUI bead graph/tree | Not started |
+| 7 | Bead Visualization | TUI bead graph/tree | **Complete** |
 | 8 | Notifications | Webhooks, IFTTT, Slack | Not started |
 
 ---
@@ -345,20 +345,22 @@ For detailed component specifications, see the [components/](components/) direct
 
 ---
 
-## Phase 7: Bead Visualization
+## Phase 7: Bead Visualization - COMPLETE
 
 **Goal**: Interactive TUI pane for visualizing bead relationships, status, and hierarchy.
 
-**Status**: Not started
+**Status**: Complete as of 2026-01-05
 
-### Components to Implement
+### Components Implemented
 
 | Component | Documentation | Implementation |
 |-----------|---------------|----------------|
 | Graph Visualizer | [components/graph.md](components/graph.md) | `internal/tui/graph.go` |
 | Bead Fetcher | [components/graph.md](components/graph.md) | `internal/tui/fetcher.go` |
-| GraphConfig | [config/configuration.md](config/configuration.md) | `internal/config/` |
+| GraphConfig | [config/configuration.md](config/configuration.md) | `internal/config/config.go` |
 | Detail Modal | [components/graph.md](components/graph.md) | `internal/tui/modal.go` |
+| GraphPane | [components/graph.md](components/graph.md) | `internal/tui/graph_pane.go` |
+| Graph Types | [components/graph.md](components/graph.md) | `internal/tui/graph_types.go` |
 
 ### Design Decisions
 
@@ -374,30 +376,30 @@ For detailed component specifications, see the [components/](components/) direct
 
 ### Tasks
 
-1. [ ] Add GraphConfig to configuration system
-2. [ ] Implement BeadFetcher (bd list --json wrapper)
-3. [ ] Implement Graph struct with node/edge data structures
-4. [ ] Implement layout algorithm (layer assignment, positioning)
-5. [ ] Implement node rendering (compact/standard/detailed densities)
-6. [ ] Implement edge rendering (hierarchy solid, dependency dashed)
-7. [ ] Add graph pane to TUI panel system
-8. [ ] Implement keyboard navigation (arrow keys, selection)
-9. [ ] Implement detail modal (Enter to open, Esc to close)
-10. [ ] Implement view toggle (Active/Backlog with `a`)
-11. [ ] Implement epic collapse/expand with `c`
-12. [ ] Implement current bead highlighting
-13. [ ] Implement viewport scrolling for large graphs
-14. [ ] Wire up panel toggle keys (g/G)
-15. [ ] Handle all-panels-disabled expanded stats view
-16. [ ] Unit tests for graph logic
-17. [ ] Integration tests with mock bd
+1. [x] Add GraphConfig to configuration system
+2. [x] Implement BeadFetcher (bd list --json wrapper)
+3. [x] Implement Graph struct with node/edge data structures
+4. [x] Implement layout algorithm (layer assignment, positioning)
+5. [x] Implement node rendering (compact/standard/detailed densities)
+6. [x] Implement edge rendering (hierarchy solid, dependency dashed)
+7. [x] Add graph pane to TUI panel system
+8. [x] Implement keyboard navigation (arrow keys, selection)
+9. [x] Implement detail modal (Enter to open, Esc to close)
+10. [x] Implement view toggle (Active/Backlog with `a`)
+11. [x] Implement epic collapse/expand with `c`
+12. [x] Implement current bead highlighting
+13. [x] Implement viewport scrolling for large graphs
+14. [x] Wire up panel toggle keys (b/B) - changed from g/G
+15. [x] Handle all-panels-disabled expanded stats view
+16. [x] Unit tests for graph logic
+17. [x] Integration tests with mock bd
 
 ### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `g` | Toggle graph panel |
-| `G` | Focus graph (fullscreen) |
+| `b` | Toggle bead graph panel |
+| `B` | Focus bead graph (fullscreen) |
 | `Arrow keys` | Navigate between nodes |
 | `Enter` | Open detail modal |
 | `Esc` | Close modal / exit focus mode |
@@ -409,15 +411,15 @@ For detailed component specifications, see the [components/](components/) direct
 
 ### Success Criteria
 
-- [ ] Graph renders correctly showing epic/task hierarchy
-- [ ] Dependency edges (blocks) shown with dashed lines
-- [ ] Current bead is visually highlighted during processing
-- [ ] Can navigate and select beads with keyboard
-- [ ] Detail modal shows full bead information
-- [ ] Active/Backlog views filter appropriately
-- [ ] Epics can be collapsed to hide children
-- [ ] Large graphs scroll correctly
-- [ ] Panel toggle system works with events/observer/graph
+- [x] Graph renders correctly showing epic/task hierarchy
+- [x] Dependency edges (blocks) shown with dashed lines
+- [x] Current bead is visually highlighted during processing
+- [x] Can navigate and select beads with keyboard
+- [x] Detail modal shows full bead information
+- [x] Active/Backlog views filter appropriately
+- [x] Epics can be collapsed to hide children
+- [x] Large graphs scroll correctly
+- [x] Panel toggle system works with events/observer/graph
 
 ### Notes
 
@@ -425,6 +427,9 @@ For detailed component specifications, see the [components/](components/) direct
 - Detail modal is nearly full-pane size since beads contain detailed descriptions
 - Graph uses `bd list --json` which includes embedded dependency objects
 - No separate graph computation needed - bd provides all relationship data
+- Panel toggle key changed from 'g' to 'b' (g is used for go-to-top)
+- Phase 7 epic: bd-drain-dvx (closed)
+- All tests pass: `go test -v ./internal/tui/...` (includes graph unit and integration tests)
 
 ---
 
@@ -459,7 +464,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## File Structure
 
-Current structure (Phase 6 complete):
+Current structure (Phase 7 complete):
 
 ```
 atari/
@@ -578,10 +583,17 @@ atari/
 │       ├── fallback.go      # Non-TTY fallback mode
 │       ├── fallback_test.go
 │       ├── observer_pane.go # Observer Q&A pane (Phase 6)
-│       ├── graph.go         # Graph visualizer pane [Phase 7]
-│       ├── graph_test.go    # Graph unit tests [Phase 7]
-│       ├── fetcher.go       # BeadFetcher for bd list [Phase 7]
-│       ├── modal.go         # Detail modal component [Phase 7]
+│       ├── observer_pane_test.go
+│       ├── graph.go         # Graph visualizer (Phase 7)
+│       ├── graph_test.go
+│       ├── graph_pane.go    # Graph panel integration (Phase 7)
+│       ├── graph_pane_test.go
+│       ├── graph_types.go   # Graph data structures (Phase 7)
+│       ├── fetcher.go       # BeadFetcher for bd list (Phase 7)
+│       ├── fetcher_test.go
+│       ├── modal.go         # Detail modal component (Phase 7)
+│       ├── modal_test.go
+│       ├── graph_integration_test.go  # Graph integration tests (Phase 7)
 │       ├── tui.go           # Public API (Run, RunSimple)
 │       └── CLAUDE.md
 ├── docs/
@@ -622,6 +634,10 @@ Each component has unit tests covering:
 - [x] SessionBroker coordination (observer) - Phase 6
 - [x] ContextBuilder and LogReader (observer) - Phase 6
 - [x] limitedWriter output truncation (observer) - Phase 6
+- [x] Graph visualizer and layout (tui/graph) - Phase 7
+- [x] Graph pane panel integration (tui/graph_pane) - Phase 7
+- [x] BeadFetcher bd list wrapper (tui/fetcher) - Phase 7
+- [x] Detail modal component (tui/modal) - Phase 7
 
 Run with: `mise run test`
 
@@ -650,6 +666,10 @@ Run with: `mise run test`
 - [x] Observer error handling (`TestObserverErrorFromClaude`) - Phase 6
 - [x] Observer model configuration (`TestObserverModelConfiguration`) - Phase 6
 - [x] Observer edge cases (`TestObserverEmptyLog`, `TestObserverNoLogFile`) - Phase 6
+- [x] Graph pane integration with TUI model - Phase 7
+- [x] Graph data fetching and rendering - Phase 7
+- [x] Detail modal keyboard navigation - Phase 7
+- [x] Panel toggle system (events/observer/graph) - Phase 7
 
 Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daemon/...` or `go test -v ./internal/bdactivity/...` or `go test -v ./internal/tui/...` or `go test -v ./internal/observer/...`
 
@@ -658,21 +678,22 @@ Run with: `go test -v ./internal/integration/...` or `go test -v ./internal/daem
 - [x] Real drain on test project with dummy beads (manual testing done)
 - [x] TUI unit tests (view, update, format, fallback) - Phase 4
 - [x] CLI wiring tests (TUI logger configuration) - Phase 4
+- [x] TUI teatest integration tests (lifecycle, events, callbacks, observer, graph) - Phase 7
 - [ ] Long-running stability test
 
-### Future: TUI Integration Testing
+### TUI Integration Testing - IMPLEMENTED
 
-More thorough TUI integration testing should be considered. Options include:
+Thorough TUI integration testing was added in Phase 7 using multiple approaches:
 
-1. **Bubbletea's `teatest` package**: Provides headless TUI testing with programmatic key sending and output assertions. Good for testing keyboard handling and view updates in isolation.
+1. **Bubbletea's `teatest` package**: Provides headless TUI testing with programmatic key sending and output assertions. Used for testing keyboard handling and view updates in isolation. Implemented in `internal/tui/*_integration_test.go`.
 
-2. **CLI integration tests**: Spawn the actual binary, capture stdout/stderr, and verify no spurious output corrupts the display. Can test the full wiring from CLI flags through to TUI rendering.
+2. **CLI integration tests**: CLI wiring tests added in Phase 4 catch integration issues between main.go and the TUI package.
 
-3. **Screenshot/golden file testing**: Capture TUI output at specific states and compare against known-good snapshots. Useful for catching visual regressions.
+3. **Simulated event streams**: Integration tests feed controlled sequences of events through the TUI and verify display updates correctly. Tests cover rapid events, panel toggling, and scroll behavior.
 
-4. **Simulated event streams**: Feed a controlled sequence of events through the TUI and verify the display updates correctly. Good for testing edge cases like rapid events, buffer overflow, and scroll behavior.
-
-Implementation priority should be based on bug frequency and impact. The CLI wiring tests added in Phase 4 catch integration issues between main.go and the TUI package.
+Future considerations:
+- Screenshot/golden file testing for visual regression testing
+- Long-running stability tests
 
 ---
 
