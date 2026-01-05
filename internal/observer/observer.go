@@ -40,6 +40,10 @@ const (
 
 	// outputTruncationMarker is appended to truncated output.
 	outputTruncationMarker = "\n\n[Output truncated - exceeded 100KB limit]"
+
+	// minSessionIDLength is the minimum valid session ID length.
+	// Claude session IDs are UUIDs (36 chars) but we use a conservative minimum.
+	minSessionIDLength = 8
 )
 
 var (
@@ -122,10 +126,19 @@ func (o *Observer) Ask(ctx context.Context, question string) (string, error) {
 
 	// Execute query with retry on resume failure
 	response, err := o.executeQuery(ctx, prompt)
-	if err != nil && o.sessionID != "" {
+	if err != nil {
+		// Check if we have a session ID to clear (thread-safe)
+		o.mu.Lock()
+		hasSession := o.sessionID != ""
+		if hasSession {
+			o.sessionID = ""
+		}
+		o.mu.Unlock()
+
 		// Retry once with fresh session
-		o.sessionID = ""
-		response, err = o.executeQuery(ctx, prompt)
+		if hasSession {
+			response, err = o.executeQuery(ctx, prompt)
+		}
 	}
 
 	// Record successful exchange in history
@@ -231,8 +244,9 @@ type parseResult struct {
 func (o *Observer) readOutput(stdout, stderr io.ReadCloser) (string, error) {
 	result := o.parseStreamJSON(stdout)
 
-	// Store session_id if extracted (thread-safe)
-	if result.sessionID != "" {
+	// Store session_id if extracted and valid (thread-safe)
+	// Validate minimum length to prevent --resume with invalid values
+	if len(result.sessionID) >= minSessionIDLength {
 		o.mu.Lock()
 		o.sessionID = result.sessionID
 		o.mu.Unlock()
