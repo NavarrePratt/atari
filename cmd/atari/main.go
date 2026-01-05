@@ -536,7 +536,6 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().Int(FlagMaxTurns, 0, "Max turns per Claude session (0 = unlimited)")
 	startCmd.Flags().String(FlagLabel, "", "Filter bd ready by label")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")
-	startCmd.Flags().String(FlagModel, "opus", "Claude model to use")
 	startCmd.Flags().String(FlagAgentID, "", "Agent bead ID for state reporting (e.g., bd-xxx)")
 	startCmd.Flags().Bool(FlagBDActivityEnabled, true, "Enable BD activity watcher")
 

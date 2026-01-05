@@ -14,7 +14,6 @@ const (
 	FlagMaxTurns          = "max-turns"
 	FlagLabel             = "label"
 	FlagPrompt            = "prompt"
-	FlagModel             = "model"
 	FlagAgentID           = "agent-id"
 	FlagBDActivityEnabled = "bd-activity-enabled"
 
