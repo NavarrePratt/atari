@@ -194,8 +194,19 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	}
+
+	// When observer is in INSERT mode, forward all other keys to it for typing.
+	// This must come BEFORE panel toggle keys so e/o/b type instead of toggling.
+	// Global keys (ctrl+c, tab, esc) are handled above and still work.
+	if m.observerOpen && m.isObserverFocused() && m.observerPane.IsInsertMode() {
+		var cmd tea.Cmd
+		m.observerPane, cmd = m.observerPane.Update(msg)
+		return m, cmd
+	}
 
 	// Panel toggle keys - always global so you can switch panels from anywhere
+	switch key {
 	case "e":
 		m.toggleEvents()
 		return m, nil

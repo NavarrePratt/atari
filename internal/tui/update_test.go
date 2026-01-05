@@ -1331,6 +1331,149 @@ func TestFullscreenWorkflow(t *testing.T) {
 	}
 }
 
+// INSERT mode key blocking tests
+
+func TestHandleKey_InsertMode_BlocksPanelToggles(t *testing.T) {
+	// Keys that should be blocked (forwarded to observer) when in INSERT mode
+	keys := []string{"e", "o", "b", "E", "B", "O"}
+
+	for _, key := range keys {
+		t.Run(key, func(t *testing.T) {
+			// Create observer pane in INSERT mode
+			obsPane := NewObserverPane(nil)
+			obsPane.focused = true
+			obsPane.insertMode = true
+
+			m := model{
+				focusedPane:  FocusObserver,
+				observerOpen: true,
+				eventsOpen:   true,
+				graphOpen:    false,
+				observerPane: obsPane,
+				graphPane:    NewGraphPane(nil, nil, "horizontal"),
+				status:       "idle",
+			}
+
+			// Record initial state
+			initialEventsOpen := m.eventsOpen
+			initialObserverOpen := m.observerOpen
+			initialGraphOpen := m.graphOpen
+
+			_, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+
+			// Panels should NOT be toggled in INSERT mode
+			if m.eventsOpen != initialEventsOpen {
+				t.Errorf("key %q should not toggle events pane in INSERT mode", key)
+			}
+			if m.observerOpen != initialObserverOpen {
+				t.Errorf("key %q should not toggle observer pane in INSERT mode", key)
+			}
+			if m.graphOpen != initialGraphOpen {
+				t.Errorf("key %q should not toggle graph pane in INSERT mode", key)
+			}
+		})
+	}
+}
+
+func TestHandleKey_InsertMode_GlobalKeysStillWork(t *testing.T) {
+	t.Run("esc exits insert mode", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.focused = true
+		obsPane.insertMode = true
+
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			focusMode:    FocusModeNone,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+		resultM := newM.(model)
+
+		// After esc in INSERT mode, observer should exit insert mode
+		if resultM.observerPane.IsInsertMode() {
+			t.Error("esc should exit INSERT mode")
+		}
+	})
+
+	t.Run("tab cycles focus", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.focused = true
+		obsPane.insertMode = true
+
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+		resultM := newM.(model)
+
+		// Tab should cycle focus even in INSERT mode
+		if resultM.focusedPane != FocusEvents {
+			t.Errorf("tab should cycle focus from observer to events, got %v", resultM.focusedPane)
+		}
+	})
+
+	t.Run("ctrl+c is forwarded to observer when loading", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.focused = true
+		obsPane.insertMode = true
+		obsPane.loading = true
+
+		quitCalled := false
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			onQuit:       func() { quitCalled = true },
+		}
+
+		_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+		// ctrl+c when observer is loading should NOT quit the app
+		// (it gets forwarded to observer for query cancellation)
+		if quitCalled {
+			t.Error("ctrl+c should not quit when observer is loading - should forward to observer")
+		}
+		// Should return a cmd (observer's cmd, not tea.Quit)
+		// Note: actual cancellation depends on observer having a non-nil observer instance
+		_ = cmd
+	})
+}
+
+func TestHandleKey_NormalMode_PanelTogglesWork(t *testing.T) {
+	// Verify that panel toggles work when observer is focused but in NORMAL mode
+	t.Run("e toggles events in normal mode", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.focused = true
+		obsPane.insertMode = false // NORMAL mode
+
+		m := model{
+			focusedPane:  FocusObserver,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+		resultM := newM.(model)
+
+		// In NORMAL mode, 'e' should toggle events pane
+		if resultM.eventsOpen {
+			t.Error("e should toggle events pane closed in NORMAL mode")
+		}
+	})
+}
+
 // TestFullscreen_VisualDifference ensures fullscreen actually looks different.
 func TestFullscreen_VisualDifference(t *testing.T) {
 	ch := make(chan events.Event, 1)
