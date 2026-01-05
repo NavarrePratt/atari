@@ -762,14 +762,14 @@ func (g *Graph) renderNodeToGrid(grid *charGrid, nodeID string) {
 		childCount = g.countChildren(nodeID)
 	}
 
-	// Render the node content
-	content := g.formatNode(node, pos.W, isCurrent, isSelected, isCollapsedEpic, childCount)
+	// Render the node content (plain text + style)
+	content, style := g.formatNode(node, pos.W, isCurrent, isSelected, isCollapsedEpic, childCount)
 
-	// Write to grid
+	// Write to grid with style
 	lines := strings.Split(content, "\n")
 	for dy, line := range lines {
 		if y+dy >= 0 && y+dy < grid.height {
-			grid.writeString(x, y+dy, line)
+			grid.writeStyledString(x, y+dy, line, style)
 		}
 	}
 }
@@ -786,7 +786,8 @@ func (g *Graph) countChildren(nodeID string) int {
 }
 
 // formatNode formats a node for display based on density.
-func (g *Graph) formatNode(node *GraphNode, width int, isCurrent, isSelected, isCollapsed bool, childCount int) string {
+// Returns plain text and the style to apply (styling is deferred to grid rendering).
+func (g *Graph) formatNode(node *GraphNode, width int, isCurrent, isSelected, isCollapsed bool, childCount int) (string, lipgloss.Style) {
 	density := ParseDensity(g.config.Density)
 
 	// Build node text based on density
@@ -800,7 +801,7 @@ func (g *Graph) formatNode(node *GraphNode, width int, isCurrent, isSelected, is
 		text = g.formatNodeStandard(node, isCollapsed, childCount)
 	}
 
-	// Apply styling
+	// Determine style (applied later by charGrid)
 	style := graphStyles.Node
 	if isCurrent {
 		style = graphStyles.NodeCurrent
@@ -808,7 +809,7 @@ func (g *Graph) formatNode(node *GraphNode, width int, isCurrent, isSelected, is
 		style = graphStyles.NodeSelected
 	}
 
-	return style.Render(text)
+	return text, style
 }
 
 // formatNodeCompact formats a node in compact density: "bd-xxx o"
@@ -952,18 +953,72 @@ func (g *charGrid) writeRune(x, y int, r rune) {
 	}
 }
 
-// writeString writes a string starting at the given position.
-func (g *charGrid) writeString(x, y int, s string) {
-	for i, r := range s {
-		g.writeRune(x+i, y, r)
+// writeStyledRune writes a rune with style at the given position.
+func (g *charGrid) writeStyledRune(x, y int, r rune, style lipgloss.Style) {
+	if x >= 0 && x < g.width && y >= 0 && y < g.height {
+		g.cells[y][x] = r
+		g.styles[y][x] = style
 	}
 }
 
-// String converts the grid to a string.
+// writeString writes a string starting at the given position (plain text, no style).
+func (g *charGrid) writeString(x, y int, s string) {
+	col := 0
+	for _, r := range s {
+		g.writeRune(x+col, y, r)
+		col++
+	}
+}
+
+// writeStyledString writes a string with style starting at the given position.
+func (g *charGrid) writeStyledString(x, y int, s string, style lipgloss.Style) {
+	col := 0
+	for _, r := range s {
+		g.writeStyledRune(x+col, y, r, style)
+		col++
+	}
+}
+
+// String converts the grid to a string, applying per-cell styles.
 func (g *charGrid) String() string {
 	var lines []string
-	for _, row := range g.cells {
-		lines = append(lines, string(row))
+	emptyStyle := lipgloss.NewStyle()
+
+	for y, row := range g.cells {
+		var line strings.Builder
+		var currentStyle lipgloss.Style
+		var currentRun strings.Builder
+
+		for x, r := range row {
+			cellStyle := g.styles[y][x]
+
+			// Check if style changed (compare by rendered output of a test char)
+			styleChanged := cellStyle.Render("x") != currentStyle.Render("x")
+
+			if styleChanged && currentRun.Len() > 0 {
+				// Flush previous run with its style
+				if currentStyle.Render("x") != emptyStyle.Render("x") {
+					line.WriteString(currentStyle.Render(currentRun.String()))
+				} else {
+					line.WriteString(currentRun.String())
+				}
+				currentRun.Reset()
+			}
+
+			currentStyle = cellStyle
+			currentRun.WriteRune(r)
+		}
+
+		// Flush final run
+		if currentRun.Len() > 0 {
+			if currentStyle.Render("x") != emptyStyle.Render("x") {
+				line.WriteString(currentStyle.Render(currentRun.String()))
+			} else {
+				line.WriteString(currentRun.String())
+			}
+		}
+
+		lines = append(lines, line.String())
 	}
 	return strings.Join(lines, "\n")
 }
