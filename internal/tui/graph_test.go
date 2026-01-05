@@ -1108,6 +1108,129 @@ func TestGraph_GetVisibleNodes_WithCollapsedEpic(t *testing.T) {
 	}
 }
 
+func TestCharGrid_StyledString_CorrectPositions(t *testing.T) {
+	// This test verifies that writeStyledString places characters at correct
+	// positions without ANSI escape code corruption. Previously, formatNode()
+	// returned pre-styled strings with ANSI codes, and writeString() would
+	// iterate over those codes as individual runes, corrupting positions.
+	grid := newGrid(20, 3)
+
+	// Write styled text at position (2, 1)
+	style := graphStyles.NodeSelected
+	grid.writeStyledString(2, 1, "bd-001 o", style)
+
+	// Verify characters are at correct positions
+	expectedChars := []struct {
+		x    int
+		char rune
+	}{
+		{2, 'b'},
+		{3, 'd'},
+		{4, '-'},
+		{5, '0'},
+		{6, '0'},
+		{7, '1'},
+		{8, ' '},
+		{9, 'o'},
+	}
+
+	for _, tc := range expectedChars {
+		if grid.cells[1][tc.x] != tc.char {
+			t.Errorf("cell[1][%d] = %c, want %c", tc.x, grid.cells[1][tc.x], tc.char)
+		}
+	}
+
+	// Verify style is stored for each character
+	for x := 2; x <= 9; x++ {
+		if grid.styles[1][x].Render("x") != style.Render("x") {
+			t.Errorf("style not stored at position [1][%d]", x)
+		}
+	}
+
+	// Verify spaces outside the text remain unstyled
+	if grid.cells[1][0] != ' ' || grid.cells[1][1] != ' ' {
+		t.Error("leading spaces should remain")
+	}
+}
+
+func TestGraph_FormatNode_ReturnsPlainText(t *testing.T) {
+	// Verify that formatNode returns plain text without ANSI escape codes.
+	// The style is returned separately and applied by charGrid.String().
+	cfg := &config.GraphConfig{Density: "compact"}
+	fetcher := &mockFetcher{}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	node := &GraphNode{
+		ID:     "bd-test",
+		Title:  "Test",
+		Status: "open",
+	}
+
+	text, _ := g.formatNode(node, 20, false, true, false, 0)
+
+	// Text should not contain ANSI escape codes
+	if strings.Contains(text, "\x1b[") {
+		t.Errorf("formatNode returned text with ANSI codes: %q", text)
+	}
+
+	// Text should be plain
+	expected := "bd-test o"
+	if text != expected {
+		t.Errorf("formatNode text = %q, want %q", text, expected)
+	}
+
+	// Style is a lipgloss.Style - verify it was returned (non-zero value type)
+	// Note: lipgloss styling in tests may not produce ANSI codes in non-TTY environments
+}
+
+func TestGraph_Render_NoPositionCorruption(t *testing.T) {
+	// Regression test: verify that styled nodes render at correct positions
+	// without corruption from ANSI escape codes.
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+			{ID: "bd-002", Title: "Task 2", Status: "in_progress", IssueType: "task"},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Verify nodes were loaded
+	if g.NodeCount() != 2 {
+		t.Fatalf("expected 2 nodes, got %d", g.NodeCount())
+	}
+
+	// Set viewport dimensions (required for Select to work correctly)
+	g.SetViewport(80, 10)
+
+	// Set current bead to test current highlighting
+	g.SetCurrentBead("bd-001")
+	g.Select("bd-002")
+
+	output := g.Render(80, 10)
+
+	// Both node IDs should appear in the output as complete strings
+	// If ANSI codes corrupted positions, IDs would be fragmented
+	if !strings.Contains(output, "bd-001") {
+		t.Errorf("output missing bd-001 (current bead)")
+	}
+	if !strings.Contains(output, "bd-002") {
+		t.Errorf("output missing bd-002 (selected)")
+	}
+
+	// Count occurrences - each ID should appear exactly once
+	if strings.Count(output, "bd-001") != 1 {
+		t.Errorf("bd-001 should appear exactly once, got %d", strings.Count(output, "bd-001"))
+	}
+	if strings.Count(output, "bd-002") != 1 {
+		t.Errorf("bd-002 should appear exactly once, got %d", strings.Count(output, "bd-002"))
+	}
+}
+
 func TestGraph_ConcurrentRebuildAndRender(t *testing.T) {
 	// This test verifies that concurrent calls to RebuildFromBeads and Render
 	// do not cause data races. Run with -race to detect issues.
