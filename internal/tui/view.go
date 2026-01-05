@@ -66,12 +66,102 @@ func (m model) renderFullscreenPane() string {
 	case FocusEvents:
 		return m.renderEventsOnlyView()
 	case FocusObserver:
-		return m.renderObserverPane(m.width, m.height)
+		return m.renderFullscreenObserverView()
 	case FocusGraph:
-		return m.renderGraphPane(m.width, m.height)
+		return m.renderFullscreenGraphView()
 	default:
 		return m.renderEventsOnlyView()
 	}
+}
+
+// renderFullscreenGraphView renders the graph pane in fullscreen mode with header and footer.
+func (m model) renderFullscreenGraphView() string {
+	w := safeWidth(m.width - 4) // Account for container borders
+
+	// Header: status, bead info, stats (same as events view)
+	var sections []string
+	sections = append(sections, m.renderHeaderForWidth(w))
+	sections = append(sections, m.renderDividerForWidth(w))
+
+	// Graph content takes remaining space
+	// Calculate available height: total height - header (3) - dividers (2) - footer (1) - borders (2)
+	graphHeight := m.height - 8
+	if graphHeight < minGraphRows {
+		graphHeight = minGraphRows
+	}
+
+	// Render graph pane content at the calculated size
+	m.graphPane.SetSize(w, graphHeight)
+	graphContent := m.graphPane.View()
+	sections = append(sections, graphContent)
+
+	sections = append(sections, m.renderDividerForWidth(w))
+
+	// Footer with fullscreen-specific help
+	footer := m.renderFullscreenGraphFooter()
+	sections = append(sections, footer)
+
+	content := strings.Join(sections, "\n")
+
+	// Get focus-aware container style
+	containerStyle := m.containerStyleForFocus(FocusGraph)
+
+	rendered := containerStyle.
+		Width(safeWidth(m.width - 2)).
+		Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, rendered)
+}
+
+// renderFullscreenObserverView renders the observer pane in fullscreen mode with header and footer.
+func (m model) renderFullscreenObserverView() string {
+	w := safeWidth(m.width - 4) // Account for container borders
+
+	// Header: status, bead info, stats
+	var sections []string
+	sections = append(sections, m.renderHeaderForWidth(w))
+	sections = append(sections, m.renderDividerForWidth(w))
+
+	// Observer content takes remaining space
+	// Calculate available height: total height - header (3) - dividers (2) - footer (1) - borders (2)
+	observerHeight := m.height - 8
+	if observerHeight < minObserverRows {
+		observerHeight = minObserverRows
+	}
+
+	// Render observer pane content at the calculated size
+	m.observerPane.SetSize(w, observerHeight)
+	observerContent := m.observerPane.View()
+	sections = append(sections, observerContent)
+
+	sections = append(sections, m.renderDividerForWidth(w))
+
+	// Footer with fullscreen-specific help
+	footer := m.renderFullscreenObserverFooter()
+	sections = append(sections, footer)
+
+	content := strings.Join(sections, "\n")
+
+	// Get focus-aware container style
+	containerStyle := m.containerStyleForFocus(FocusObserver)
+
+	rendered := containerStyle.
+		Width(safeWidth(m.width - 2)).
+		Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, rendered)
+}
+
+// renderFullscreenGraphFooter returns footer help when graph is in fullscreen mode.
+func (m model) renderFullscreenGraphFooter() string {
+	help := "↑/↓/←/→: nav  d: density  a: view  R: refresh  B/esc: exit fullscreen  q: quit"
+	return styles.Footer.Render(help)
+}
+
+// renderFullscreenObserverFooter returns footer help when observer is in fullscreen mode.
+func (m model) renderFullscreenObserverFooter() string {
+	help := "enter: ask  O/esc: exit fullscreen  ctrl+c: cancel  q: quit"
+	return styles.Footer.Render(help)
 }
 
 // renderEventsOnlyView renders the full-width events view when observer is closed.

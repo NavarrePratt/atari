@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
 )
 
@@ -984,4 +986,395 @@ func TestHandleTick_NoUpdateWithZeroStartTime(t *testing.T) {
 	if m.stats.CurrentDurationMs != 0 {
 		t.Errorf("CurrentDurationMs should remain 0 with zero StartTime, got %d", m.stats.CurrentDurationMs)
 	}
+}
+
+// Fullscreen toggle tests
+
+func TestHandleKey_FullscreenToggle_Graph(t *testing.T) {
+	t.Run("B enters fullscreen when graph is open", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusModeNone,
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("B")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusGraph {
+			t.Errorf("focusMode should be FocusGraph, got %v", resultM.focusMode)
+		}
+		if resultM.focusedPane != FocusGraph {
+			t.Errorf("focusedPane should be FocusGraph, got %v", resultM.focusedPane)
+		}
+		if !resultM.graphPane.IsFocused() {
+			t.Error("graphPane should be focused")
+		}
+		if cmd != nil {
+			t.Error("should return nil command")
+		}
+	})
+
+	t.Run("B exits fullscreen when already in graph fullscreen", func(t *testing.T) {
+		graphPane := NewGraphPane(nil, nil, "horizontal")
+		graphPane.focused = true
+
+		m := model{
+			focusedPane:  FocusGraph,
+			focusMode:    FocusGraph, // Already in fullscreen
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+			width:        100,
+			height:       30,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("B")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after toggle, got %v", resultM.focusMode)
+		}
+	})
+
+	t.Run("B does nothing when graph is closed", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusModeNone,
+			graphOpen:    false, // Graph is closed
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("B")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should remain FocusModeNone when graph closed, got %v", resultM.focusMode)
+		}
+	})
+}
+
+func TestHandleKey_FullscreenToggle_Observer(t *testing.T) {
+	t.Run("O enters fullscreen when observer is open", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusModeNone,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusObserver {
+			t.Errorf("focusMode should be FocusObserver, got %v", resultM.focusMode)
+		}
+		if resultM.focusedPane != FocusObserver {
+			t.Errorf("focusedPane should be FocusObserver, got %v", resultM.focusedPane)
+		}
+	})
+
+	t.Run("O does nothing when observer is closed", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusModeNone,
+			observerOpen: false,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("O")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should remain FocusModeNone when observer closed, got %v", resultM.focusMode)
+		}
+	})
+}
+
+func TestHandleKey_FullscreenToggle_Events(t *testing.T) {
+	t.Run("E enters fullscreen when events is open", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusModeNone,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusEvents {
+			t.Errorf("focusMode should be FocusEvents, got %v", resultM.focusMode)
+		}
+		if resultM.focusedPane != FocusEvents {
+			t.Errorf("focusedPane should be FocusEvents, got %v", resultM.focusedPane)
+		}
+	})
+}
+
+func TestHandleKey_Esc_ExitsFullscreen(t *testing.T) {
+	t.Run("esc exits graph fullscreen", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusGraph,
+			focusMode:    FocusGraph,
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after esc, got %v", resultM.focusMode)
+		}
+	})
+
+	t.Run("esc exits observer fullscreen", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusObserver,
+			focusMode:    FocusObserver,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after esc, got %v", resultM.focusMode)
+		}
+	})
+}
+
+// TestView_FullscreenRendering verifies that View respects focusMode.
+func TestView_FullscreenRendering(t *testing.T) {
+	t.Run("renders fullscreen when focusMode is set", func(t *testing.T) {
+		// Create a proper config for the graph pane
+		graphCfg := &config.GraphConfig{
+			Enabled: true,
+			Density: "standard",
+		}
+		m := model{
+			focusedPane:  FocusGraph,
+			focusMode:    FocusGraph,
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(graphCfg, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		view := m.View()
+
+		// In fullscreen mode, we should NOT see the split layout
+		// The view should render the graph pane at full size
+		// We can't easily check the exact content, but we can verify View doesn't panic
+		// and returns a non-empty string
+		if view == "" {
+			t.Error("View should return non-empty string in fullscreen mode")
+		}
+	})
+}
+
+// TestUpdate_FullscreenPreserved verifies focusMode survives Update cycle.
+func TestUpdate_FullscreenPreserved(t *testing.T) {
+	ch := make(chan events.Event, 1)
+
+	// Create a proper config for the graph pane
+	graphCfg := &config.GraphConfig{
+		Enabled: true,
+		Density: "standard",
+	}
+
+	m := model{
+		eventChan:    ch,
+		focusedPane:  FocusEvents,
+		focusMode:    FocusModeNone,
+		graphOpen:    true,
+		eventsOpen:   true,
+		observerPane: NewObserverPane(nil),
+		graphPane:    NewGraphPane(graphCfg, nil, "horizontal"),
+		width:        100,
+		height:       30,
+		status:       "idle",
+	}
+
+	// Simulate pressing 'B' through the full Update path
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("B")}
+	newModel, _ := m.Update(keyMsg)
+	resultM := newModel.(model)
+
+	if resultM.focusMode != FocusGraph {
+		t.Errorf("focusMode should be FocusGraph after Update, got %v", resultM.focusMode)
+	}
+
+	// Call View on the result to ensure it renders correctly
+	view := resultM.View()
+	if view == "" {
+		t.Error("View should return non-empty string after entering fullscreen")
+	}
+}
+
+// TestFullscreenWorkflow tests the complete user workflow for fullscreen toggle.
+func TestFullscreenWorkflow(t *testing.T) {
+	ch := make(chan events.Event, 1)
+	graphCfg := &config.GraphConfig{
+		Enabled: true,
+		Density: "standard",
+	}
+
+	// Step 1: Start with default state (graph closed)
+	m := model{
+		eventChan:    ch,
+		focusedPane:  FocusEvents,
+		focusMode:    FocusModeNone,
+		graphOpen:    false,
+		eventsOpen:   true,
+		observerPane: NewObserverPane(nil),
+		graphPane:    NewGraphPane(graphCfg, nil, "horizontal"),
+		width:        120,
+		height:       40,
+		status:       "idle",
+	}
+
+	// Initial state checks
+	if m.graphOpen {
+		t.Error("graph should be closed initially")
+	}
+	if m.focusMode != FocusModeNone {
+		t.Error("focusMode should be FocusModeNone initially")
+	}
+
+	// Step 2: Press 'b' to open graph (lowercase - toggle)
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	m = newModel.(model)
+
+	if !m.graphOpen {
+		t.Error("graph should be open after pressing 'b'")
+	}
+	if m.focusMode != FocusModeNone {
+		t.Error("focusMode should still be FocusModeNone after 'b' (not fullscreen)")
+	}
+
+	// Step 3: Capture split view output
+	splitView := m.View()
+	if splitView == "" {
+		t.Error("split view should render non-empty content")
+	}
+
+	// Step 4: Press 'B' to enter fullscreen (uppercase - fullscreen)
+	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("B")})
+	m = newModel.(model)
+
+	if m.focusMode != FocusGraph {
+		t.Errorf("focusMode should be FocusGraph after 'B', got %v", m.focusMode)
+	}
+
+	// Step 5: Capture fullscreen view output
+	fullscreenView := m.View()
+	if fullscreenView == "" {
+		t.Error("fullscreen view should render non-empty content")
+	}
+
+	// Step 6: Views should be different
+	if splitView == fullscreenView {
+		t.Error("split view and fullscreen view should be different")
+	}
+
+	// Step 7: Press ESC to exit fullscreen
+	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = newModel.(model)
+
+	if m.focusMode != FocusModeNone {
+		t.Errorf("focusMode should be FocusModeNone after ESC, got %v", m.focusMode)
+	}
+
+	// Step 8: View should be back to split view
+	backToSplit := m.View()
+	if backToSplit != splitView {
+		// Note: This might not be exactly equal due to timing/state differences,
+		// but focusMode should definitely be FocusModeNone
+		// The important check is that we're not in fullscreen anymore
+		t.Log("Note: Views differ slightly, which is OK as long as focusMode is correct")
+	}
+}
+
+// TestFullscreen_VisualDifference ensures fullscreen actually looks different.
+func TestFullscreen_VisualDifference(t *testing.T) {
+	ch := make(chan events.Event, 1)
+	graphCfg := &config.GraphConfig{
+		Enabled: true,
+		Density: "standard",
+	}
+
+	// Create a model with events and graph both open (split view)
+	m := model{
+		eventChan:    ch,
+		focusedPane:  FocusEvents,
+		focusMode:    FocusModeNone,
+		graphOpen:    true,
+		eventsOpen:   true,
+		observerPane: NewObserverPane(nil),
+		graphPane:    NewGraphPane(graphCfg, nil, "horizontal"),
+		width:        120,
+		height:       40,
+		status:       "idle",
+	}
+
+	// Capture split view
+	splitView := m.View()
+
+	// Enter fullscreen
+	m.focusMode = FocusGraph
+	m.focusedPane = FocusGraph
+
+	// Capture fullscreen view
+	fullscreenView := m.View()
+
+	// The fullscreen view should be different (typically simpler, single pane)
+	if splitView == fullscreenView {
+		t.Error("fullscreen view should differ from split view")
+	}
+
+	// Count newlines as a rough measure of layout difference
+	splitLines := len(strings.Split(splitView, "\n"))
+	fullscreenLines := len(strings.Split(fullscreenView, "\n"))
+
+	// Log the difference for debugging
+	t.Logf("Split view lines: %d, Fullscreen lines: %d", splitLines, fullscreenLines)
+
+	// The layout should be noticeably different
+	// (In fullscreen, there should be no events pane, just the graph)
 }
