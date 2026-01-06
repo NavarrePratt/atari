@@ -109,6 +109,10 @@ var graphStyles = struct {
 	Node         lipgloss.Style // Default node style
 	NodeSelected lipgloss.Style // Selected/focused node
 	NodeCurrent  lipgloss.Style // Currently processing bead
+	NodeDimmed   lipgloss.Style // Out-of-view node (dependency from different view)
+
+	// Glyph styles
+	GlyphDimmed lipgloss.Style // Dimmed tree glyphs for out-of-view connections
 }{
 	Node: lipgloss.NewStyle().
 		Foreground(lipgloss.Color("252")),
@@ -122,4 +126,10 @@ var graphStyles = struct {
 		Bold(true).
 		Foreground(lipgloss.Color("82")). // Bright green for current bead
 		Background(lipgloss.Color("22")), // Green-tinted background
+
+	NodeDimmed: lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245")), // Subtle gray - visible but obviously different
+
+	GlyphDimmed: lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")), // Dark gray for tree lines to dimmed nodes
 }

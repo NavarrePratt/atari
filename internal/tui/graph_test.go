@@ -554,18 +554,94 @@ func TestGraph_MissingDependencies(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	// Should have 2 nodes: the task and the pseudo-node
+	// Should have 3 nodes: the task and 2 out-of-view nodes for missing deps
+	if g.NodeCount() != 3 {
+		t.Errorf("NodeCount = %d, want 3", g.NodeCount())
+	}
+
+	nodes := g.GetNodes()
+
+	// Verify out-of-view nodes exist and are marked as out-of-view
+	missing1 := nodes["bd-missing-1"]
+	if missing1 == nil {
+		t.Fatal("out-of-view node bd-missing-1 not created")
+	}
+	if !missing1.OutOfView {
+		t.Error("bd-missing-1 should be marked OutOfView")
+	}
+	// Placeholder nodes have "?" title since FetchBead returns nil
+	if missing1.Title != "?" {
+		t.Errorf("bd-missing-1.Title = %q, want '?'", missing1.Title)
+	}
+
+	missing2 := nodes["bd-missing-2"]
+	if missing2 == nil {
+		t.Fatal("out-of-view node bd-missing-2 not created")
+	}
+	if !missing2.OutOfView {
+		t.Error("bd-missing-2 should be marked OutOfView")
+	}
+
+	// The task itself should not be out-of-view
+	task := nodes["bd-task"]
+	if task == nil {
+		t.Fatal("task node not found")
+	}
+	if task.OutOfView {
+		t.Error("bd-task should not be marked OutOfView")
+	}
+}
+
+func TestGraph_MissingDependencies_WithFetchedData(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{
+				ID:        "bd-task",
+				Title:     "Task",
+				Status:    "blocked",
+				IssueType: "task",
+				Dependencies: []BeadReference{
+					{ID: "bd-closed-dep", DependencyType: "blocks"},
+				},
+			},
+		},
+		// Provide bead data for the missing dependency
+		beadByID: map[string]GraphBead{
+			"bd-closed-dep": {
+				ID:        "bd-closed-dep",
+				Title:     "Closed Dependency",
+				Status:    "closed",
+				IssueType: "task",
+			},
+		},
+	}
+
+	g := NewGraph(cfg, fetcher, "horizontal")
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Should have 2 nodes: the task and the fetched out-of-view dep
 	if g.NodeCount() != 2 {
 		t.Errorf("NodeCount = %d, want 2", g.NodeCount())
 	}
 
 	nodes := g.GetNodes()
-	pseudo := nodes["_hidden_deps"]
-	if pseudo == nil {
-		t.Fatal("pseudo-node not created")
+
+	// Verify out-of-view node has proper data from fetch
+	closedDep := nodes["bd-closed-dep"]
+	if closedDep == nil {
+		t.Fatal("out-of-view node bd-closed-dep not created")
 	}
-	if pseudo.Title != "2 deps hidden" {
-		t.Errorf("pseudo-node title = %q, want '2 deps hidden'", pseudo.Title)
+	if !closedDep.OutOfView {
+		t.Error("bd-closed-dep should be marked OutOfView")
+	}
+	if closedDep.Title != "Closed Dependency" {
+		t.Errorf("bd-closed-dep.Title = %q, want 'Closed Dependency'", closedDep.Title)
+	}
+	if closedDep.Status != "closed" {
+		t.Errorf("bd-closed-dep.Status = %q, want 'closed'", closedDep.Status)
 	}
 }
 

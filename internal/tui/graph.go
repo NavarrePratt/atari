@@ -73,60 +73,84 @@ func (g *Graph) Refresh(ctx context.Context) error {
 		return err
 	}
 
+	// Identify and fetch missing dependencies (out-of-view beads)
+	beads, outOfViewIDs := g.fetchMissingDeps(ctx, beads)
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.buildFromBeads(beads)
+	g.buildFromBeads(beads, outOfViewIDs)
 	return nil
 }
 
 // RebuildFromBeads rebuilds the graph from bead data with proper locking.
 // This is the public API for external callers.
+// Note: This method does not fetch missing dependencies; use Refresh() for full graph building.
 func (g *Graph) RebuildFromBeads(beads []GraphBead) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.buildFromBeads(beads)
+	g.buildFromBeads(beads, nil)
+}
+
+// fetchMissingDeps identifies dependencies that are not in the current bead set,
+// fetches them, and returns the augmented beads slice plus a set of out-of-view IDs.
+func (g *Graph) fetchMissingDeps(ctx context.Context, beads []GraphBead) ([]GraphBead, map[string]bool) {
+	// Build set of existing IDs
+	existingIDs := make(map[string]bool)
+	for _, b := range beads {
+		existingIDs[b.ID] = true
+	}
+
+	// Find missing dependency IDs (direct deps only, one level)
+	missingIDs := make(map[string]bool)
+	for _, b := range beads {
+		for _, dep := range b.Dependencies {
+			if !existingIDs[dep.ID] && !missingIDs[dep.ID] {
+				missingIDs[dep.ID] = true
+			}
+		}
+	}
+
+	// Fetch missing deps and add to beads
+	outOfViewIDs := make(map[string]bool)
+	for id := range missingIDs {
+		bead, err := g.fetcher.FetchBead(ctx, id)
+		if err != nil || bead == nil {
+			// Create placeholder for unavailable bead
+			beads = append(beads, GraphBead{
+				ID:     id,
+				Title:  "?",
+				Status: "?",
+			})
+		} else {
+			beads = append(beads, *bead)
+		}
+		outOfViewIDs[id] = true
+	}
+
+	return beads, outOfViewIDs
 }
 
 // buildFromBeads builds the graph from bead data.
+// outOfViewIDs marks nodes that are from a different view (e.g., closed deps when viewing Active).
 // Must be called with mu held.
-func (g *Graph) buildFromBeads(beads []GraphBead) {
+func (g *Graph) buildFromBeads(beads []GraphBead, outOfViewIDs map[string]bool) {
 	g.nodes = make(map[string]*GraphNode)
 	g.edges = nil
-
-	// Track which node IDs exist in the current dataset
-	existingIDs := make(map[string]bool)
 
 	// Build nodes
 	for i := range beads {
 		node := beads[i].ToNode()
+		if outOfViewIDs != nil && outOfViewIDs[node.ID] {
+			node.OutOfView = true
+		}
 		g.nodes[node.ID] = &node
-		existingIDs[node.ID] = true
 	}
 
 	// Build edges
 	for i := range beads {
 		edges := beads[i].ExtractEdges()
 		g.edges = append(g.edges, edges...)
-	}
-
-	// Track missing dependencies for pseudo-node
-	missingDeps := make(map[string]bool)
-	for _, edge := range g.edges {
-		if !existingIDs[edge.From] {
-			missingDeps[edge.From] = true
-		}
-	}
-
-	// Create pseudo-node for missing dependencies if any
-	if len(missingDeps) > 0 {
-		pseudoID := "_hidden_deps"
-		g.nodes[pseudoID] = &GraphNode{
-			ID:     pseudoID,
-			Title:  pluralize(len(missingDeps), "dep hidden", "deps hidden"),
-			Status: "closed",
-			Type:   "pseudo",
-		}
 	}
 
 	// Compute layout (handles both grid and list positioning)
@@ -137,9 +161,19 @@ func (g *Graph) buildFromBeads(beads []GraphBead) {
 		g.selected = ""
 	}
 
-	// Auto-select first node if none selected
-	if g.selected == "" && len(g.computed.Layers) > 0 && len(g.computed.Layers[0]) > 0 {
-		g.selected = g.computed.Layers[0][0]
+	// Auto-select first node if none selected (skip out-of-view nodes)
+	if g.selected == "" && len(g.computed.Layers) > 0 {
+		for _, layer := range g.computed.Layers {
+			for _, nodeID := range layer {
+				if node := g.nodes[nodeID]; node != nil && !node.OutOfView {
+					g.selected = nodeID
+					break
+				}
+			}
+			if g.selected != "" {
+				break
+			}
+		}
 	}
 }
 
@@ -167,14 +201,18 @@ func (g *Graph) computeLayout() {
 
 	var roots []string
 	for id := range g.nodes {
-		if !hasParent[id] && id != "_hidden_deps" {
+		if !hasParent[id] {
 			roots = append(roots, id)
 		}
 	}
 
-	// Sort roots for deterministic ordering (epics first, then by ID)
+	// Sort roots for deterministic ordering (epics first, out-of-view last, then by ID)
 	sort.Slice(roots, func(i, j int) bool {
 		ni, nj := g.nodes[roots[i]], g.nodes[roots[j]]
+		// Out-of-view nodes go last
+		if ni.OutOfView != nj.OutOfView {
+			return !ni.OutOfView
+		}
 		if ni.IsEpic != nj.IsEpic {
 			return ni.IsEpic // Epics first
 		}
@@ -194,16 +232,6 @@ func (g *Graph) computeLayout() {
 		}
 	} else {
 		g.computed.Layers = g.assignLayers(roots)
-	}
-
-	// Add pseudo-node to last layer if it exists
-	if _, ok := g.nodes["_hidden_deps"]; ok {
-		if len(g.computed.Layers) == 0 {
-			g.computed.Layers = [][]string{{"_hidden_deps"}}
-		} else {
-			lastIdx := len(g.computed.Layers) - 1
-			g.computed.Layers[lastIdx] = append(g.computed.Layers[lastIdx], "_hidden_deps")
-		}
 	}
 
 	// Compute list order and position nodes linearly
@@ -252,7 +280,7 @@ func (g *Graph) assignLayers(roots []string) [][]string {
 
 	// Add any orphan nodes (not reachable from roots) to appropriate layer
 	for id := range g.nodes {
-		if !visited[id] && id != "_hidden_deps" {
+		if !visited[id] {
 			visited[id] = true
 			// Put orphans in first layer
 			layers[0] = append(layers[0], id)
@@ -285,14 +313,18 @@ func (g *Graph) computeListOrder() {
 
 	var roots []string
 	for id := range g.nodes {
-		if !hasParent[id] && id != "_hidden_deps" {
+		if !hasParent[id] {
 			roots = append(roots, id)
 		}
 	}
 
-	// Sort roots for deterministic ordering (epics first, then by ID)
+	// Sort roots for deterministic ordering (epics first, out-of-view last, then by ID)
 	sort.Slice(roots, func(i, j int) bool {
 		ni, nj := g.nodes[roots[i]], g.nodes[roots[j]]
+		// Out-of-view nodes go last
+		if ni.OutOfView != nj.OutOfView {
+			return !ni.OutOfView
+		}
 		if ni.IsEpic != nj.IsEpic {
 			return ni.IsEpic // Epics first
 		}
@@ -334,27 +366,23 @@ func (g *Graph) computeListOrder() {
 	}
 
 	// Add orphan nodes not reached through hierarchy edges
-	// (e.g., nodes only connected via dependency edges)
+	// (e.g., nodes only connected via dependency edges, or out-of-view deps)
 	var orphans []string
 	for id := range g.nodes {
-		if !visited[id] && id != "_hidden_deps" {
+		if !visited[id] {
 			orphans = append(orphans, id)
 		}
 	}
-	// Sort orphans for deterministic ordering
-	sort.Strings(orphans)
+	// Sort orphans: out-of-view nodes last, then by ID
+	sort.Slice(orphans, func(i, j int) bool {
+		ni, nj := g.nodes[orphans[i]], g.nodes[orphans[j]]
+		if ni.OutOfView != nj.OutOfView {
+			return !ni.OutOfView
+		}
+		return orphans[i] < orphans[j]
+	})
 	for _, id := range orphans {
 		dfs(id, 0, "")
-	}
-
-	// Add pseudo-node at the end if it exists
-	if _, ok := g.nodes["_hidden_deps"]; ok {
-		g.listOrder = append(g.listOrder, ListNode{
-			ID:       "_hidden_deps",
-			Depth:    0,
-			ParentID: "",
-			Visible:  true,
-		})
 	}
 
 	// Also store in Layout for external access
@@ -1171,12 +1199,14 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 		line = line[:width]
 	}
 
-	// Apply styling
+	// Apply styling (priority: current > selected > dimmed > default)
 	style := graphStyles.Node
 	if isCurrent {
 		style = graphStyles.NodeCurrent
 	} else if isSelected {
 		style = graphStyles.NodeSelected
+	} else if node.OutOfView {
+		style = graphStyles.NodeDimmed
 	}
 
 	return style.Render(line)

@@ -73,15 +73,16 @@ func (d LayoutDirection) String() string {
 
 // GraphNode represents a bead in the graph visualization.
 type GraphNode struct {
-	ID       string
-	Title    string
-	Status   string  // open, in_progress, blocked, deferred
-	Priority int     // 0=critical, 1=high, 2=normal, 3=low, 4=backlog
-	Type     string  // epic, task, bug, etc.
-	Parent   string  // Parent epic ID for hierarchy edges
-	IsEpic   bool    // True if this is an epic
-	Cost     float64 // Accumulated cost
-	Attempts int     // Number of work attempts
+	ID        string
+	Title     string
+	Status    string  // open, in_progress, blocked, deferred
+	Priority  int     // 0=critical, 1=high, 2=normal, 3=low, 4=backlog
+	Type      string  // epic, task, bug, etc.
+	Parent    string  // Parent epic ID for hierarchy edges
+	IsEpic    bool    // True if this is an epic
+	Cost      float64 // Accumulated cost
+	Attempts  int     // Number of work attempts
+	OutOfView bool    // True if node is from a different view (e.g., closed dep in Active view)
 }
 
 // GraphEdge represents a relationship between two nodes.
