@@ -453,7 +453,17 @@ Use --daemon to run in the background.`,
 				}
 
 				// Create graph fetcher for bead visualization
-				graphFetcher := tui.NewBDFetcher(cmdRunner)
+				// Auto-detect JSONL: use JSONLFetcher if .beads/issues.jsonl exists
+				var graphFetcher tui.BeadFetcher
+				beadsDir := filepath.Join(projectRoot, ".beads")
+				jsonlPath := filepath.Join(beadsDir, "issues.jsonl")
+				if _, err := os.Stat(jsonlPath); err == nil {
+					ctrlLogger.Debug("using JSONL fetcher for graph", "path", jsonlPath)
+					graphFetcher = tui.NewJSONLFetcher(beadsDir)
+				} else {
+					ctrlLogger.Debug("using BD CLI fetcher for graph", "reason", "JSONL not found")
+					graphFetcher = tui.NewBDFetcher(cmdRunner)
+				}
 
 				// Create TUI with callbacks and observer
 				tuiApp := tui.New(tuiEvents,
