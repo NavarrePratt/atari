@@ -30,7 +30,9 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 |------|---------|-------------|
 | `--tui` | auto | Enable terminal UI (auto-enabled when TTY detected) |
 | `--max-turns` | 0 (unlimited) | Max turns per Claude session |
-| `--label` | "" | Filter bd ready by label |
+| `--label` | "" | Filter bd ready by label (include only) |
+| `--unassigned-only` | false | Only claim unassigned beads |
+| `--exclude-labels` | "" | Labels to exclude (comma-separated) |
 | `--prompt` | "" | Custom prompt template file |
 | `--model` | opus | Claude model to use |
 | `--agent-id` | "" | Agent bead ID for state reporting (e.g., bd-xxx) |

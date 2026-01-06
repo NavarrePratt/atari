@@ -863,3 +863,137 @@ func TestSetHistory_CopiesInput(t *testing.T) {
 		t.Errorf("internal status should still be completed after input modification")
 	}
 }
+
+// Tests for UnassignedOnly filtering
+
+func TestPoll_WithUnassignedFilter(t *testing.T) {
+	mock := testutil.NewMockRunner()
+	mock.SetResponse("bd", []string{"ready", "--json", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
+
+	cfg := config.Default()
+	cfg.WorkQueue.UnassignedOnly = true
+	m := New(cfg, mock)
+
+	beads, err := m.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(beads) != 1 {
+		t.Fatalf("expected 1 bead, got %d", len(beads))
+	}
+
+	testutil.AssertCalled(t, mock, "bd", "ready", "--json", "--unassigned")
+}
+
+func TestPoll_WithLabelAndUnassigned(t *testing.T) {
+	mock := testutil.NewMockRunner()
+	mock.SetResponse("bd", []string{"ready", "--json", "--label", "automated", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
+
+	cfg := config.Default()
+	cfg.WorkQueue.Label = "automated"
+	cfg.WorkQueue.UnassignedOnly = true
+	m := New(cfg, mock)
+
+	beads, err := m.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(beads) != 1 {
+		t.Fatalf("expected 1 bead, got %d", len(beads))
+	}
+
+	testutil.AssertCalled(t, mock, "bd", "ready", "--json", "--label", "automated", "--unassigned")
+}
+
+// Tests for ExcludeLabels filtering
+
+func TestFilterEligible_ExcludesLabels(t *testing.T) {
+	cfg := config.Default()
+	cfg.WorkQueue.ExcludeLabels = []string{"manual", "blocked"}
+	m := New(cfg, testutil.NewMockRunner())
+
+	beads := []Bead{
+		{ID: "bd-001", Priority: 1, Labels: []string{"automated"}},
+		{ID: "bd-002", Priority: 2, Labels: []string{"manual"}},              // should be excluded
+		{ID: "bd-003", Priority: 3, Labels: []string{"urgent", "blocked"}},   // should be excluded
+		{ID: "bd-004", Priority: 4, Labels: nil},                             // no labels - included
+	}
+
+	eligible := m.filterEligible(beads)
+	if len(eligible) != 2 {
+		t.Errorf("expected 2 eligible beads, got %d", len(eligible))
+	}
+
+	// Verify correct beads are included
+	ids := make(map[string]bool)
+	for _, b := range eligible {
+		ids[b.ID] = true
+	}
+	if !ids["bd-001"] {
+		t.Error("expected bd-001 to be eligible")
+	}
+	if !ids["bd-004"] {
+		t.Error("expected bd-004 to be eligible")
+	}
+	if ids["bd-002"] {
+		t.Error("expected bd-002 to be excluded")
+	}
+	if ids["bd-003"] {
+		t.Error("expected bd-003 to be excluded")
+	}
+}
+
+func TestFilterEligible_NoExcludeLabels(t *testing.T) {
+	cfg := config.Default()
+	// No exclude labels set
+	m := New(cfg, testutil.NewMockRunner())
+
+	beads := []Bead{
+		{ID: "bd-001", Priority: 1, Labels: []string{"manual"}},
+		{ID: "bd-002", Priority: 2, Labels: []string{"blocked"}},
+	}
+
+	eligible := m.filterEligible(beads)
+	if len(eligible) != 2 {
+		t.Errorf("expected 2 eligible beads when no exclude labels, got %d", len(eligible))
+	}
+}
+
+func TestHasExcludedLabel(t *testing.T) {
+	cfg := config.Default()
+	cfg.WorkQueue.ExcludeLabels = []string{"manual", "blocked"}
+	m := New(cfg, testutil.NewMockRunner())
+
+	tests := []struct {
+		name     string
+		labels   []string
+		expected bool
+	}{
+		{"no labels", nil, false},
+		{"empty labels", []string{}, false},
+		{"no match", []string{"automated", "urgent"}, false},
+		{"single match", []string{"manual"}, true},
+		{"one of many", []string{"urgent", "blocked", "priority"}, true},
+		{"case sensitive", []string{"MANUAL"}, false}, // exact match only
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.hasExcludedLabel(tt.labels)
+			if result != tt.expected {
+				t.Errorf("hasExcludedLabel(%v) = %v, want %v", tt.labels, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHasExcludedLabel_EmptyExcludeList(t *testing.T) {
+	cfg := config.Default()
+	// No exclude labels set
+	m := New(cfg, testutil.NewMockRunner())
+
+	// Should always return false when exclude list is empty
+	if m.hasExcludedLabel([]string{"manual", "blocked"}) {
+		t.Error("expected false when exclude list is empty")
+	}
+}

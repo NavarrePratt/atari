@@ -177,17 +177,47 @@ claude:
 ```yaml
 workqueue:
   poll_interval: 5s
-  label: "automated"  # Recommended: filter to explicitly-marked beads
+  label: "automated"       # Recommended: filter to explicitly-marked beads
+  unassigned_only: false   # Only claim unassigned beads
+  exclude_labels: []       # Labels to exclude from selection
 ```
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `poll_interval` | duration | 5s | How often to poll `bd ready` |
-| `label` | string | "" | Filter beads by label |
+| `label` | string | "" | Filter beads by label (include only) |
+| `unassigned_only` | bool | false | Only claim beads with no assignee |
+| `exclude_labels` | []string | [] | Beads with any of these labels will be skipped |
 
 **Important**: Setting `workqueue.label` is recommended for production use to prevent race conditions where new beads are picked up before being properly sequenced. See [workqueue.md](../components/workqueue.md#race-condition-prevention) for details.
 
-Workflow with label filtering:
+#### Human-Only Beads
+
+To prevent atari from claiming certain beads (leaving them for humans), use `unassigned_only` and/or `exclude_labels`:
+
+```yaml
+workqueue:
+  unassigned_only: true
+  exclude_labels:
+    - human
+    - manual
+    - needs-review
+```
+
+With this configuration:
+- Beads assigned to a user are skipped (use `--assignee npratt` when creating)
+- Beads with "human", "manual", or "needs-review" labels are skipped
+
+Example creating human-only beads:
+```bash
+# Option 1: Assign to yourself
+bd create "Design decision needed" --assignee npratt
+
+# Option 2: Add exclusion label
+bd create "Needs human review" --labels human
+```
+
+#### Workflow with label filtering
 1. Create beads via `/bd-plan` (no label)
 2. Sequence them via `/bd-sequence`
 3. Add the label: `bd update <id> --labels automated`

@@ -28,8 +28,10 @@ type ClaudeConfig struct {
 
 // WorkQueueConfig holds work queue polling settings.
 type WorkQueueConfig struct {
-	PollInterval time.Duration `yaml:"poll_interval" mapstructure:"poll_interval"`
-	Label        string        `yaml:"label" mapstructure:"label"`
+	PollInterval   time.Duration `yaml:"poll_interval" mapstructure:"poll_interval"`
+	Label          string        `yaml:"label" mapstructure:"label"`
+	UnassignedOnly bool          `yaml:"unassigned_only" mapstructure:"unassigned_only"` // Only claim unassigned beads
+	ExcludeLabels  []string      `yaml:"exclude_labels" mapstructure:"exclude_labels"`   // Labels to exclude from selection
 }
 
 // BackoffConfig holds exponential backoff settings for failed beads.

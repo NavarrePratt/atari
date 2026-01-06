@@ -70,6 +70,9 @@ func (m *Manager) Poll(ctx context.Context) ([]Bead, error) {
 	if m.config.WorkQueue.Label != "" {
 		args = append(args, "--label", m.config.WorkQueue.Label)
 	}
+	if m.config.WorkQueue.UnassignedOnly {
+		args = append(args, "--unassigned")
+	}
 
 	output, err := m.runner.Run(ctx, "bd", args...)
 	if err != nil {
@@ -134,7 +137,7 @@ func (m *Manager) Next(ctx context.Context) (*Bead, error) {
 	return &selected, nil
 }
 
-// filterEligible returns beads that are not completed, abandoned, or in backoff.
+// filterEligible returns beads that are not completed, abandoned, in backoff, or have excluded labels.
 func (m *Manager) filterEligible(beads []Bead) []Bead {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -145,6 +148,11 @@ func (m *Manager) filterEligible(beads []Bead) []Bead {
 	for _, bead := range beads {
 		// Skip epics - they are containers, not work items
 		if bead.IssueType == "epic" {
+			continue
+		}
+
+		// Skip beads with excluded labels
+		if m.hasExcludedLabel(bead.Labels) {
 			continue
 		}
 
@@ -196,6 +204,21 @@ func (m *Manager) calculateBackoff(attempts int) time.Duration {
 	}
 
 	return backoff
+}
+
+// hasExcludedLabel returns true if any of the bead's labels are in the exclude list.
+func (m *Manager) hasExcludedLabel(beadLabels []string) bool {
+	if len(m.config.WorkQueue.ExcludeLabels) == 0 {
+		return false
+	}
+	for _, beadLabel := range beadLabels {
+		for _, excludeLabel := range m.config.WorkQueue.ExcludeLabels {
+			if beadLabel == excludeLabel {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // RecordSuccess marks a bead as completed.

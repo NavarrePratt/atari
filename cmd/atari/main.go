@@ -287,6 +287,12 @@ Use --daemon to run in the background.`,
 			if cmd.Flags().Changed(FlagLabel) {
 				cfg.WorkQueue.Label = viper.GetString(FlagLabel)
 			}
+			if cmd.Flags().Changed(FlagUnassignedOnly) {
+				cfg.WorkQueue.UnassignedOnly = viper.GetBool(FlagUnassignedOnly)
+			}
+			if cmd.Flags().Changed(FlagExcludeLabels) {
+				cfg.WorkQueue.ExcludeLabels = viper.GetStringSlice(FlagExcludeLabels)
+			}
 			if cmd.Flags().Changed(FlagPrompt) {
 				cfg.PromptFile = viper.GetString(FlagPrompt)
 			}
@@ -545,6 +551,8 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().Bool(FlagTUI, false, "Enable terminal UI")
 	startCmd.Flags().Int(FlagMaxTurns, 0, "Max turns per Claude session (0 = unlimited)")
 	startCmd.Flags().String(FlagLabel, "", "Filter bd ready by label")
+	startCmd.Flags().Bool(FlagUnassignedOnly, false, "Only claim unassigned beads")
+	startCmd.Flags().StringSlice(FlagExcludeLabels, nil, "Labels to exclude from work selection (comma-separated)")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")
 	startCmd.Flags().String(FlagAgentID, "", "Agent bead ID for state reporting (e.g., bd-xxx)")
 	startCmd.Flags().Bool(FlagBDActivityEnabled, true, "Enable BD activity watcher")
