@@ -88,17 +88,59 @@ type FollowUpConfig struct {
 }
 
 // DefaultFollowUpPrompt is the prompt sent to follow-up sessions to verify and close beads.
-const DefaultFollowUpPrompt = `The previous session completed work on bead {{.BeadID}} ("{{.BeadTitle}}") but did not close it. Your ONLY task is to verify the work and close the bead.
+const DefaultFollowUpPrompt = `The previous session worked on bead {{.BeadID}} ("{{.BeadTitle}}") but did not close it.
 
-1. Run "bd show {{.BeadID}} --json" to check the current status and see what work was done
-2. Run "mise run lint" and "mise run test" to verify the work passes quality gates
-3. If tests pass: Close with "bd close {{.BeadID}} --reason \"Work completed and verified: <brief description>\""
-4. If tests fail: Reset to open with "bd update {{.BeadID}} --status open --notes \"Needs more work: <describe failures>\""
+## Your Task
+Verify the work and either close or reset the bead.
 
-CRITICAL: You must either close the bead OR reset it to open status before ending. Do NOT leave it in_progress.`
+## Steps
+
+### 1. Check Current State
+Run "bd show {{.BeadID}} --json" to see the description and what work was done.
+Review git status and recent commits to understand what changed.
+
+### 2. Run Verification
+Execute the verification commands listed in the bead's Verification section.
+
+### 3. Complete or Reset
+- If verification passes: "bd close {{.BeadID}} --reason 'Work completed and verified: <brief description>'"
+- If verification fails: "bd update {{.BeadID}} --status open --notes 'Needs more work: <describe failures>'"
+
+Either close the bead or reset it to open status. Do not leave it in_progress - this creates ambiguity about whether work is ongoing or abandoned.`
 
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
-const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. CRITICAL: When you have fully completed the work and verified it passes lint and tests, you MUST close the bead with "bd close <bead-id> --reason <description>" before ending your session - this is required for the work to be tracked as complete. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
+const DefaultPrompt = `You are an autonomous task-completion agent. Follow this workflow:
+
+## 1. Find Ready Work
+Run "bd ready --json" to get unblocked tasks. Select the highest-priority issue (P0 > P1 > P2).
+If no tasks are available, report that the queue is empty.
+
+## 2. Claim the Task
+Run "bd update <bead-id> --status in_progress" to claim it before starting work.
+Run "bd show <bead-id> --json" to read the full description and verification requirements.
+This prevents duplicate work if other agents are running.
+
+## 3. Execute the Task
+- Read the task description carefully
+- Use available tools and agents for investigation and implementation
+- Follow project documentation and existing patterns
+
+## 4. Verify the Work
+Run the verification commands listed in the bead's Verification section.
+All checks must pass before closing. If verification fails, fix the issues before proceeding.
+
+## 5. Track Discoveries
+If you find bugs, TODOs, or related work during implementation:
+- Create new issue with /bd-create or "bd create"
+- Link to current work: "bd dep add <new-id> <current-id> --type discovered-from"
+- Describe problems for investigation, not implementation instructions
+This maintains context and traceability for future work.
+
+## 6. Complete the Task
+Close the bead before ending your session:
+- Run "bd close <bead-id> --reason '<what was accomplished>'"
+- Use /commit for atomic commits
+Closing the bead marks the work as done and releases it from in_progress state.`
 
 // Default returns a Config with sensible defaults for Phase 1 MVP.
 func Default() *Config {
