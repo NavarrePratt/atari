@@ -326,26 +326,83 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 				TotalCostUSD: result.TotalCostUSD,
 			})
 		} else {
-			// Session completed but bead was not closed - treat as incomplete
-			c.logger.Warn("session completed but bead not closed",
+			// Session completed but bead was not closed - try follow-up session
+			c.logger.Warn("session completed but bead not closed, attempting follow-up",
 				"bead_id", bead.ID,
 				"duration", duration,
 			)
-			incompleteErr := fmt.Errorf("session completed but bead was not closed in bd")
-			c.workQueue.RecordFailure(bead.ID, incompleteErr)
 
-			// Accumulate total cost
-			c.totalCostUSD += result.TotalCostUSD
+			// Accumulate main session cost first
+			totalCost := result.TotalCostUSD
 
-			c.emit(&events.IterationEndEvent{
-				BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
-				BeadID:       bead.ID,
-				Success:      false,
-				NumTurns:     result.NumTurns,
-				DurationMs:   duration.Milliseconds(),
-				TotalCostUSD: result.TotalCostUSD,
-				Error:        incompleteErr.Error(),
-			})
+			// Run follow-up session to verify and close
+			followUpClosed, followUpResult, followUpErr := c.runFollowUpSession(bead)
+
+			if followUpResult != nil {
+				totalCost += followUpResult.TotalCostUSD
+			}
+			c.totalCostUSD += totalCost
+
+			if followUpClosed {
+				// Follow-up successfully closed the bead
+				c.logger.Info("follow-up session closed bead",
+					"bead_id", bead.ID,
+					"total_duration", duration,
+				)
+				c.workQueue.RecordSuccess(bead.ID)
+
+				c.emit(&events.IterationEndEvent{
+					BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+					BeadID:       bead.ID,
+					Success:      true,
+					NumTurns:     result.NumTurns + followUpResult.NumTurns,
+					DurationMs:   duration.Milliseconds(),
+					TotalCostUSD: totalCost,
+				})
+			} else if followUpErr == nil && c.getBeadStatus(bead.ID) == "open" {
+				// Follow-up reset to open (acceptable outcome - not stuck)
+				c.logger.Info("follow-up reset bead to open for retry",
+					"bead_id", bead.ID,
+				)
+				incompleteErr := fmt.Errorf("bead reset to open for retry")
+				c.workQueue.RecordFailure(bead.ID, incompleteErr)
+
+				c.emit(&events.IterationEndEvent{
+					BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+					BeadID:       bead.ID,
+					Success:      false,
+					NumTurns:     result.NumTurns + followUpResult.NumTurns,
+					DurationMs:   duration.Milliseconds(),
+					TotalCostUSD: totalCost,
+					Error:        incompleteErr.Error(),
+				})
+			} else {
+				// Follow-up failed or bead still stuck - reset to open as last resort
+				resetNotes := "Atari: main session and follow-up both failed to close bead. Resetting to open for manual review or retry."
+				if followUpErr != nil {
+					resetNotes = fmt.Sprintf("Atari: follow-up session error: %v. Resetting to open.", followUpErr)
+				}
+
+				if resetErr := c.resetBeadToOpen(bead.ID, resetNotes); resetErr != nil {
+					c.logger.Error("failed to reset bead to open",
+						"bead_id", bead.ID,
+						"error", resetErr,
+					)
+				}
+
+				incompleteErr := fmt.Errorf("session and follow-up both failed to close bead")
+				c.workQueue.RecordFailure(bead.ID, incompleteErr)
+
+				c.emit(&events.IterationEndEvent{
+					BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+					BeadID:       bead.ID,
+					Success:      false,
+					NumTurns:     result.NumTurns,
+					DurationMs:   duration.Milliseconds(),
+					TotalCostUSD: totalCost,
+					Error:        incompleteErr.Error(),
+				})
+			}
 		}
 	}
 
@@ -811,4 +868,134 @@ func (c *Controller) sleep(d time.Duration) {
 	case <-time.After(d):
 	case <-c.ctx.Done():
 	}
+}
+
+// runFollowUpSession runs a minimal session to verify and close an unclosed bead.
+// Returns true if the bead was closed, false otherwise.
+func (c *Controller) runFollowUpSession(bead *workqueue.Bead) (bool, *SessionResult, error) {
+	if !c.config.FollowUp.Enabled {
+		return false, nil, nil
+	}
+
+	c.logger.Info("running follow-up session",
+		"bead_id", bead.ID,
+		"max_turns", c.config.FollowUp.MaxTurns,
+	)
+
+	// Create follow-up session with reduced max turns
+	followUpConfig := *c.config
+	followUpConfig.Claude.MaxTurns = c.config.FollowUp.MaxTurns
+
+	sess := session.New(&followUpConfig, c.router)
+
+	// Expand follow-up prompt with bead context
+	vars := config.PromptVars{
+		BeadID:          bead.ID,
+		BeadTitle:       bead.Title,
+		BeadDescription: bead.Description,
+		Label:           c.config.WorkQueue.Label,
+	}
+	prompt := config.ExpandPrompt(config.DefaultFollowUpPrompt, vars)
+
+	c.emit(&events.SessionStartEvent{
+		BaseEvent: events.NewInternalEvent(events.EventSessionStart),
+		BeadID:    bead.ID,
+		Title:     bead.Title + " (follow-up)",
+	})
+
+	// Acquire session broker if configured
+	if c.broker != nil {
+		if err := c.broker.Acquire(c.ctx, "follow-up", 30*time.Second); err != nil {
+			return false, nil, fmt.Errorf("acquire session broker: %w", err)
+		}
+		defer c.broker.Release()
+	}
+
+	if err := sess.Start(c.ctx, prompt); err != nil {
+		return false, nil, fmt.Errorf("start follow-up session: %w", err)
+	}
+
+	// Parse stream
+	parser := session.NewParser(sess.Stdout(), c.router, sess)
+
+	parseDone := make(chan error, 1)
+	go func() {
+		parseDone <- parser.Parse()
+	}()
+
+	// Wait for session to complete
+	waitErr := sess.Wait()
+	<-parseDone
+
+	if waitErr != nil {
+		stderr := sess.Stderr()
+		if stderr != "" {
+			return false, nil, fmt.Errorf("follow-up session error: %w\nstderr: %s", waitErr, stderr)
+		}
+		return false, nil, fmt.Errorf("follow-up session error: %w", waitErr)
+	}
+
+	// Get session result
+	result := &SessionResult{}
+	if parserResult := parser.Result(); parserResult != nil {
+		result.NumTurns = parserResult.NumTurns
+		result.TotalCostUSD = parserResult.TotalCostUSD
+	}
+
+	// Check if follow-up closed the bead
+	closed := c.isBeadClosed(bead.ID)
+
+	// Also check if it was reset to open (which is acceptable)
+	if !closed {
+		status := c.getBeadStatus(bead.ID)
+		if status == "open" {
+			c.logger.Info("follow-up reset bead to open", "bead_id", bead.ID)
+			// Bead reset to open is success for follow-up (not stuck anymore)
+			return false, result, nil
+		}
+	}
+
+	return closed, result, nil
+}
+
+// resetBeadToOpen resets a stuck bead from in_progress to open status.
+func (c *Controller) resetBeadToOpen(beadID, notes string) error {
+	if c.runner == nil {
+		return fmt.Errorf("no command runner available")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := c.runner.Run(ctx, "bd", "update", beadID, "--status", "open", "--notes", notes)
+	if err != nil {
+		return fmt.Errorf("reset bead status: %w", err)
+	}
+
+	c.logger.Info("reset bead to open", "bead_id", beadID, "notes", notes)
+	return nil
+}
+
+// getBeadStatus returns the current status of a bead.
+func (c *Controller) getBeadStatus(beadID string) string {
+	if c.runner == nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	output, err := c.runner.Run(ctx, "bd", "show", beadID, "--json")
+	if err != nil {
+		return ""
+	}
+
+	var beads []struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(output, &beads); err != nil || len(beads) == 0 {
+		return ""
+	}
+
+	return beads[0].Status
 }

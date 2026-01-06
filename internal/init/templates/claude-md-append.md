@@ -50,6 +50,15 @@ Track all work with `bd`. Create issues for test failures and bugs. Record metic
 
 **Completion**: File remaining work as issues. Close completed issues. Push to remote.
 
+## CRITICAL: Bead Closure
+
+**You MUST close or reset beads before ending your session.** Beads left in_progress get stuck forever.
+
+- Work complete: `bd close bd-xxx --reason "Completed: ..."`
+- Work incomplete: `bd update bd-xxx --status open --notes "Needs: ..."`
+
+Never leave beads in_progress.
+
 ## Quality Gates
 
 Before committing:

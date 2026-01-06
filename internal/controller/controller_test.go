@@ -623,3 +623,247 @@ func TestControllerAgentStateReporting(t *testing.T) {
 		}
 	})
 }
+
+func TestControllerResetBeadToOpen(t *testing.T) {
+	t.Run("calls bd update with correct args", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"update", "test-bead", "--status", "open", "--notes", "test notes"}, []byte(""))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		err := c.resetBeadToOpen("test-bead", "test notes")
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify the command was called
+		calls := runner.GetCalls()
+		found := false
+		for _, call := range calls {
+			if call.Name == "bd" && len(call.Args) >= 5 &&
+				call.Args[0] == "update" &&
+				call.Args[1] == "test-bead" &&
+				call.Args[2] == "--status" &&
+				call.Args[3] == "open" &&
+				call.Args[4] == "--notes" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("expected bd update command to be called")
+		}
+	})
+
+	t.Run("handles command error", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetError("bd", []string{"update", "test-bead", "--status", "open", "--notes", "test notes"}, errors.New("bd unavailable"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		err := c.resetBeadToOpen("test-bead", "test notes")
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+	})
+
+	t.Run("requires command runner", func(t *testing.T) {
+		cfg := testConfig()
+		wq := workqueue.New(cfg, nil)
+		c := New(cfg, wq, nil, nil, nil, nil)
+
+		err := c.resetBeadToOpen("test-bead", "test notes")
+		if err == nil {
+			t.Error("expected error when runner is nil")
+		}
+	})
+}
+
+func TestControllerGetBeadStatus(t *testing.T) {
+	t.Run("returns status from JSON response", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte(`[{"status":"open"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		status := c.getBeadStatus("test-bead")
+		if status != "open" {
+			t.Errorf("expected status 'open', got '%s'", status)
+		}
+	})
+
+	t.Run("returns closed status", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte(`[{"status":"closed"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		status := c.getBeadStatus("test-bead")
+		if status != "closed" {
+			t.Errorf("expected status 'closed', got '%s'", status)
+		}
+	})
+
+	t.Run("returns empty string on error", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetError("bd", []string{"show", "test-bead", "--json"}, errors.New("bd unavailable"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		status := c.getBeadStatus("test-bead")
+		if status != "" {
+			t.Errorf("expected empty status, got '%s'", status)
+		}
+	})
+
+	t.Run("returns empty string for invalid JSON", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte("not json"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		status := c.getBeadStatus("test-bead")
+		if status != "" {
+			t.Errorf("expected empty status, got '%s'", status)
+		}
+	})
+
+	t.Run("returns empty string for empty array", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		status := c.getBeadStatus("test-bead")
+		if status != "" {
+			t.Errorf("expected empty status, got '%s'", status)
+		}
+	})
+
+	t.Run("requires command runner", func(t *testing.T) {
+		cfg := testConfig()
+		wq := workqueue.New(cfg, nil)
+		c := New(cfg, wq, nil, nil, nil, nil)
+
+		status := c.getBeadStatus("test-bead")
+		if status != "" {
+			t.Errorf("expected empty status when runner is nil, got '%s'", status)
+		}
+	})
+}
+
+func TestControllerFollowUpConfig(t *testing.T) {
+	t.Run("default config has follow-up enabled", func(t *testing.T) {
+		cfg := config.Default()
+		if !cfg.FollowUp.Enabled {
+			t.Error("expected FollowUp.Enabled to be true by default")
+		}
+		if cfg.FollowUp.MaxTurns != 5 {
+			t.Errorf("expected FollowUp.MaxTurns to be 5, got %d", cfg.FollowUp.MaxTurns)
+		}
+	})
+
+	t.Run("follow-up disabled returns early", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.FollowUp.Enabled = false
+
+		runner := testutil.NewMockRunner()
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		bead := &workqueue.Bead{ID: "test-bead", Title: "Test"}
+		closed, result, err := c.runFollowUpSession(bead)
+
+		if closed {
+			t.Error("expected closed to be false when follow-up is disabled")
+		}
+		if result != nil {
+			t.Error("expected result to be nil when follow-up is disabled")
+		}
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+	})
+}
+
+func TestControllerIsBeadClosed(t *testing.T) {
+	t.Run("returns true for closed status", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte(`[{"status":"closed"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		if !c.isBeadClosed("test-bead") {
+			t.Error("expected isBeadClosed to return true for closed status")
+		}
+	})
+
+	t.Run("returns true for completed status", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte(`[{"status":"completed"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		if !c.isBeadClosed("test-bead") {
+			t.Error("expected isBeadClosed to return true for completed status")
+		}
+	})
+
+	t.Run("returns false for open status", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte(`[{"status":"open"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		if c.isBeadClosed("test-bead") {
+			t.Error("expected isBeadClosed to return false for open status")
+		}
+	})
+
+	t.Run("returns false for in_progress status", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("bd", []string{"show", "test-bead", "--json"}, []byte(`[{"status":"in_progress"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		if c.isBeadClosed("test-bead") {
+			t.Error("expected isBeadClosed to return false for in_progress status")
+		}
+	})
+
+	t.Run("returns false on error", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		runner.SetError("bd", []string{"show", "test-bead", "--json"}, errors.New("bd unavailable"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		if c.isBeadClosed("test-bead") {
+			t.Error("expected isBeadClosed to return false on error")
+		}
+	})
+}

@@ -13,6 +13,7 @@ type Config struct {
 	LogRotation LogRotationConfig `yaml:"log_rotation" mapstructure:"log_rotation"`
 	Observer    ObserverConfig    `yaml:"observer" mapstructure:"observer"`
 	Graph       GraphConfig       `yaml:"graph" mapstructure:"graph"`
+	FollowUp    FollowUpConfig    `yaml:"follow_up" mapstructure:"follow_up"`
 	Prompt      string            `yaml:"prompt" mapstructure:"prompt"`
 	PromptFile  string            `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
 	AgentID     string            `yaml:"agent_id" mapstructure:"agent_id"`       // Bead ID for agent state reporting (empty = disabled)
@@ -80,6 +81,22 @@ type GraphConfig struct {
 	AutoRefreshInterval time.Duration `yaml:"auto_refresh_interval" mapstructure:"auto_refresh_interval"` // Interval for auto-refresh (0 = disabled, min 1s)
 }
 
+// FollowUpConfig holds settings for follow-up sessions when beads are not closed.
+type FollowUpConfig struct {
+	Enabled  bool `yaml:"enabled" mapstructure:"enabled"`     // Enable follow-up sessions (default: true)
+	MaxTurns int  `yaml:"max_turns" mapstructure:"max_turns"` // Max turns for follow-up session (default: 5)
+}
+
+// DefaultFollowUpPrompt is the prompt sent to follow-up sessions to verify and close beads.
+const DefaultFollowUpPrompt = `The previous session completed work on bead {{.BeadID}} ("{{.BeadTitle}}") but did not close it. Your ONLY task is to verify the work and close the bead.
+
+1. Run "bd show {{.BeadID}} --json" to check the current status and see what work was done
+2. Run "mise run lint" and "mise run test" to verify the work passes quality gates
+3. If tests pass: Close with "bd close {{.BeadID}} --reason \"Work completed and verified: <brief description>\""
+4. If tests fail: Reset to open with "bd update {{.BeadID}} --status open --notes \"Needs more work: <describe failures>\""
+
+CRITICAL: You must either close the bead OR reset it to open status before ending. Do NOT leave it in_progress.`
+
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
 const DefaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. CRITICAL: When you have fully completed the work and verified it passes lint and tests, you MUST close the bead with "bd close <bead-id> --reason <description>" before ending your session - this is required for the work to be tracked as complete. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found - describe the problem for investigation, not as implementation instructions. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
 
@@ -130,6 +147,10 @@ func Default() *Config {
 			Density:             "standard",
 			RefreshOnEvent:      false,
 			AutoRefreshInterval: 5 * time.Second,
+		},
+		FollowUp: FollowUpConfig{
+			Enabled:  true,
+			MaxTurns: 5,
 		},
 		Prompt: DefaultPrompt,
 	}
