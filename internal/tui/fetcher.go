@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/npratt/atari/internal/testutil"
 )
@@ -14,6 +15,8 @@ type BeadFetcher interface {
 	FetchActive(ctx context.Context) ([]GraphBead, error)
 	// FetchBacklog retrieves beads with deferred status.
 	FetchBacklog(ctx context.Context) ([]GraphBead, error)
+	// FetchClosed retrieves beads closed within the last 7 days.
+	FetchClosed(ctx context.Context) ([]GraphBead, error)
 	// FetchBead retrieves full details for a single bead by ID.
 	FetchBead(ctx context.Context, id string) (*GraphBead, error)
 }
@@ -59,6 +62,24 @@ func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 	}
 
 	beads = filterByStatus(beads, "deferred")
+	return filterOutAgentBeads(beads), nil
+}
+
+// FetchClosed retrieves beads closed within the last 7 days.
+// Agent beads are filtered out as they are internal tracking beads.
+func (f *BDFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
+	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json")
+	if err != nil {
+		return nil, fmt.Errorf("bd list closed failed: %w", err)
+	}
+
+	beads, err := parseBeads(output)
+	if err != nil {
+		return nil, err
+	}
+
+	beads = filterByStatus(beads, "closed")
+	beads = filterClosedWithinDays(beads, 7)
 	return filterOutAgentBeads(beads), nil
 }
 
@@ -142,6 +163,50 @@ func filterOutAgentBeads(beads []GraphBead) []GraphBead {
 	}
 
 	return result
+}
+
+// filterClosedWithinDays returns beads whose ClosedAt timestamp is within the last N days.
+func filterClosedWithinDays(beads []GraphBead, days int) []GraphBead {
+	if len(beads) == 0 {
+		return nil
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -days)
+	result := make([]GraphBead, 0, len(beads))
+
+	for _, b := range beads {
+		if b.ClosedAt == "" {
+			continue
+		}
+		// Try parsing common timestamp formats
+		closedTime, err := parseTimestamp(b.ClosedAt)
+		if err != nil {
+			continue
+		}
+		if closedTime.After(cutoff) {
+			result = append(result, b)
+		}
+	}
+
+	return result
+}
+
+// parseTimestamp parses a timestamp string in common formats.
+func parseTimestamp(s string) (time.Time, error) {
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", s)
 }
 
 // ToNodesAndEdges converts a slice of GraphBeads to nodes and edges.
