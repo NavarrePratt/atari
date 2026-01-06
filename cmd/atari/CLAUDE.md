@@ -13,6 +13,7 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 | `resume` | Implemented | Resume from paused state |
 | `stop` | Implemented | Stop the daemon |
 | `events` | Implemented | View recent events |
+| `init` | Implemented | Initialize Claude Code configuration for atari |
 
 ## Global Flags
 
@@ -46,6 +47,15 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 |------|---------|-------------|
 | `--follow` | false | Follow event stream (like tail -f) |
 | `--count` | 20 | Number of recent events to show |
+
+## Init Command Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | false | Show what would be changed without making changes |
+| `--force` | false | Overwrite existing files (creates timestamped backups) |
+| `--minimal` | false | Install only essential rules |
+| `--global` | false | Install to ~/.claude/ instead of ./.claude/ |
 
 ## Configuration Binding
 

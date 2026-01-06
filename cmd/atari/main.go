@@ -708,7 +708,7 @@ Use --daemon to run in the background.`,
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize Claude Code configuration for atari",
-		Long: `Initialize Claude Code with rules, skills, and settings
+		Long: `Initialize Claude Code with rules, skills, and commands
 for use with atari and the bd issue tracking system.
 
 Creates the following structure:
@@ -718,6 +718,10 @@ Creates the following structure:
       session-protocol.md (unless --minimal)
     skills/
       bd-issue-tracking.md (unless --minimal)
+    commands/
+      bd-create.md (unless --minimal)
+      bd-plan.md (unless --minimal)
+      bd-plan-ultra.md (unless --minimal)
     CLAUDE.md (appended, not overwritten)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := initcmd.Options{
