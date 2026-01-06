@@ -146,8 +146,9 @@ func createMockClaude(path string) error {
 # Mock claude for integration testing
 # Reads prompt from stdin and outputs stream-json
 
-# Read prompt (discard it)
-cat > /dev/null
+# Read prompt with timeout (stdin may be kept open for wrap-up injection)
+# Use timeout to avoid blocking indefinitely
+timeout 0.1 cat > /dev/null 2>&1 || true
 
 # Check for MOCK_CLAUDE_FAIL environment variable
 if [ "$MOCK_CLAUDE_FAIL" = "1" ]; then
@@ -178,7 +179,8 @@ exit 0
 func createFailingMockClaude(path string) error {
 	script := `#!/bin/bash
 # Mock claude that fails
-cat > /dev/null
+# Read prompt with timeout (stdin may be kept open for wrap-up injection)
+timeout 0.1 cat > /dev/null 2>&1 || true
 echo '{"type":"system","subtype":"init","session_id":"fail-001","cwd":"/workspace","tools":[]}'
 sleep 0.01
 echo '{"type":"result","subtype":"error_tool_use","error":"simulated failure"}'

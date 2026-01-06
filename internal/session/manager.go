@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,9 +74,11 @@ type Manager struct {
 	events         *events.Router
 	cmd            *exec.Cmd
 	stdout         io.ReadCloser
+	stdin          io.WriteCloser   // stdin pipe for prompt injection
 	stderr         *LimitedWriter
 	lastActive     atomic.Value // time.Time
 	pauseRequested atomic.Bool  // graceful pause requested
+	wrapUpSent     atomic.Bool  // wrap-up prompt has been sent
 	done           chan struct{}
 	mu             sync.Mutex
 	started        bool
@@ -96,7 +97,7 @@ func New(cfg *config.Config, router *events.Router) *Manager {
 }
 
 // Start spawns the claude process with stream-json output format.
-// The prompt is provided via stdin.
+// The prompt is provided via stdin. Stdin remains open for prompt injection.
 func (m *Manager) Start(ctx context.Context, prompt string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -112,9 +113,14 @@ func (m *Manager) Start(ctx context.Context, prompt string) error {
 	args = append(args, m.config.Claude.ExtraArgs...)
 
 	m.cmd = exec.CommandContext(ctx, "claude", args...)
-	m.cmd.Stdin = strings.NewReader(prompt)
 
+	// Use pipe for stdin to allow prompt injection
 	var err error
+	m.stdin, err = m.cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+
 	m.stdout, err = m.cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("stdout pipe: %w", err)
@@ -123,6 +129,12 @@ func (m *Manager) Start(ctx context.Context, prompt string) error {
 
 	if err := m.cmd.Start(); err != nil {
 		return fmt.Errorf("start claude: %w", err)
+	}
+
+	// Write initial prompt to stdin
+	if _, err := m.stdin.Write([]byte(prompt)); err != nil {
+		_ = m.cmd.Process.Kill()
+		return fmt.Errorf("write prompt: %w", err)
 	}
 
 	m.started = true
@@ -240,4 +252,51 @@ func (m *Manager) RequestPause() {
 // PauseRequested returns true if a graceful pause has been requested.
 func (m *Manager) PauseRequested() bool {
 	return m.pauseRequested.Load()
+}
+
+// SendWrapUp injects a wrap-up prompt and closes stdin to signal session end.
+// This gives Claude a chance to save progress before the session terminates.
+// Returns an error if stdin is not available or already closed.
+func (m *Manager) SendWrapUp(prompt string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.stdin == nil {
+		return fmt.Errorf("stdin not available")
+	}
+
+	if m.wrapUpSent.Load() {
+		return fmt.Errorf("wrap-up already sent")
+	}
+
+	// Write wrap-up prompt
+	if _, err := m.stdin.Write([]byte("\n" + prompt + "\n")); err != nil {
+		return fmt.Errorf("write wrap-up prompt: %w", err)
+	}
+
+	// Close stdin to signal EOF - Claude will finish processing and exit
+	if err := m.stdin.Close(); err != nil {
+		return fmt.Errorf("close stdin: %w", err)
+	}
+
+	m.wrapUpSent.Store(true)
+	return nil
+}
+
+// WrapUpSent returns true if a wrap-up prompt has been sent.
+func (m *Manager) WrapUpSent() bool {
+	return m.wrapUpSent.Load()
+}
+
+// CloseStdin closes stdin without sending a wrap-up prompt.
+// This is used for normal session completion.
+func (m *Manager) CloseStdin() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.stdin == nil {
+		return nil
+	}
+
+	return m.stdin.Close()
 }
