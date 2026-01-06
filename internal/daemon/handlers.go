@@ -54,13 +54,13 @@ func (d *Daemon) handleStatus() Response {
 	}
 }
 
-// handlePause requests the controller to pause.
+// handlePause requests the controller to pause at the next turn boundary.
 func (d *Daemon) handlePause() Response {
 	if d.controller == nil {
 		return Response{Error: "no controller available"}
 	}
 
-	d.controller.Pause()
+	d.controller.GracefulPause()
 	return Response{Result: "pausing"}
 }
 

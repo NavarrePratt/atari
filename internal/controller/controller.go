@@ -190,6 +190,11 @@ func (c *Controller) runIdle() {
 		c.setState(StatePaused)
 		c.logger.Info("paused while idle")
 		return
+	case <-c.gracefulPauseSignal:
+		// When idle, graceful pause acts like regular pause
+		c.setState(StatePaused)
+		c.logger.Info("paused while idle (graceful)")
+		return
 	case <-c.stopSignal:
 		c.setState(StateStopping)
 		return
@@ -414,6 +419,11 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 	case <-c.pauseSignal:
 		c.setState(StatePaused)
 		c.logger.Info("paused after iteration")
+		return
+	case <-c.gracefulPauseSignal:
+		// Graceful pause was requested but session ended naturally
+		c.setState(StatePaused)
+		c.logger.Info("paused after iteration (graceful)")
 		return
 	default:
 		c.setState(StateIdle)

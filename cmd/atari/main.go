@@ -473,7 +473,7 @@ Use --daemon to run in the background.`,
 
 				// Create TUI with callbacks and observer
 				tuiApp := tui.New(tuiEvents,
-					tui.WithOnPause(ctrl.Pause),
+					tui.WithOnPause(ctrl.GracefulPause),
 					tui.WithOnResume(ctrl.Resume),
 					tui.WithOnQuit(ctrl.Stop),
 					tui.WithStatsGetter(ctrl),
