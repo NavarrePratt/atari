@@ -53,9 +53,24 @@ result, err := initcmd.Run(opts)
 ## Behavior
 
 - Creates directories as needed
-- CLAUDE.md is always appended, never replaced
 - Compares content of existing files to detect actual changes
 - Unchanged files show "Already up to date" and don't require --force
 - Files with changes show unified diff and require --force to overwrite
 - With --force, directly overwrites changed files (no backup files)
 - With --global, shows tip about backing up ~/.claude with git
+
+### CLAUDE.md Managed Section
+
+CLAUDE.md uses a managed section approach with XML-style markers:
+```markdown
+<atari-managed>
+# BD Integration
+...content...
+</atari-managed>
+```
+
+Behavior:
+- If markers exist: replaces content between them (idempotent)
+- If no markers: appends the managed section to existing content
+- User content before/after markers is preserved
+- Running init twice produces identical results (no duplication)

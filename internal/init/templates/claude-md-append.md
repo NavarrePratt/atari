@@ -1,3 +1,4 @@
+<atari-managed>
 # BD Integration
 
 Use the bd CLI to track work across sessions.
@@ -56,3 +57,4 @@ Before committing:
 - All tests pass
 - No hardcoded secrets
 - Changes are minimal and focused
+</atari-managed>

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Options configures the init command behavior.
@@ -181,12 +182,33 @@ func showDryRun(w io.Writer, targetDir string, files []InstallFile, statuses []F
 		path := filepath.Join(targetDir, f.Path)
 
 		if f.IsAppend {
-			_, _ = fmt.Fprintf(w, "Would append to: %s\n", path)
-			_, _ = fmt.Fprintln(w, "--- BEGIN APPEND ---")
-			_, _ = fmt.Fprintln(w, f.Content)
-			_, _ = fmt.Fprintln(w, "--- END APPEND ---")
-			_, _ = fmt.Fprintln(w)
-			result.Appended = append(result.Appended, f.Path)
+			// Read existing content to check managed section status
+			existingContent := ""
+			if data, err := os.ReadFile(path); err == nil {
+				existingContent = string(data)
+			}
+
+			if hasManagedSection(existingContent) {
+				// Check if content is identical
+				beginIdx := strings.Index(existingContent, managedSectionBegin)
+				endIdx := strings.Index(existingContent, managedSectionEnd)
+				currentSection := existingContent[beginIdx : endIdx+len(managedSectionEnd)]
+
+				// Trim trailing whitespace for comparison since file may have different line endings
+				if strings.TrimSpace(currentSection) == strings.TrimSpace(f.Content) {
+					_, _ = fmt.Fprintf(w, "Already up to date: %s\n", path)
+					result.Unchanged = append(result.Unchanged, f.Path)
+				} else {
+					_, _ = fmt.Fprintf(w, "Would update managed section: %s\n", path)
+					result.Appended = append(result.Appended, f.Path)
+				}
+			} else if existingContent != "" {
+				_, _ = fmt.Fprintf(w, "Would append to: %s\n", path)
+				result.Appended = append(result.Appended, f.Path)
+			} else {
+				_, _ = fmt.Fprintf(w, "Would create: %s\n", path)
+				result.Created = append(result.Created, f.Path)
+			}
 			continue
 		}
 
@@ -275,8 +297,33 @@ func installFiles(w io.Writer, targetDir string, files []InstallFile, statuses [
 		}
 	}
 
-	// If all files are unchanged, just report that
-	if allUnchanged && len(statuses) > 0 {
+	// Also check if IsAppend files (CLAUDE.md) are unchanged
+	appendFilesUnchanged := true
+	for _, f := range files {
+		if f.IsAppend {
+			path := filepath.Join(targetDir, f.Path)
+			if data, err := os.ReadFile(path); err == nil {
+				existingContent := string(data)
+				if hasManagedSection(existingContent) {
+					beginIdx := strings.Index(existingContent, managedSectionBegin)
+					endIdx := strings.Index(existingContent, managedSectionEnd)
+					currentSection := existingContent[beginIdx : endIdx+len(managedSectionEnd)]
+					if strings.TrimSpace(currentSection) != strings.TrimSpace(f.Content) {
+						appendFilesUnchanged = false
+					}
+				} else {
+					// No managed section yet, so it needs to be added
+					appendFilesUnchanged = false
+				}
+			} else {
+				// File doesn't exist, needs to be created
+				appendFilesUnchanged = false
+			}
+		}
+	}
+
+	// If all files are unchanged (including append files), just report that
+	if allUnchanged && appendFilesUnchanged && len(statuses) > 0 {
 		hasExisting := false
 		for _, s := range statuses {
 			if s.Exists {
@@ -303,6 +350,13 @@ func installFiles(w io.Writer, targetDir string, files []InstallFile, statuses [
 						result.Unchanged = append(result.Unchanged, s.Path)
 					}
 				}
+				// Also report unchanged append files
+				for _, f := range files {
+					if f.IsAppend {
+						_, _ = fmt.Fprintf(w, "  %s\n", filepath.Join(targetDir, f.Path))
+						result.Unchanged = append(result.Unchanged, f.Path)
+					}
+				}
 				_, _ = fmt.Fprintln(w)
 				_, _ = fmt.Fprintln(w, "Claude Code configuration is already up to date.")
 				return result, nil
@@ -324,25 +378,44 @@ func installFiles(w io.Writer, targetDir string, files []InstallFile, statuses [
 		exists := statErr == nil
 
 		if f.IsAppend {
-			file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				return result, fmt.Errorf("open %s: %w", path, err)
+			var existingContent string
+			if exists {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return result, fmt.Errorf("read %s: %w", path, err)
+				}
+				existingContent = string(data)
 			}
 
-			// Add separator if file has content
-			if exists {
-				info, _ := file.Stat()
-				if info.Size() > 0 {
-					_, _ = file.WriteString("\n\n")
+			// Check if managed section already exists with identical content
+			if hasManagedSection(existingContent) {
+				// Extract current managed section content for comparison
+				beginIdx := strings.Index(existingContent, managedSectionBegin)
+				endIdx := strings.Index(existingContent, managedSectionEnd)
+				currentSection := existingContent[beginIdx : endIdx+len(managedSectionEnd)]
+
+				// Trim trailing whitespace for comparison since file may have different line endings
+				if strings.TrimSpace(currentSection) == strings.TrimSpace(f.Content) {
+					_, _ = fmt.Fprintf(w, "Already up to date: %s\n", path)
+					result.Unchanged = append(result.Unchanged, f.Path)
+					continue
 				}
 			}
 
-			_, err = file.WriteString(f.Content)
-			_ = file.Close()
-			if err != nil {
+			// Use handleManagedSection to insert or replace
+			newContent := handleManagedSection(existingContent, f.Content)
+
+			if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
 				return result, fmt.Errorf("write %s: %w", path, err)
 			}
-			_, _ = fmt.Fprintf(w, "Appended: %s\n", path)
+
+			if hasManagedSection(existingContent) {
+				_, _ = fmt.Fprintf(w, "Updated: %s\n", path)
+			} else if exists {
+				_, _ = fmt.Fprintf(w, "Appended: %s\n", path)
+			} else {
+				_, _ = fmt.Fprintf(w, "Created: %s\n", path)
+			}
 			result.Appended = append(result.Appended, f.Path)
 			continue
 		}
@@ -387,4 +460,47 @@ func installFiles(w io.Writer, targetDir string, files []InstallFile, statuses [
 	_, _ = fmt.Fprintln(w, "You can now use 'atari start' to begin processing beads.")
 
 	return result, nil
+}
+
+const (
+	managedSectionBegin = "<atari-managed>"
+	managedSectionEnd   = "</atari-managed>"
+)
+
+// handleManagedSection handles inserting or replacing managed section content.
+// If the managed section markers exist, replaces the content between them.
+// Otherwise, appends the new section to the end of the content.
+func handleManagedSection(existingContent, newSection string) string {
+	beginIdx := strings.Index(existingContent, managedSectionBegin)
+	endIdx := strings.Index(existingContent, managedSectionEnd)
+
+	if beginIdx >= 0 && endIdx > beginIdx {
+		// Replace existing section
+		before := existingContent[:beginIdx]
+		after := existingContent[endIdx+len(managedSectionEnd):]
+		before = strings.TrimRight(before, "\n")
+		after = strings.TrimLeft(after, "\n")
+
+		if before == "" {
+			if after == "" {
+				return newSection
+			}
+			return newSection + "\n\n" + after
+		}
+		if after == "" {
+			return before + "\n\n" + newSection
+		}
+		return before + "\n\n" + newSection + "\n\n" + after
+	}
+
+	// Append new section
+	if len(existingContent) > 0 {
+		return strings.TrimRight(existingContent, "\n") + "\n\n" + newSection
+	}
+	return newSection
+}
+
+// hasManagedSection checks if the content contains atari managed section markers.
+func hasManagedSection(content string) bool {
+	return strings.Contains(content, managedSectionBegin) && strings.Contains(content, managedSectionEnd)
 }

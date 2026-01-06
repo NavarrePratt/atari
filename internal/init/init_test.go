@@ -438,3 +438,188 @@ func TestRun_GitRecommendationForGlobal(t *testing.T) {
 		t.Error("local install should not show git backup tip")
 	}
 }
+
+func TestRun_IdempotentManagedSection(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	// First run - creates CLAUDE.md with managed section
+	var buf1 bytes.Buffer
+	opts := Options{Writer: &buf1}
+	_, err := Run(opts)
+	if err != nil {
+		t.Fatalf("first run failed: %v", err)
+	}
+
+	// Read content after first run
+	content1, _ := os.ReadFile(".claude/CLAUDE.md")
+
+	// Second run - should be idempotent
+	var buf2 bytes.Buffer
+	opts.Writer = &buf2
+	result, err := Run(opts)
+	if err != nil {
+		t.Fatalf("second run failed: %v", err)
+	}
+
+	// Read content after second run
+	content2, _ := os.ReadFile(".claude/CLAUDE.md")
+
+	// Content should be identical
+	if string(content1) != string(content2) {
+		t.Error("running init twice should produce identical CLAUDE.md content")
+	}
+
+	// Should show as unchanged
+	output := buf2.String()
+	if !strings.Contains(output, "Already up to date") {
+		t.Errorf("expected 'Already up to date' for CLAUDE.md, got: %s", output)
+	}
+
+	// CLAUDE.md should be in unchanged list
+	found := false
+	for _, f := range result.Unchanged {
+		if f == "CLAUDE.md" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("CLAUDE.md should be in unchanged list on second run")
+	}
+}
+
+func TestRun_PreservesUserContentOutsideMarkers(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	// Create .claude directory with existing CLAUDE.md that has user content + managed section
+	if err := os.MkdirAll(".claude", 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	existingContent := `# My Custom Config
+
+Some user content that should be preserved.
+
+<atari-managed>
+# Old BD Integration
+Old content here.
+</atari-managed>
+
+# More User Content
+
+This should also be preserved.
+`
+	if err := os.WriteFile(".claude/CLAUDE.md", []byte(existingContent), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	var buf bytes.Buffer
+	opts := Options{Writer: &buf}
+	_, err := Run(opts)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	// Read updated content
+	content, _ := os.ReadFile(".claude/CLAUDE.md")
+	contentStr := string(content)
+
+	// User content before managed section should be preserved
+	if !strings.Contains(contentStr, "My Custom Config") {
+		t.Error("user content before managed section should be preserved")
+	}
+	if !strings.Contains(contentStr, "Some user content") {
+		t.Error("user content before managed section should be preserved")
+	}
+
+	// User content after managed section should be preserved
+	if !strings.Contains(contentStr, "More User Content") {
+		t.Error("user content after managed section should be preserved")
+	}
+	if !strings.Contains(contentStr, "This should also be preserved") {
+		t.Error("user content after managed section should be preserved")
+	}
+
+	// Managed section should be updated
+	if !strings.Contains(contentStr, "<atari-managed>") {
+		t.Error("managed section markers should exist")
+	}
+	if !strings.Contains(contentStr, "BD Integration") {
+		t.Error("managed section should contain new content")
+	}
+
+	// Old content should be replaced
+	if strings.Contains(contentStr, "Old content here") {
+		t.Error("old managed section content should be replaced")
+	}
+}
+
+func TestHandleManagedSection(t *testing.T) {
+	tests := []struct {
+		name            string
+		existing        string
+		newSection      string
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:         "append to empty",
+			existing:     "",
+			newSection:   "<atari-managed>\nnew content\n</atari-managed>",
+			wantContains: []string{"<atari-managed>", "new content", "</atari-managed>"},
+		},
+		{
+			name:         "append to existing without markers",
+			existing:     "# Existing\n\nSome content.",
+			newSection:   "<atari-managed>\nnew content\n</atari-managed>",
+			wantContains: []string{"# Existing", "Some content", "<atari-managed>", "new content"},
+		},
+		{
+			name:            "replace existing markers",
+			existing:        "before\n\n<atari-managed>\nold\n</atari-managed>\n\nafter",
+			newSection:      "<atari-managed>\nnew\n</atari-managed>",
+			wantContains:    []string{"before", "after", "<atari-managed>", "new"},
+			wantNotContains: []string{"old"},
+		},
+		{
+			name:         "markers at start",
+			existing:     "<atari-managed>\nold\n</atari-managed>\n\nuser content",
+			newSection:   "<atari-managed>\nnew\n</atari-managed>",
+			wantContains: []string{"new", "user content"},
+		},
+		{
+			name:         "markers at end",
+			existing:     "user content\n\n<atari-managed>\nold\n</atari-managed>",
+			newSection:   "<atari-managed>\nnew\n</atari-managed>",
+			wantContains: []string{"user content", "new"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := handleManagedSection(tt.existing, tt.newSection)
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(result, want) {
+					t.Errorf("result should contain %q, got: %s", want, result)
+				}
+			}
+
+			for _, notWant := range tt.wantNotContains {
+				if strings.Contains(result, notWant) {
+					t.Errorf("result should not contain %q, got: %s", notWant, result)
+				}
+			}
+		})
+	}
+}
