@@ -18,6 +18,7 @@ type bdActivity struct {
 	Message   string `json:"message"`
 	OldStatus string `json:"old_status,omitempty"`
 	NewStatus string `json:"new_status,omitempty"`
+	Actor     string `json:"actor,omitempty"`
 }
 
 // ParseLine parses a single line of bd activity JSON output.
@@ -54,6 +55,7 @@ func mapToEvent(a *bdActivity) events.Event {
 			BaseEvent: base,
 			BeadID:    a.IssueID,
 			Title:     extractTitle(a.Message, a.IssueID),
+			Actor:     a.Actor,
 		}
 
 	case "status":
@@ -64,6 +66,7 @@ func mapToEvent(a *bdActivity) events.Event {
 			return &events.BeadClosedEvent{
 				BaseEvent: base,
 				BeadID:    a.IssueID,
+				Actor:     a.Actor,
 			}
 		}
 		return &events.BeadStatusEvent{
@@ -71,6 +74,7 @@ func mapToEvent(a *bdActivity) events.Event {
 			BeadID:    a.IssueID,
 			OldStatus: a.OldStatus,
 			NewStatus: a.NewStatus,
+			Actor:     a.Actor,
 		}
 
 	case "update":
@@ -78,6 +82,7 @@ func mapToEvent(a *bdActivity) events.Event {
 		return &events.BeadUpdatedEvent{
 			BaseEvent: base,
 			BeadID:    a.IssueID,
+			Actor:     a.Actor,
 		}
 
 	case "comment":
@@ -85,6 +90,7 @@ func mapToEvent(a *bdActivity) events.Event {
 		return &events.BeadCommentEvent{
 			BaseEvent: base,
 			BeadID:    a.IssueID,
+			Actor:     a.Actor,
 		}
 
 	default:

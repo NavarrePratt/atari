@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseLine_CreateEvent(t *testing.T) {
-	line := []byte(`{"timestamp":"2026-01-02T12:45:34.121001-05:00","type":"create","issue_id":"bd-drain-jbk","symbol":"+","message":"bd-drain-jbk created · Fix CurrentBead issue"}`)
+	line := []byte(`{"timestamp":"2026-01-02T12:45:34.121001-05:00","type":"create","issue_id":"bd-drain-jbk","symbol":"+","message":"bd-drain-jbk created · Fix CurrentBead issue","actor":"npratt"}`)
 
 	event, err := ParseLine(line)
 	if err != nil {
@@ -32,13 +32,16 @@ func TestParseLine_CreateEvent(t *testing.T) {
 	if created.Title != "Fix CurrentBead issue" {
 		t.Errorf("expected title 'Fix CurrentBead issue', got %s", created.Title)
 	}
+	if created.Actor != "npratt" {
+		t.Errorf("expected actor npratt, got %s", created.Actor)
+	}
 	if created.Source() != events.SourceBD {
 		t.Errorf("expected source %s, got %s", events.SourceBD, created.Source())
 	}
 }
 
 func TestParseLine_StatusEvent(t *testing.T) {
-	line := []byte(`{"timestamp":"2026-01-02T12:12:54.275921-05:00","type":"status","issue_id":"bd-drain-4no","symbol":"→","message":"bd-drain-4no status changed","old_status":"open","new_status":"in_progress"}`)
+	line := []byte(`{"timestamp":"2026-01-02T12:12:54.275921-05:00","type":"status","issue_id":"bd-drain-4no","symbol":"→","message":"bd-drain-4no status changed","old_status":"open","new_status":"in_progress","actor":"atari"}`)
 
 	event, err := ParseLine(line)
 	if err != nil {
@@ -65,6 +68,9 @@ func TestParseLine_StatusEvent(t *testing.T) {
 	if status.NewStatus != "in_progress" {
 		t.Errorf("expected new_status in_progress, got %s", status.NewStatus)
 	}
+	if status.Actor != "atari" {
+		t.Errorf("expected actor atari, got %s", status.Actor)
+	}
 }
 
 func TestParseLine_StatusToClosedProducesBeadClosedEvent(t *testing.T) {
@@ -78,7 +84,7 @@ func TestParseLine_StatusToClosedProducesBeadClosedEvent(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			line := []byte(`{"timestamp":"2026-01-02T12:12:54.275921-05:00","type":"status","issue_id":"bd-drain-xyz","symbol":"✓","message":"bd-drain-xyz completed","old_status":"open","new_status":"` + tc.newStatus + `"}`)
+			line := []byte(`{"timestamp":"2026-01-02T12:12:54.275921-05:00","type":"status","issue_id":"bd-drain-xyz","symbol":"✓","message":"bd-drain-xyz completed","old_status":"open","new_status":"` + tc.newStatus + `","actor":"npratt"}`)
 
 			event, err := ParseLine(line)
 			if err != nil {
@@ -99,12 +105,15 @@ func TestParseLine_StatusToClosedProducesBeadClosedEvent(t *testing.T) {
 			if closed.BeadID != "bd-drain-xyz" {
 				t.Errorf("expected bead_id bd-drain-xyz, got %s", closed.BeadID)
 			}
+			if closed.Actor != "npratt" {
+				t.Errorf("expected actor npratt, got %s", closed.Actor)
+			}
 		})
 	}
 }
 
 func TestParseLine_UpdateEvent(t *testing.T) {
-	line := []byte(`{"timestamp":"2026-01-02T12:48:09.011244-05:00","type":"update","issue_id":"bd-drain-0oe","symbol":"→","message":"bd-drain-0oe updated"}`)
+	line := []byte(`{"timestamp":"2026-01-02T12:48:09.011244-05:00","type":"update","issue_id":"bd-drain-0oe","symbol":"→","message":"bd-drain-0oe updated","actor":"npratt"}`)
 
 	event, err := ParseLine(line)
 	if err != nil {
@@ -125,10 +134,13 @@ func TestParseLine_UpdateEvent(t *testing.T) {
 	if updated.BeadID != "bd-drain-0oe" {
 		t.Errorf("expected bead_id bd-drain-0oe, got %s", updated.BeadID)
 	}
+	if updated.Actor != "npratt" {
+		t.Errorf("expected actor npratt, got %s", updated.Actor)
+	}
 }
 
 func TestParseLine_CommentEvent(t *testing.T) {
-	line := []byte(`{"timestamp":"2026-01-02T12:48:09.011244-05:00","type":"comment","issue_id":"bd-drain-abc","symbol":"💬","message":"bd-drain-abc comment added"}`)
+	line := []byte(`{"timestamp":"2026-01-02T12:48:09.011244-05:00","type":"comment","issue_id":"bd-drain-abc","symbol":"💬","message":"bd-drain-abc comment added","actor":"npratt"}`)
 
 	event, err := ParseLine(line)
 	if err != nil {
@@ -148,6 +160,36 @@ func TestParseLine_CommentEvent(t *testing.T) {
 	}
 	if comment.BeadID != "bd-drain-abc" {
 		t.Errorf("expected bead_id bd-drain-abc, got %s", comment.BeadID)
+	}
+	if comment.Actor != "npratt" {
+		t.Errorf("expected actor npratt, got %s", comment.Actor)
+	}
+}
+
+func TestParseLine_MissingActorFieldHandledGracefully(t *testing.T) {
+	// Test that events without actor field parse successfully with empty actor
+	tests := []struct {
+		name string
+		line []byte
+	}{
+		{"create without actor", []byte(`{"timestamp":"2026-01-02T12:45:34-05:00","type":"create","issue_id":"bd-drain-jbk","symbol":"+","message":"bd-drain-jbk created · Test"}`)},
+		{"status without actor", []byte(`{"timestamp":"2026-01-02T12:45:34-05:00","type":"status","issue_id":"bd-drain-jbk","symbol":"→","message":"status changed","old_status":"open","new_status":"in_progress"}`)},
+		{"update without actor", []byte(`{"timestamp":"2026-01-02T12:45:34-05:00","type":"update","issue_id":"bd-drain-jbk","symbol":"→","message":"updated"}`)},
+		{"comment without actor", []byte(`{"timestamp":"2026-01-02T12:45:34-05:00","type":"comment","issue_id":"bd-drain-jbk","symbol":"💬","message":"comment added"}`)},
+		{"closed without actor", []byte(`{"timestamp":"2026-01-02T12:45:34-05:00","type":"status","issue_id":"bd-drain-jbk","symbol":"✓","message":"closed","old_status":"open","new_status":"closed"}`)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			event, err := ParseLine(tc.line)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if event == nil {
+				t.Fatal("expected event, got nil")
+			}
+			// Actor should be empty string when not provided
+		})
 	}
 }
 
