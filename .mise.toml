@@ -6,8 +6,8 @@ description = "Build the atari binary"
 run = "go build -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o atari ./cmd/atari"
 
 [tasks.install]
-description = "Install atari to GOBIN"
-run = "go install -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" ./cmd/atari"
+description = "Install atari to ~/go/bin"
+run = "GOBIN=$HOME/go/bin go install -ldflags=\"-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" ./cmd/atari"
 
 [tasks.test]
 description = "Run all tests"
