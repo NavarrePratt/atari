@@ -293,21 +293,21 @@ func TestObserver_BuildArgs(t *testing.T) {
 			model:     "haiku",
 			sessionID: "",
 			prompt:    "test prompt",
-			wantArgs:  []string{"-p", "test prompt", "--output-format", "stream-json", "--model", "haiku"},
+			wantArgs:  []string{"-p", "test prompt", "--verbose", "--output-format", "stream-json", "--model", "haiku"},
 		},
 		{
 			name:      "custom model",
 			model:     "sonnet",
 			sessionID: "",
 			prompt:    "test prompt",
-			wantArgs:  []string{"-p", "test prompt", "--output-format", "stream-json", "--model", "sonnet"},
+			wantArgs:  []string{"-p", "test prompt", "--verbose", "--output-format", "stream-json", "--model", "sonnet"},
 		},
 		{
 			name:      "with session ID",
 			model:     "haiku",
 			sessionID: "session-123",
 			prompt:    "test prompt",
-			wantArgs:  []string{"--resume", "session-123", "-p", "test prompt", "--output-format", "stream-json", "--model", "haiku"},
+			wantArgs:  []string{"--resume", "session-123", "-p", "test prompt", "--verbose", "--output-format", "stream-json", "--model", "haiku"},
 		},
 	}
 

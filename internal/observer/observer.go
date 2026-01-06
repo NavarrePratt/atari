@@ -214,6 +214,7 @@ func (o *Observer) executeQuery(ctx context.Context, prompt string) (string, err
 func (o *Observer) buildArgs(prompt string) []string {
 	args := []string{
 		"-p", prompt,
+		"--verbose",
 		"--output-format", "stream-json",
 	}
 
