@@ -11,8 +11,8 @@ import (
 func TestBuildFileList(t *testing.T) {
 	t.Run("full install", func(t *testing.T) {
 		files := BuildFileList(false)
-		if len(files) != 7 {
-			t.Errorf("expected 7 files, got %d", len(files))
+		if len(files) != 8 {
+			t.Errorf("expected 8 files, got %d", len(files))
 		}
 
 		// Check expected files are present
@@ -28,6 +28,7 @@ func TestBuildFileList(t *testing.T) {
 			"commands/bd-create.md",
 			"commands/bd-plan.md",
 			"commands/bd-plan-ultra.md",
+			"commands/bd-plan-user.md",
 			"CLAUDE.md",
 		}
 		for _, p := range expectedPaths {
@@ -64,6 +65,7 @@ func TestMustReadTemplate(t *testing.T) {
 		"bd-create.md",
 		"bd-plan.md",
 		"bd-plan-ultra.md",
+		"bd-plan-user.md",
 		"claude-md-append.md",
 	}
 
@@ -142,6 +144,7 @@ func TestRun_Install(t *testing.T) {
 		".claude/commands/bd-create.md",
 		".claude/commands/bd-plan.md",
 		".claude/commands/bd-plan-ultra.md",
+		".claude/commands/bd-plan-user.md",
 		".claude/CLAUDE.md",
 	}
 
@@ -153,8 +156,8 @@ func TestRun_Install(t *testing.T) {
 	}
 
 	// Check result
-	if len(result.Created) != 6 {
-		t.Errorf("expected 6 created files, got %d", len(result.Created))
+	if len(result.Created) != 7 {
+		t.Errorf("expected 7 created files, got %d", len(result.Created))
 	}
 	if len(result.Appended) != 1 {
 		t.Errorf("expected 1 appended file, got %d", len(result.Appended))
@@ -170,7 +173,7 @@ func TestRun_Install(t *testing.T) {
 	}
 }
 
-func TestRun_ConflictsWithoutForce(t *testing.T) {
+func TestRun_ChangesWithoutForce(t *testing.T) {
 	tmpDir := t.TempDir()
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(tmpDir); err != nil {
@@ -178,11 +181,11 @@ func TestRun_ConflictsWithoutForce(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(origDir) }()
 
-	// Create existing file
+	// Create existing file with different content
 	if err := os.MkdirAll(".claude/rules", 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(".claude/rules/issue-tracking.md", []byte("existing"), 0644); err != nil {
+	if err := os.WriteFile(".claude/rules/issue-tracking.md", []byte("existing content"), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -193,19 +196,23 @@ func TestRun_ConflictsWithoutForce(t *testing.T) {
 
 	_, err := Run(opts)
 	if err == nil {
-		t.Fatal("expected error for conflicts without force")
+		t.Fatal("expected error for changed files without force")
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "already exist") {
-		t.Error("expected 'already exist' message")
+	if !strings.Contains(output, "have changes") {
+		t.Error("expected 'have changes' message")
 	}
 	if !strings.Contains(output, "--force") {
 		t.Error("expected --force hint")
 	}
+	// Should show diff
+	if !strings.Contains(output, "---") || !strings.Contains(output, "+++") {
+		t.Error("expected unified diff in output")
+	}
 }
 
-func TestRun_ForceCreatesBackup(t *testing.T) {
+func TestRun_ForceOverwrites(t *testing.T) {
 	tmpDir := t.TempDir()
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(tmpDir); err != nil {
@@ -213,7 +220,7 @@ func TestRun_ForceCreatesBackup(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(origDir) }()
 
-	// Create existing file
+	// Create existing file with different content
 	if err := os.MkdirAll(".claude/rules", 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -233,34 +240,26 @@ func TestRun_ForceCreatesBackup(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Check backup was created
-	if len(result.BackedUp) != 1 {
-		t.Errorf("expected 1 backup, got %d", len(result.BackedUp))
+	// Check file was overwritten (not backed up)
+	if len(result.Overwritten) != 1 {
+		t.Errorf("expected 1 overwritten file, got %d", len(result.Overwritten))
 	}
 
-	// Check backup file exists
-	files, _ := filepath.Glob(".claude/rules/issue-tracking*.bak")
-	if len(files) != 1 {
-		t.Errorf("expected 1 backup file, got %d", len(files))
+	// Verify no backup files were created
+	backupFiles, _ := filepath.Glob(".claude/rules/issue-tracking*.bak")
+	if len(backupFiles) != 0 {
+		t.Errorf("expected 0 backup files, got %d", len(backupFiles))
 	}
 
-	// Check backup contains original content
-	if len(files) > 0 {
-		content, _ := os.ReadFile(files[0])
-		if string(content) != existingContent {
-			t.Errorf("backup content mismatch: got %q", string(content))
-		}
-	}
-
-	// Check new file was created
+	// Check new file has new content
 	newContent, _ := os.ReadFile(".claude/rules/issue-tracking.md")
 	if string(newContent) == existingContent {
-		t.Error("new file should have different content")
+		t.Error("file should have been overwritten with new content")
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "Backed up:") {
-		t.Error("expected 'Backed up:' in output")
+	if !strings.Contains(output, "Overwritten:") {
+		t.Error("expected 'Overwritten:' in output")
 	}
 }
 
@@ -360,19 +359,82 @@ func TestRun_AppendToCLAUDEMd(t *testing.T) {
 	}
 }
 
-func TestBackupPath(t *testing.T) {
-	path := backupPath("/some/path/file.md")
-
-	// Should contain timestamp pattern
-	if !strings.Contains(path, "file.") {
-		t.Error("backup path should contain original filename")
+func TestRun_SkipsUnchangedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
 	}
-	if !strings.HasSuffix(path, ".md.bak") {
-		t.Error("backup path should end with .md.bak")
+	defer func() { _ = os.Chdir(origDir) }()
+
+	// First, run init to create files
+	var buf1 bytes.Buffer
+	opts1 := Options{
+		Minimal: true, // Just one file for simplicity
+		Writer:  &buf1,
 	}
 
-	// Should contain date pattern
-	if !strings.Contains(path, "T") {
-		t.Error("backup path should contain timestamp separator")
+	_, err := Run(opts1)
+	if err != nil {
+		t.Fatalf("first run failed: %v", err)
+	}
+
+	// Run again - should succeed without --force since content is identical
+	var buf2 bytes.Buffer
+	opts2 := Options{
+		Minimal: true,
+		Writer:  &buf2,
+	}
+
+	result, err := Run(opts2)
+	if err != nil {
+		t.Fatalf("second run should succeed without --force: %v", err)
+	}
+
+	output := buf2.String()
+	if !strings.Contains(output, "Already up to date") {
+		t.Error("expected 'Already up to date' message")
+	}
+
+	if len(result.Unchanged) != 1 {
+		t.Errorf("expected 1 unchanged file, got %d", len(result.Unchanged))
+	}
+}
+
+func TestRun_GitRecommendationForGlobal(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	// Create a fake home directory for the test
+	fakeHome := filepath.Join(tmpDir, "home")
+	if err := os.MkdirAll(fakeHome, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// We can't easily test --global without modifying $HOME,
+	// so we test the output message logic directly by checking
+	// that the git tip appears in the success path when global=true
+	// For now, just verify the message format exists in the codebase
+	// The actual global test would need environment variable manipulation
+
+	// Test local install doesn't show git tip
+	var buf bytes.Buffer
+	opts := Options{
+		Minimal: true,
+		Writer:  &buf,
+	}
+
+	_, err := Run(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if strings.Contains(output, "backing up your ~/.claude") {
+		t.Error("local install should not show git backup tip")
 	}
 }

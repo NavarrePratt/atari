@@ -5,8 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 )
 
 // Options configures the init command behavior.
@@ -27,11 +25,20 @@ type InstallFile struct {
 
 // Result contains the outcome of the init operation.
 type Result struct {
-	TargetDir string
-	Created   []string
-	Appended  []string
-	Skipped   []string
-	BackedUp  []string
+	TargetDir  string
+	Created    []string
+	Appended   []string
+	Skipped    []string
+	Unchanged  []string
+	Overwritten []string
+}
+
+// FileStatus represents the status of a file to be installed.
+type FileStatus struct {
+	Path      string // Relative path within .claude directory
+	Exists    bool   // True if file exists
+	Unchanged bool   // True if existing content matches new content
+	Diff      string // Unified diff if changed (empty if unchanged or new)
 }
 
 // BuildFileList returns the list of files to install based on options.
@@ -66,6 +73,10 @@ func BuildFileList(minimal bool) []InstallFile {
 				Content: MustReadTemplate("bd-plan-ultra.md"),
 			},
 			InstallFile{
+				Path:    "commands/bd-plan-user.md",
+				Content: MustReadTemplate("bd-plan-user.md"),
+			},
+			InstallFile{
 				Path:     "CLAUDE.md",
 				Content:  MustReadTemplate("claude-md-append.md"),
 				IsAppend: true,
@@ -91,20 +102,28 @@ func Run(opts Options) (*Result, error) {
 	// Build file list
 	files := BuildFileList(opts.Minimal)
 
-	// Check for conflicts
-	conflicts := checkConflicts(targetDir, files)
+	// Check file statuses (existence, content changes)
+	statuses := checkFileStatuses(targetDir, files)
 
 	if opts.DryRun {
-		return showDryRun(opts.Writer, targetDir, files, conflicts)
+		return showDryRun(opts.Writer, targetDir, files, statuses)
 	}
 
-	// Handle conflicts without --force
-	if len(conflicts) > 0 && !opts.Force {
-		return showConflicts(opts.Writer, targetDir, conflicts)
+	// Check if any files have changes that require --force
+	var changedFiles []FileStatus
+	for _, s := range statuses {
+		if s.Exists && !s.Unchanged {
+			changedFiles = append(changedFiles, s)
+		}
+	}
+
+	// Handle changed files without --force
+	if len(changedFiles) > 0 && !opts.Force {
+		return showChanges(opts.Writer, targetDir, statuses)
 	}
 
 	// Install files
-	return installFiles(opts.Writer, targetDir, files, opts.Force)
+	return installFiles(opts.Writer, targetDir, files, statuses, opts.Force, opts.Global)
 }
 
 // getTargetDir returns the target .claude directory path.
@@ -119,39 +138,47 @@ func getTargetDir(global bool) (string, error) {
 	return ".claude", nil
 }
 
-// checkConflicts returns a list of files that already exist.
-func checkConflicts(targetDir string, files []InstallFile) []string {
-	var conflicts []string
+// checkFileStatuses checks each file and returns its status.
+func checkFileStatuses(targetDir string, files []InstallFile) []FileStatus {
+	var statuses []FileStatus
 	for _, f := range files {
 		if f.IsAppend {
-			continue // Append files don't conflict
+			continue // Append files don't need status checking
 		}
+
+		status := FileStatus{Path: f.Path}
 		path := filepath.Join(targetDir, f.Path)
-		if _, err := os.Stat(path); err == nil {
-			conflicts = append(conflicts, f.Path)
+
+		existingContent, err := os.ReadFile(path)
+		if err == nil {
+			status.Exists = true
+			if string(existingContent) == f.Content {
+				status.Unchanged = true
+			} else {
+				status.Diff = UnifiedDiff("existing", "new", string(existingContent), f.Content)
+			}
 		}
+
+		statuses = append(statuses, status)
 	}
-	return conflicts
+	return statuses
 }
 
 // showDryRun displays what would be changed without making changes.
-func showDryRun(w io.Writer, targetDir string, files []InstallFile, conflicts []string) (*Result, error) {
+func showDryRun(w io.Writer, targetDir string, files []InstallFile, statuses []FileStatus) (*Result, error) {
 	_, _ = fmt.Fprintln(w, "DRY RUN - No changes will be made")
 	_, _ = fmt.Fprintln(w)
 
 	result := &Result{TargetDir: targetDir}
 
+	// Build status map for quick lookup
+	statusMap := make(map[string]FileStatus)
+	for _, s := range statuses {
+		statusMap[s.Path] = s
+	}
+
 	for _, f := range files {
 		path := filepath.Join(targetDir, f.Path)
-
-		// Check if file exists
-		exists := false
-		for _, c := range conflicts {
-			if c == f.Path {
-				exists = true
-				break
-			}
-		}
 
 		if f.IsAppend {
 			_, _ = fmt.Fprintf(w, "Would append to: %s\n", path)
@@ -160,10 +187,19 @@ func showDryRun(w io.Writer, targetDir string, files []InstallFile, conflicts []
 			_, _ = fmt.Fprintln(w, "--- END APPEND ---")
 			_, _ = fmt.Fprintln(w)
 			result.Appended = append(result.Appended, f.Path)
-		} else if exists {
-			_, _ = fmt.Fprintf(w, "Would skip (exists): %s\n", path)
-			_, _ = fmt.Fprintln(w)
-			result.Skipped = append(result.Skipped, f.Path)
+			continue
+		}
+
+		status := statusMap[f.Path]
+		if status.Exists {
+			if status.Unchanged {
+				_, _ = fmt.Fprintf(w, "Already up to date: %s\n", path)
+				result.Unchanged = append(result.Unchanged, f.Path)
+			} else {
+				_, _ = fmt.Fprintf(w, "Would overwrite (has changes): %s\n", path)
+				_, _ = fmt.Fprintln(w, status.Diff)
+				result.Skipped = append(result.Skipped, f.Path)
+			}
 		} else {
 			_, _ = fmt.Fprintf(w, "Would create: %s\n", path)
 			_, _ = fmt.Fprintln(w, "--- BEGIN FILE ---")
@@ -178,20 +214,101 @@ func showDryRun(w io.Writer, targetDir string, files []InstallFile, conflicts []
 	return result, nil
 }
 
-// showConflicts displays existing files and returns an error.
-func showConflicts(w io.Writer, targetDir string, conflicts []string) (*Result, error) {
-	_, _ = fmt.Fprintln(w, "The following files already exist:")
-	for _, c := range conflicts {
-		_, _ = fmt.Fprintf(w, "  %s\n", filepath.Join(targetDir, c))
+// showChanges displays files with changes and their diffs.
+func showChanges(w io.Writer, targetDir string, statuses []FileStatus) (*Result, error) {
+	result := &Result{TargetDir: targetDir}
+
+	// Separate changed and unchanged files
+	var changed, unchanged []FileStatus
+	for _, s := range statuses {
+		if s.Exists {
+			if s.Unchanged {
+				unchanged = append(unchanged, s)
+			} else {
+				changed = append(changed, s)
+			}
+		}
 	}
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Use --force to backup and replace existing files.")
-	return &Result{TargetDir: targetDir, Skipped: conflicts}, fmt.Errorf("files already exist (use --force to overwrite)")
+
+	// Show files with changes and their diffs
+	if len(changed) > 0 {
+		_, _ = fmt.Fprintln(w, "The following files have changes:")
+		_, _ = fmt.Fprintln(w)
+		for _, s := range changed {
+			path := filepath.Join(targetDir, s.Path)
+			_, _ = fmt.Fprintf(w, "%s:\n", path)
+			_, _ = fmt.Fprintln(w, s.Diff)
+			result.Skipped = append(result.Skipped, s.Path)
+		}
+	}
+
+	// Show unchanged files
+	if len(unchanged) > 0 {
+		_, _ = fmt.Fprintln(w, "Already up to date:")
+		for _, s := range unchanged {
+			_, _ = fmt.Fprintf(w, "  %s\n", filepath.Join(targetDir, s.Path))
+			result.Unchanged = append(result.Unchanged, s.Path)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	_, _ = fmt.Fprintln(w, "Use --force to overwrite changed files.")
+	return result, fmt.Errorf("files have changes (use --force to overwrite)")
 }
 
 // installFiles creates directories and writes files.
-func installFiles(w io.Writer, targetDir string, files []InstallFile, force bool) (*Result, error) {
+func installFiles(w io.Writer, targetDir string, files []InstallFile, statuses []FileStatus, force bool, global bool) (*Result, error) {
 	result := &Result{TargetDir: targetDir}
+
+	// Build status map for quick lookup
+	statusMap := make(map[string]FileStatus)
+	for _, s := range statuses {
+		statusMap[s.Path] = s
+	}
+
+	// Check if all non-append files are unchanged
+	allUnchanged := true
+	for _, s := range statuses {
+		if s.Exists && !s.Unchanged {
+			allUnchanged = false
+			break
+		}
+	}
+
+	// If all files are unchanged, just report that
+	if allUnchanged && len(statuses) > 0 {
+		hasExisting := false
+		for _, s := range statuses {
+			if s.Exists {
+				hasExisting = true
+				break
+			}
+		}
+		if hasExisting {
+			// Check if there are any new files to create
+			hasNew := false
+			for _, f := range files {
+				if !f.IsAppend {
+					if status, ok := statusMap[f.Path]; !ok || !status.Exists {
+						hasNew = true
+						break
+					}
+				}
+			}
+			if !hasNew {
+				_, _ = fmt.Fprintln(w, "Already up to date:")
+				for _, s := range statuses {
+					if s.Exists && s.Unchanged {
+						_, _ = fmt.Fprintf(w, "  %s\n", filepath.Join(targetDir, s.Path))
+						result.Unchanged = append(result.Unchanged, s.Path)
+					}
+				}
+				_, _ = fmt.Fprintln(w)
+				_, _ = fmt.Fprintln(w, "Claude Code configuration is already up to date.")
+				return result, nil
+			}
+		}
+	}
 
 	for _, f := range files {
 		path := filepath.Join(targetDir, f.Path)
@@ -206,23 +323,6 @@ func installFiles(w io.Writer, targetDir string, files []InstallFile, force bool
 		_, statErr := os.Stat(path)
 		exists := statErr == nil
 
-		if exists && !f.IsAppend {
-			if force {
-				// Backup existing file with timestamp
-				backup := backupPath(path)
-				if err := os.Rename(path, backup); err != nil {
-					return result, fmt.Errorf("backup %s: %w", path, err)
-				}
-				_, _ = fmt.Fprintf(w, "Backed up: %s -> %s\n", path, backup)
-				result.BackedUp = append(result.BackedUp, f.Path)
-			} else {
-				_, _ = fmt.Fprintf(w, "Skipped (exists): %s\n", path)
-				result.Skipped = append(result.Skipped, f.Path)
-				continue
-			}
-		}
-
-		// Write or append
 		if f.IsAppend {
 			file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
@@ -244,7 +344,29 @@ func installFiles(w io.Writer, targetDir string, files []InstallFile, force bool
 			}
 			_, _ = fmt.Fprintf(w, "Appended: %s\n", path)
 			result.Appended = append(result.Appended, f.Path)
+			continue
+		}
+
+		status := statusMap[f.Path]
+		if status.Exists {
+			if status.Unchanged {
+				_, _ = fmt.Fprintf(w, "Already up to date: %s\n", path)
+				result.Unchanged = append(result.Unchanged, f.Path)
+				continue
+			}
+			// File has changes - overwrite if force
+			if force {
+				if err := os.WriteFile(path, []byte(f.Content), 0644); err != nil {
+					return result, fmt.Errorf("write %s: %w", path, err)
+				}
+				_, _ = fmt.Fprintf(w, "Overwritten: %s\n", path)
+				result.Overwritten = append(result.Overwritten, f.Path)
+			} else {
+				_, _ = fmt.Fprintf(w, "Skipped (has changes): %s\n", path)
+				result.Skipped = append(result.Skipped, f.Path)
+			}
 		} else {
+			// New file
 			if err := os.WriteFile(path, []byte(f.Content), 0644); err != nil {
 				return result, fmt.Errorf("write %s: %w", path, err)
 			}
@@ -254,16 +376,15 @@ func installFiles(w io.Writer, targetDir string, files []InstallFile, force bool
 	}
 
 	_, _ = fmt.Fprintln(w)
+
+	// Show git backup recommendation for global installs
+	if global {
+		_, _ = fmt.Fprintln(w, "Tip: We recommend backing up your ~/.claude directory with git.")
+		_, _ = fmt.Fprintln(w)
+	}
+
 	_, _ = fmt.Fprintln(w, "Claude Code configuration initialized successfully!")
 	_, _ = fmt.Fprintln(w, "You can now use 'atari start' to begin processing beads.")
 
 	return result, nil
-}
-
-// backupPath returns a timestamped backup path for the given file.
-func backupPath(path string) string {
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	ext := filepath.Ext(path)
-	base := strings.TrimSuffix(path, ext)
-	return fmt.Sprintf("%s.%s%s.bak", base, timestamp, ext)
 }

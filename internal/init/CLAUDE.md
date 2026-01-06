@@ -8,7 +8,8 @@ This package provides functionality to install rules, skills, and configuration 
 
 ## Files
 
-- `init.go` - Core logic: Run(), BuildFileList(), checkConflicts(), installFiles()
+- `init.go` - Core logic: Run(), BuildFileList(), checkFileStatuses(), installFiles()
+- `diff.go` - Simple unified diff implementation (no external dependencies)
 - `templates.go` - Embedded template filesystem with MustReadTemplate()
 - `templates/` - Markdown template files embedded at compile time
 
@@ -27,9 +28,9 @@ result, err := initcmd.Run(opts)
 ## Options
 
 - `DryRun` - Show what would be changed without making changes
-- `Force` - Overwrite existing files (creates timestamped backups)
+- `Force` - Overwrite files with changes (no backup files created)
 - `Minimal` - Install only essential rules (just issue-tracking.md)
-- `Global` - Install to ~/.claude/ instead of ./.claude/
+- `Global` - Install to ~/.claude/ instead of ./.claude/ (shows git backup tip)
 - `Writer` - Custom output writer (defaults to os.Stdout)
 
 ## Directory Structure Created
@@ -42,8 +43,10 @@ result, err := initcmd.Run(opts)
   skills/
     bd-issue-tracking.md   # Unless --minimal
   commands/
+    bd-create.md           # Unless --minimal
     bd-plan.md             # Unless --minimal
     bd-plan-ultra.md       # Unless --minimal
+    bd-plan-user.md        # Unless --minimal
   CLAUDE.md                # Appended, never overwritten
 ```
 
@@ -51,5 +54,8 @@ result, err := initcmd.Run(opts)
 
 - Creates directories as needed
 - CLAUDE.md is always appended, never replaced
-- Without --force, skips existing files with a warning
-- With --force, creates timestamped backups before replacing
+- Compares content of existing files to detect actual changes
+- Unchanged files show "Already up to date" and don't require --force
+- Files with changes show unified diff and require --force to overwrite
+- With --force, directly overwrites changed files (no backup files)
+- With --global, shows tip about backing up ~/.claude with git
