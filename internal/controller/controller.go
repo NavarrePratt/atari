@@ -451,13 +451,6 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 	}
 	prompt := config.ExpandPrompt(promptTemplate, vars)
 
-	// For default prompt (no custom file or inline), append bead context
-	// Custom prompts should use {{.BeadID}} etc. to include bead info
-	if c.config.PromptFile == "" && c.config.Prompt == "" {
-		prompt = fmt.Sprintf("%s\n\nWork on bead: %s - %s\n\n%s",
-			prompt, bead.ID, bead.Title, bead.Description)
-	}
-
 	c.wg.Add(1)
 	defer c.wg.Done()
 

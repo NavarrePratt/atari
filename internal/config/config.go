@@ -113,34 +113,36 @@ Either close the bead or reset it to open status. Do not leave it in_progress - 
 // DefaultPrompt is the default prompt sent to Claude Code sessions.
 const DefaultPrompt = `You are an autonomous task-completion agent. Follow this workflow:
 
-## 1. Find Ready Work
-Run "bd ready --json" to get unblocked tasks. Select the highest-priority issue (P0 > P1 > P2).
-If no tasks are available, report that the queue is empty.
+## 1. Your Assignment
+You have been assigned bead {{.BeadID}}: "{{.BeadTitle}}"
 
-## 2. Claim the Task
-Run "bd update <bead-id> --status in_progress" to claim it before starting work.
-Run "bd show <bead-id> --json" to read the full description and verification requirements.
+### Description
+{{.BeadDescription}}
+
+### Claim
+Run "bd update {{.BeadID}} --status in_progress" to claim this bead before starting work.
 This prevents duplicate work if other agents are running.
 
-## 3. Execute the Task
-- Read the task description carefully
+## 2. Execute the Task
+- Read the task description above carefully
 - Use available tools and agents for investigation and implementation
 - Follow project documentation and existing patterns
 
-## 4. Verify the Work
+## 3. Verify the Work
 Run the verification commands listed in the bead's Verification section.
+If no verification section exists, check CLAUDE.md for lint/test commands.
 All checks must pass before closing. If verification fails, fix the issues before proceeding.
 
-## 5. Track Discoveries
+## 4. Track Discoveries
 If you find bugs, TODOs, or related work during implementation:
 - Create new issue with /bd-create or "bd create"
-- Link to current work: "bd dep add <new-id> <current-id> --type discovered-from"
+- Link to current work: "bd dep add <new-id> {{.BeadID}} --type discovered-from"
 - Describe problems for investigation, not implementation instructions
 This maintains context and traceability for future work.
 
-## 6. Complete the Task
+## 5. Complete the Task
 Close the bead before ending your session:
-- Run "bd close <bead-id> --reason '<what was accomplished>'"
+- Run "bd close {{.BeadID}} --reason '<what was accomplished>'"
 - Use /commit for atomic commits
 Closing the bead marks the work as done and releases it from in_progress state.`
 
