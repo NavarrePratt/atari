@@ -143,6 +143,45 @@ var GraphMixedWithAgentJSON = `[
   }
 ]`
 
+// JSONL fixtures for testing the JSONLReader.
+// These represent the format stored in .beads/issues.jsonl files.
+
+// GraphJSONLBasic is a minimal JSONL sample with basic beads.
+var GraphJSONLBasic = `{"id":"bd-001","title":"First task","description":"A basic task","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-002","title":"Second task","description":"Another task","status":"in_progress","priority":2,"issue_type":"task","created_at":"2024-01-15T11:00:00Z","created_by":"user","updated_at":"2024-01-15T11:00:00Z"}
+{"id":"bd-003","title":"Third task","description":"A blocked task","status":"blocked","priority":2,"issue_type":"task","created_at":"2024-01-15T12:00:00Z","created_by":"user","updated_at":"2024-01-15T12:00:00Z"}`
+
+// GraphJSONLWithDependencies is a JSONL sample with dependency relationships.
+var GraphJSONLWithDependencies = `{"id":"bd-epic-001","title":"Epic: Auth System","description":"Authentication epic","status":"open","priority":1,"issue_type":"epic","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-task-001","title":"Login form","description":"Create login form","status":"in_progress","priority":2,"issue_type":"task","created_at":"2024-01-15T11:00:00Z","created_by":"user","updated_at":"2024-01-15T11:00:00Z","dependencies":[{"issue_id":"bd-task-001","depends_on_id":"bd-epic-001","type":"parent-child"}]}
+{"id":"bd-task-002","title":"Session mgmt","description":"Session management","status":"blocked","priority":2,"issue_type":"task","created_at":"2024-01-15T12:00:00Z","created_by":"user","updated_at":"2024-01-15T12:00:00Z","dependencies":[{"issue_id":"bd-task-002","depends_on_id":"bd-epic-001","type":"parent-child"},{"issue_id":"bd-task-002","depends_on_id":"bd-task-001","type":"blocks"}]}`
+
+// GraphJSONLWithDeleted is a JSONL sample with deleted entries that should be filtered.
+var GraphJSONLWithDeleted = `{"id":"bd-001","title":"Active task","description":"Should be visible","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-002","title":"Deleted task","description":"Should be filtered","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z","deleted_at":"2024-01-16T10:00:00Z"}
+{"id":"bd-003","title":"Another active","description":"Should be visible","status":"in_progress","priority":2,"issue_type":"task","created_at":"2024-01-15T11:00:00Z","created_by":"user","updated_at":"2024-01-15T11:00:00Z"}`
+
+// GraphJSONLWithAgent is a JSONL sample with agent beads that should NOT be filtered by ReadAll.
+// Agent filtering happens at a higher level (FetchActive, etc.), not in ReadAll.
+var GraphJSONLWithAgent = `{"id":"bd-task-001","title":"Regular task","description":"A normal task","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-agent-001","title":"Agent bead","description":"Internal agent state","status":"open","priority":2,"issue_type":"agent","created_at":"2024-01-15T10:00:00Z","created_by":"atari","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-task-002","title":"Another task","description":"Another normal task","status":"in_progress","priority":2,"issue_type":"task","created_at":"2024-01-15T11:00:00Z","created_by":"user","updated_at":"2024-01-15T11:00:00Z"}`
+
+// GraphJSONLMalformed is a JSONL sample with malformed lines.
+var GraphJSONLMalformed = `{"id":"bd-001","title":"Valid task","description":"First valid","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{this is not valid json}
+{"id":"bd-003","title":"Another valid","description":"Third valid","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T12:00:00Z","created_by":"user","updated_at":"2024-01-15T12:00:00Z"}`
+
+// GraphJSONLWithBlankLines is a JSONL sample with blank lines that should be skipped.
+var GraphJSONLWithBlankLines = `{"id":"bd-001","title":"First task","description":"Task one","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+
+{"id":"bd-002","title":"Second task","description":"Task two","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T11:00:00Z","created_by":"user","updated_at":"2024-01-15T11:00:00Z"}
+
+{"id":"bd-003","title":"Third task","description":"Task three","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T12:00:00Z","created_by":"user","updated_at":"2024-01-15T12:00:00Z"}`
+
+// GraphJSONLMissingDeps is a JSONL sample where a dependency references a non-existent bead.
+var GraphJSONLMissingDeps = `{"id":"bd-001","title":"Task with missing dep","description":"Has dep on non-existent bead","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z","dependencies":[{"issue_id":"bd-001","depends_on_id":"bd-nonexistent","type":"blocks"}]}`
+
 // GraphComplexHierarchyJSON is a bd list response with a more complex hierarchy.
 var GraphComplexHierarchyJSON = `[
   {
