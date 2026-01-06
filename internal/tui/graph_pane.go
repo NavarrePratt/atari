@@ -708,6 +708,14 @@ func (p GraphPane) renderDetailContent(width int) string {
 	sb.WriteString(wordWrap(p.detailBead.Title, width))
 	sb.WriteString("\n\n")
 
+	// Labels section
+	if len(p.detailBead.Labels) > 0 {
+		sb.WriteString(sectionStyle.Render("Labels:"))
+		sb.WriteString("\n")
+		sb.WriteString(strings.Join(p.detailBead.Labels, ", "))
+		sb.WriteString("\n\n")
+	}
+
 	// Description section
 	if p.detailBead.Description != "" {
 		sb.WriteString(sectionStyle.Render("Description:"))

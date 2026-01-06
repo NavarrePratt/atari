@@ -90,7 +90,22 @@ func (f *BDFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error
 		return nil, fmt.Errorf("bd show %s failed: %w", id, err)
 	}
 
-	return parseBead(output)
+	bead, err := parseBead(output)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch labels separately
+	labelsOutput, err := f.cmdRunner.Run(ctx, "bd", "label", "list", id, "--json")
+	if err == nil {
+		labels, parseErr := parseLabels(labelsOutput)
+		if parseErr == nil {
+			bead.Labels = labels
+		}
+	}
+	// Ignore label fetch errors - labels are optional
+
+	return bead, nil
 }
 
 // parseBead parses JSON output from bd show into a single GraphBead.
@@ -125,6 +140,21 @@ func parseBeads(data []byte) ([]GraphBead, error) {
 	}
 
 	return beads, nil
+}
+
+// parseLabels parses JSON output from bd label list into a string slice.
+func parseLabels(data []byte) ([]string, error) {
+	// Handle empty response
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var labels []string
+	if err := json.Unmarshal(data, &labels); err != nil {
+		return nil, fmt.Errorf("failed to parse labels: %w", err)
+	}
+
+	return labels, nil
 }
 
 // filterByStatus returns beads matching any of the given statuses.

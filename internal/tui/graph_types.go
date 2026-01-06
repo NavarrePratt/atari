@@ -122,6 +122,7 @@ type GraphBead struct {
 	ClosedAt        string          `json:"closed_at,omitempty"`
 	Parent          string          `json:"parent,omitempty"`
 	Notes           string          `json:"notes,omitempty"`
+	Labels          []string        `json:"labels,omitempty"`
 	DependencyCount int             `json:"dependency_count,omitempty"`
 	DependentCount  int             `json:"dependent_count,omitempty"`
 	Dependencies    []BeadReference `json:"dependencies,omitempty"`
