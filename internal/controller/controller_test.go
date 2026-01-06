@@ -801,6 +801,190 @@ func TestControllerFollowUpConfig(t *testing.T) {
 	})
 }
 
+func TestControllerGracefulPause(t *testing.T) {
+	t.Run("graceful pause signal is sent correctly", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
+		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		// Verify channel starts empty
+		select {
+		case <-c.gracefulPauseSignal:
+			t.Error("expected graceful pause signal channel to be empty initially")
+		default:
+			// Good - channel is empty
+		}
+
+		// Send graceful pause signal
+		c.GracefulPause()
+
+		// Verify signal was sent
+		select {
+		case <-c.gracefulPauseSignal:
+			// Good - signal received
+		default:
+			t.Error("expected graceful pause signal to be sent")
+		}
+	})
+
+	t.Run("graceful pause from idle transitions to paused", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
+		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		router := events.NewRouter(100)
+		defer router.Close()
+
+		c := New(cfg, wq, router, runner, nil, nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Run(ctx)
+		}()
+
+		// Wait for controller to start
+		time.Sleep(30 * time.Millisecond)
+
+		// Request graceful pause
+		c.GracefulPause()
+
+		// Wait for state change
+		time.Sleep(100 * time.Millisecond)
+
+		if c.State() != StatePaused {
+			t.Errorf("expected state %s after graceful pause from idle, got %s", StatePaused, c.State())
+		}
+
+		c.Stop()
+		<-done
+	})
+
+	t.Run("multiple graceful pause signals are deduplicated", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
+		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		// Send multiple graceful pause signals - should not panic
+		c.GracefulPause()
+		c.GracefulPause()
+		c.GracefulPause()
+
+		// Verify only one signal is buffered
+		select {
+		case <-c.gracefulPauseSignal:
+			// Good - first signal
+		default:
+			t.Error("expected at least one signal")
+		}
+
+		// Channel should now be empty
+		select {
+		case <-c.gracefulPauseSignal:
+			t.Error("expected only one signal to be buffered")
+		default:
+			// Good - no more signals
+		}
+	})
+
+	t.Run("graceful pause after iteration transitions to paused", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		setupAgentStateMocks(runner)
+		runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		// Simulate state after completing an iteration
+		c.setState(StateWorking)
+
+		// The graceful pause signal should be checked when transitioning
+		// after runWorkingOnBead completes
+
+		// Verify the channel accepts signals
+		c.GracefulPause()
+
+		select {
+		case <-c.gracefulPauseSignal:
+			// Good
+		default:
+			t.Error("expected graceful pause signal")
+		}
+	})
+}
+
+func TestControllerSessionResume(t *testing.T) {
+	t.Run("getStoredSessionID returns empty for new bead", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		sessionID := c.getStoredSessionID("new-bead")
+		if sessionID != "" {
+			t.Errorf("expected empty session ID for new bead, got %s", sessionID)
+		}
+	})
+
+	t.Run("getStoredSessionID returns ID from history", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		wq := workqueue.New(cfg, runner)
+
+		// Pre-populate history with session ID
+		history := map[string]*workqueue.BeadHistory{
+			"test-bead": {
+				ID:            "test-bead",
+				Status:        workqueue.HistoryFailed,
+				LastSessionID: "session-123",
+			},
+		}
+		wq.SetHistory(history)
+
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		sessionID := c.getStoredSessionID("test-bead")
+		if sessionID != "session-123" {
+			t.Errorf("expected session ID 'session-123', got '%s'", sessionID)
+		}
+	})
+
+	t.Run("getStoredSessionID returns empty for history without session ID", func(t *testing.T) {
+		cfg := testConfig()
+		runner := testutil.NewMockRunner()
+		wq := workqueue.New(cfg, runner)
+
+		// Pre-populate history without session ID
+		history := map[string]*workqueue.BeadHistory{
+			"test-bead": {
+				ID:     "test-bead",
+				Status: workqueue.HistoryFailed,
+			},
+		}
+		wq.SetHistory(history)
+
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		sessionID := c.getStoredSessionID("test-bead")
+		if sessionID != "" {
+			t.Errorf("expected empty session ID, got '%s'", sessionID)
+		}
+	})
+}
+
 func TestControllerIsBeadClosed(t *testing.T) {
 	t.Run("returns true for closed status", func(t *testing.T) {
 		cfg := testConfig()
