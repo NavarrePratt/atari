@@ -307,6 +307,7 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 			DurationMs:   duration.Milliseconds(),
 			TotalCostUSD: result.TotalCostUSD,
 			Error:        "session paused gracefully",
+			SessionID:    result.SessionID,
 		})
 	} else {
 		// Session completed normally - verify the bead was actually closed
@@ -329,6 +330,7 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 				NumTurns:     result.NumTurns,
 				DurationMs:   duration.Milliseconds(),
 				TotalCostUSD: result.TotalCostUSD,
+				SessionID:    result.SessionID,
 			})
 		} else {
 			// Session completed but bead was not closed - try follow-up session
@@ -434,7 +436,8 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 type SessionResult struct {
 	NumTurns      int
 	TotalCostUSD  float64
-	GracefulPause bool // true if session was paused gracefully (work not complete)
+	GracefulPause bool   // true if session was paused gracefully (work not complete)
+	SessionID     string // Claude session ID for resume capability
 }
 
 // runSession executes a single Claude session for the bead.
@@ -531,6 +534,7 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		if parserResult := parser.Result(); parserResult != nil {
 			result.NumTurns = parserResult.NumTurns
 			result.TotalCostUSD = parserResult.TotalCostUSD
+			result.SessionID = parserResult.SessionID
 		}
 		return result, nil
 	}
@@ -549,6 +553,7 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 	if parserResult := parser.Result(); parserResult != nil {
 		result.NumTurns = parserResult.NumTurns
 		result.TotalCostUSD = parserResult.TotalCostUSD
+		result.SessionID = parserResult.SessionID
 	} else {
 		c.logger.Warn("session completed without result event", "bead_id", bead.ID)
 	}

@@ -166,6 +166,7 @@ type IterationEndEvent struct {
 	DurationMs   int64   `json:"duration_ms"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	Error        string  `json:"error,omitempty"`
+	SessionID    string  `json:"session_id,omitempty"` // Claude session ID for resume
 }
 
 // TurnCompleteEvent is emitted when a turn boundary is reached during a session.
@@ -286,9 +287,10 @@ const (
 // BeadHistory tracks the processing history of a bead.
 // This type is shared between workqueue and state sink.
 type BeadHistory struct {
-	ID          string        `json:"id"`
-	Status      HistoryStatus `json:"status"`
-	Attempts    int           `json:"attempts"`
-	LastAttempt time.Time     `json:"last_attempt"`
-	LastError   string        `json:"last_error,omitempty"`
+	ID            string        `json:"id"`
+	Status        HistoryStatus `json:"status"`
+	Attempts      int           `json:"attempts"`
+	LastAttempt   time.Time     `json:"last_attempt"`
+	LastError     string        `json:"last_error,omitempty"`
+	LastSessionID string        `json:"last_session_id,omitempty"` // Claude session ID for resume
 }

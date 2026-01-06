@@ -141,6 +141,10 @@ func (s *StateSink) handleEvent(event Event) {
 				h.Status = HistoryFailed
 				h.LastError = e.Error
 			}
+			// Store session ID for resume capability (especially on graceful pause)
+			if e.SessionID != "" {
+				h.LastSessionID = e.SessionID
+			}
 		}
 		s.dirty = true
 
