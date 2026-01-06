@@ -210,6 +210,64 @@ func parseTimestamp(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", s)
 }
 
+// JSONLFetcher implements BeadFetcher using the JSONL reader.
+// It reads directly from .beads/issues.jsonl for full dependency data.
+type JSONLFetcher struct {
+	reader *JSONLReader
+}
+
+// NewJSONLFetcher creates a JSONLFetcher for the given beads directory.
+func NewJSONLFetcher(beadsDir string) *JSONLFetcher {
+	return &JSONLFetcher{
+		reader: NewJSONLReader(beadsDir),
+	}
+}
+
+// FetchActive retrieves beads with open, in_progress, or blocked status.
+func (f *JSONLFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return f.reader.ReadActive()
+}
+
+// FetchBacklog retrieves beads with deferred status.
+func (f *JSONLFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return f.reader.ReadBacklog()
+}
+
+// FetchClosed retrieves beads closed within the last 7 days.
+func (f *JSONLFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return f.reader.ReadClosed(7)
+}
+
+// FetchBead retrieves full details for a single bead by ID.
+// Returns nil (not an error) if the bead is not found.
+func (f *JSONLFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	beads, err := f.reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range beads {
+		if beads[i].ID == id {
+			return &beads[i], nil
+		}
+	}
+
+	return nil, nil
+}
+
 // ToNodesAndEdges converts a slice of GraphBeads to nodes and edges.
 // This is a convenience function for graph construction.
 func ToNodesAndEdges(beads []GraphBead) ([]GraphNode, []GraphEdge) {
