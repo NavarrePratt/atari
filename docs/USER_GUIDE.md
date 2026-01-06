@@ -12,9 +12,10 @@ A guide to using Atari for automated bead processing with Claude Code.
 6. [Creating Beads with Planning Skills](#creating-beads-with-planning-skills)
 7. [Configuration](#configuration)
 8. [Monitoring Progress](#monitoring-progress)
-9. [Notifications](#notifications)
-10. [Troubleshooting](#troubleshooting)
-11. [Best Practices](#best-practices)
+9. [Observer Mode](#observer-mode)
+10. [Notifications](#notifications)
+11. [Troubleshooting](#troubleshooting)
+12. [Best Practices](#best-practices)
 
 ---
 
@@ -458,6 +459,91 @@ Statistics:
   Total cost: $5.42
   Total turns: 156
 ```
+
+---
+
+## Observer Mode
+
+Observer Mode provides an interactive Q&A pane for asking questions about drain activity while Atari is running. Think of it as a "what's happening?" assistant.
+
+### What Can Observer Mode Do?
+
+- **Real-time understanding**: Ask what Claude is currently doing
+- **Intervention guidance**: Get advice on whether to pause and intervene
+- **Context from events**: Observer sees the event history and current state
+- **Follow-up questions**: Ask related questions without repeating context
+
+### Using Observer Mode
+
+Toggle the observer pane in the TUI with the `o` key:
+
+```
+┌─ ATARI ──────────────────────────────────────────────────────────────┐
+│ Status: WORKING                                    Cost: $2.35       │
+│ Current: bd-042 "Fix auth bug"                     Turns: 42         │
+├─ Events ─────────────────────────┬─ Observer (haiku) ── $0.03 ───────┤
+│ [14:02:13] Tool: Bash "Run tests"│ > Why did Claude run tests twice?  │
+│ [14:02:14] Result: "PASS ok..."  │                                    │
+│ [14:02:15] Claude: "Tests pass." │ The tests were run twice because   │
+│ [14:02:16] Tool: Edit types.go   │ the first run had a flaky failure  │
+│                                  │ in test_auth.go. Claude retried to │
+│                                  │ confirm it was genuine.            │
+├──────────────────────────────────┴────────────────────────────────────┤
+│ [o] observer  [p] pause  [r] resume  [q] quit  [Tab] focus            │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `o` | Toggle observer pane |
+| `O` | Focus observer (fullscreen) |
+| `Tab` | Switch focus between events and observer |
+| `Enter` | Send question (when observer focused) |
+| `Esc` | Close observer pane or exit focus mode |
+
+### Example Questions
+
+- "What is Claude doing right now?"
+- "Why did it run the tests twice?"
+- "Summarize what's happened so far"
+- "Should I pause and intervene?"
+- "What error caused the last retry?"
+- "Is the current approach likely to succeed?"
+
+### Observer Configuration
+
+Configure observer in `.atari/config.yaml`:
+
+```yaml
+observer:
+  enabled: true        # Enable observer mode in TUI
+  model: haiku         # Model for observer queries (fast, low cost)
+  recent_events: 20    # Events to include for current bead
+  show_cost: true      # Display observer session cost
+  layout: horizontal   # "horizontal" (side-by-side) or "vertical" (stacked)
+```
+
+### Cost Considerations
+
+Observer uses Haiku by default, which is fast and inexpensive for Q&A. The observer cost is shown separately from the main drain cost:
+
+- Observer queries typically cost $0.01-0.05 each
+- Change `observer.model` to `sonnet` for deeper analysis (higher cost)
+- Observer sessions are independent of drain sessions
+
+### When to Use Observer
+
+**Good use cases:**
+- Understanding what's happening in real-time
+- Deciding whether to pause and manually intervene
+- Quick clarification during active work
+
+**Better done elsewhere:**
+- Post-hoc investigation (use normal Claude session with `bd show`)
+- Deep analysis of past sessions (use log files directly)
+- Complex debugging (pause drain and use normal Claude session)
 
 ---
 
