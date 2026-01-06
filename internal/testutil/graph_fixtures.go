@@ -182,6 +182,20 @@ var GraphJSONLWithBlankLines = `{"id":"bd-001","title":"First task","description
 // GraphJSONLMissingDeps is a JSONL sample where a dependency references a non-existent bead.
 var GraphJSONLMissingDeps = `{"id":"bd-001","title":"Task with missing dep","description":"Has dep on non-existent bead","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z","dependencies":[{"issue_id":"bd-001","depends_on_id":"bd-nonexistent","type":"blocks"}]}`
 
+// GraphJSONLMixedStatus is a JSONL sample with beads in various statuses for testing filtered reads.
+var GraphJSONLMixedStatus = `{"id":"bd-open","title":"Open task","description":"Status open","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-progress","title":"In progress task","description":"Status in_progress","status":"in_progress","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-blocked","title":"Blocked task","description":"Status blocked","status":"blocked","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-deferred","title":"Deferred task","description":"Status deferred","status":"deferred","priority":4,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}
+{"id":"bd-closed-recent","title":"Recently closed","description":"Closed within 7 days","status":"closed","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z","closed_at":"2024-01-20T10:00:00Z"}
+{"id":"bd-agent","title":"Agent bead","description":"Should be filtered","status":"open","priority":2,"issue_type":"agent","created_at":"2024-01-15T10:00:00Z","created_by":"atari","updated_at":"2024-01-15T10:00:00Z"}`
+
+// GraphJSONLClosedBeads is a JSONL sample with closed beads for testing ReadClosed filtering.
+// Uses RFC3339Nano format to test fractional second parsing.
+var GraphJSONLClosedBeads = `{"id":"bd-closed-1","title":"Closed yesterday","description":"Should appear in 7-day filter","status":"closed","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z","closed_at":"2024-01-19T10:00:00.123456789Z"}
+{"id":"bd-closed-2","title":"Closed last month","description":"Should NOT appear in 7-day filter","status":"closed","priority":2,"issue_type":"task","created_at":"2024-01-01T10:00:00Z","created_by":"user","updated_at":"2024-01-01T10:00:00Z","closed_at":"2024-01-01T10:00:00Z"}
+{"id":"bd-open-1","title":"Still open","description":"Not closed","status":"open","priority":2,"issue_type":"task","created_at":"2024-01-15T10:00:00Z","created_by":"user","updated_at":"2024-01-15T10:00:00Z"}`
+
 // GraphComplexHierarchyJSON is a bd list response with a more complex hierarchy.
 var GraphComplexHierarchyJSON = `[
   {

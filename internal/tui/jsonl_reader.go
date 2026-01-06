@@ -67,6 +67,43 @@ func (r *JSONLReader) ReadAll() ([]GraphBead, error) {
 	return r.convertEntries(entries), nil
 }
 
+// ReadActive reads beads with open, in_progress, or blocked status.
+// Agent beads are filtered out as they are internal tracking beads.
+func (r *JSONLReader) ReadActive() ([]GraphBead, error) {
+	beads, err := r.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	beads = filterByStatus(beads, "open", "in_progress", "blocked")
+	return filterOutAgentBeads(beads), nil
+}
+
+// ReadBacklog reads beads with deferred status.
+// Agent beads are filtered out as they are internal tracking beads.
+func (r *JSONLReader) ReadBacklog() ([]GraphBead, error) {
+	beads, err := r.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	beads = filterByStatus(beads, "deferred")
+	return filterOutAgentBeads(beads), nil
+}
+
+// ReadClosed reads beads that were closed within the specified number of days.
+// Agent beads are filtered out as they are internal tracking beads.
+func (r *JSONLReader) ReadClosed(days int) ([]GraphBead, error) {
+	beads, err := r.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	beads = filterByStatus(beads, "closed")
+	beads = filterClosedWithinDays(beads, days)
+	return filterOutAgentBeads(beads), nil
+}
+
 // readAndParse reads the JSONL file and parses all valid entries.
 // Malformed lines are logged and skipped. Deleted entries are filtered out.
 func (r *JSONLReader) readAndParse() ([]jsonlEntry, error) {

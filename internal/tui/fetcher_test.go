@@ -640,3 +640,90 @@ func TestBDFetcher_FetchBead_ContextCancellation(t *testing.T) {
 	}
 }
 
+func TestParseTimestamp(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:    "RFC3339Nano with nanoseconds",
+			input:   "2024-01-15T10:00:00.123456789Z",
+			wantErr: false,
+		},
+		{
+			name:    "RFC3339Nano with microseconds",
+			input:   "2024-01-15T10:00:00.123456Z",
+			wantErr: false,
+		},
+		{
+			name:    "RFC3339Nano with milliseconds",
+			input:   "2024-01-15T10:00:00.123Z",
+			wantErr: false,
+		},
+		{
+			name:    "RFC3339 standard",
+			input:   "2024-01-15T10:00:00Z",
+			wantErr: false,
+		},
+		{
+			name:    "RFC3339 with timezone offset",
+			input:   "2024-01-15T10:00:00-05:00",
+			wantErr: false,
+		},
+		{
+			name:    "space-separated datetime",
+			input:   "2024-01-15 10:00:00",
+			wantErr: false,
+		},
+		{
+			name:    "date only",
+			input:   "2024-01-15",
+			wantErr: false,
+		},
+		{
+			name:    "invalid format",
+			input:   "not-a-date",
+			wantErr: true,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseTimestamp(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error for input %q, got nil", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error for input %q: %v", tt.input, err)
+				return
+			}
+			if result.IsZero() {
+				t.Errorf("expected non-zero time for input %q", tt.input)
+			}
+		})
+	}
+}
+
+func TestParseTimestamp_RFC3339Nano_Preserves_FractionalSeconds(t *testing.T) {
+	// Verify that fractional seconds are preserved
+	input := "2024-01-15T10:00:00.123456789Z"
+	result, err := parseTimestamp(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that nanoseconds are preserved (at least the precision we need)
+	if result.Nanosecond() == 0 {
+		t.Error("nanoseconds should be non-zero for RFC3339Nano input")
+	}
+}
+
