@@ -82,6 +82,7 @@ type Manager struct {
 	done           chan struct{}
 	mu             sync.Mutex
 	started        bool
+	resumeID       string // Claude session ID for --resume flag (optional)
 }
 
 // New creates a Manager with the given config and event router.
@@ -96,8 +97,17 @@ func New(cfg *config.Config, router *events.Router) *Manager {
 	return m
 }
 
+// SetResumeID sets the session ID for resuming a previous Claude session.
+// When set, Start() will pass --resume to Claude Code to restore context.
+// Pass empty string to start a fresh session.
+func (m *Manager) SetResumeID(sessionID string) {
+	m.resumeID = sessionID
+}
+
 // Start spawns the claude process with stream-json output format.
 // The prompt is provided via stdin. Stdin remains open for prompt injection.
+// If SetResumeID was called with a valid session ID, --resume is passed
+// to restore context from a previous session.
 func (m *Manager) Start(ctx context.Context, prompt string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -109,6 +119,9 @@ func (m *Manager) Start(ctx context.Context, prompt string) error {
 	args := []string{"-p", "--verbose", "--output-format", "stream-json"}
 	if m.config.Claude.MaxTurns > 0 {
 		args = append(args, "--max-turns", fmt.Sprintf("%d", m.config.Claude.MaxTurns))
+	}
+	if m.resumeID != "" {
+		args = append(args, "--resume", m.resumeID)
 	}
 	args = append(args, m.config.Claude.ExtraArgs...)
 

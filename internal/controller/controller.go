@@ -449,6 +449,14 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 
 	sess := session.New(c.config, c.router)
 
+	// Check if this bead has a stored session ID for resume
+	if resumeID := c.getStoredSessionID(bead.ID); resumeID != "" {
+		c.logger.Info("resuming previous session",
+			"bead_id", bead.ID,
+			"session_id", resumeID)
+		sess.SetResumeID(resumeID)
+	}
+
 	// Load prompt template
 	promptTemplate, err := c.config.LoadPrompt()
 	if err != nil {
@@ -481,8 +489,24 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		defer c.broker.Release()
 	}
 
+	// Track if we're attempting to resume
+	attemptingResume := c.getStoredSessionID(bead.ID) != ""
+
 	if err := sess.Start(c.ctx, prompt); err != nil {
-		return nil, fmt.Errorf("start session: %w", err)
+		// If resume failed, try again with fresh session
+		if attemptingResume {
+			c.logger.Warn("resume failed, starting fresh session",
+				"bead_id", bead.ID,
+				"error", err)
+
+			// Create new session without resume ID
+			sess = session.New(c.config, c.router)
+			if err := sess.Start(c.ctx, prompt); err != nil {
+				return nil, fmt.Errorf("start session: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("start session: %w", err)
+		}
 	}
 
 	// Check for graceful pause request and wire up turn boundary callback
@@ -1042,4 +1066,14 @@ func (c *Controller) getBeadStatus(beadID string) string {
 	}
 
 	return beads[0].Status
+}
+
+// getStoredSessionID retrieves the stored session ID for a bead from history.
+// Returns empty string if no session ID is stored.
+func (c *Controller) getStoredSessionID(beadID string) string {
+	history := c.workQueue.History()
+	if h, ok := history[beadID]; ok && h.LastSessionID != "" {
+		return h.LastSessionID
+	}
+	return ""
 }
