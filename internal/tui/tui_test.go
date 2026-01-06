@@ -290,3 +290,19 @@ func TestNewModel_FullConfiguration(t *testing.T) {
 		t.Error("detailModal.fetcher not wired")
 	}
 }
+
+// TestNewModel_GraphPaneAutoRefreshEnabled verifies the graph pane is created
+// with auto-refresh enabled by default. This was a regression where the config
+// was created without AutoRefreshInterval, causing auto-refresh to silently fail.
+func TestNewModel_GraphPaneAutoRefreshEnabled(t *testing.T) {
+	eventChan := make(chan events.Event)
+
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil)
+
+	// The graphPane's autoRefreshCmd should return a non-nil command
+	// when auto-refresh is enabled (interval > 0)
+	cmd := m.graphPane.autoRefreshCmd()
+	if cmd == nil {
+		t.Error("graphPane auto-refresh is disabled; newModel should configure AutoRefreshInterval > 0")
+	}
+}

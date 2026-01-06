@@ -140,8 +140,9 @@ func newModel(
 ) model {
 	// Create default graph config for the graph pane
 	graphCfg := &config.GraphConfig{
-		Enabled: true,
-		Density: "standard",
+		Enabled:             true,
+		Density:             "standard",
+		AutoRefreshInterval: 5 * time.Second,
 	}
 
 	return model{
