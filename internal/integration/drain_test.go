@@ -999,3 +999,242 @@ exit 0
 	// the test verifies the controller didn't crash on stale session ID
 	t.Log("session resume fallback test completed")
 }
+
+// epicCloseEligibleJSON returns a mock response for bd epic close-eligible --json.
+func epicCloseEligibleJSON(epicID, title string, totalChildren int, closeReason string) []byte {
+	response := []map[string]any{
+		{
+			"id":             epicID,
+			"title":          title,
+			"total_children": totalChildren,
+			"close_reason":   closeReason,
+		},
+	}
+	data, _ := json.Marshal(response)
+	return data
+}
+
+func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.cleanup()
+
+	// Scenario: 2 child beads, epic auto-closes after both complete
+	childBeadID := "bd-child-001"
+	epicID := "bd-epic-001"
+	beadJSON := singleBeadJSON(childBeadID, "Child bead 1")
+	epicCloseJSON := epicCloseEligibleJSON(epicID, "Test Epic", 2, "All children completed")
+
+	callCount := 0
+	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "bd" && len(args) >= 1 {
+			switch {
+			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
+				callCount++
+				// Return bead on first call, empty on subsequent
+				if callCount > 1 {
+					return []byte("[]"), nil, true
+				}
+				return beadJSON, nil, true
+			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
+				// Return closed status for the bead
+				return []byte(`[{"status":"closed"}]`), nil, true
+			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
+				// Return epic closure response
+				return epicCloseJSON, nil, true
+			}
+		}
+		return nil, nil, false
+	}
+
+	wq := workqueue.New(env.cfg, env.runner)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- ctrl.Run(ctx)
+	}()
+
+	// Give time for iteration to complete and epic closure to run
+	time.Sleep(800 * time.Millisecond)
+	ctrl.Stop()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for controller to stop")
+	}
+
+	// Collect events with extra time for async epic closure
+	env.collectEvents(200 * time.Millisecond)
+
+	// Verify EpicClosedEvent was emitted
+	epicEvt := env.findEvent(events.EventEpicClosed)
+	if epicEvt == nil {
+		t.Error("expected EpicClosedEvent to be emitted")
+		t.Logf("collected %d events", len(env.collected))
+		for _, evt := range env.collected {
+			t.Logf("  - %s", evt.Type())
+		}
+		return
+	}
+
+	epicClosedEvt := epicEvt.(*events.EpicClosedEvent)
+	if epicClosedEvt.EpicID != epicID {
+		t.Errorf("expected epic ID %s, got %s", epicID, epicClosedEvt.EpicID)
+	}
+	if epicClosedEvt.Title != "Test Epic" {
+		t.Errorf("expected epic title 'Test Epic', got '%s'", epicClosedEvt.Title)
+	}
+	if epicClosedEvt.TotalChildren != 2 {
+		t.Errorf("expected total_children 2, got %d", epicClosedEvt.TotalChildren)
+	}
+	if epicClosedEvt.TriggeringBeadID != childBeadID {
+		t.Errorf("expected triggering_bead_id %s, got %s", childBeadID, epicClosedEvt.TriggeringBeadID)
+	}
+	if epicClosedEvt.CloseReason != "All children completed" {
+		t.Errorf("expected close_reason 'All children completed', got '%s'", epicClosedEvt.CloseReason)
+	}
+
+	t.Logf("epic auto-closure verified: epic_id=%s, triggering_bead_id=%s", epicID, childBeadID)
+}
+
+func TestEpicAutoClosureSingleChild(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.cleanup()
+
+	// Scenario: single child epic
+	childBeadID := "bd-only-child"
+	epicID := "bd-epic-single"
+	beadJSON := singleBeadJSON(childBeadID, "Only child bead")
+	epicCloseJSON := epicCloseEligibleJSON(epicID, "Single Child Epic", 1, "All children completed")
+
+	callCount := 0
+	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "bd" && len(args) >= 1 {
+			switch {
+			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
+				callCount++
+				if callCount > 1 {
+					return []byte("[]"), nil, true
+				}
+				return beadJSON, nil, true
+			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
+				return []byte(`[{"status":"closed"}]`), nil, true
+			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
+				return epicCloseJSON, nil, true
+			}
+		}
+		return nil, nil, false
+	}
+
+	wq := workqueue.New(env.cfg, env.runner)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- ctrl.Run(ctx)
+	}()
+
+	time.Sleep(800 * time.Millisecond)
+	ctrl.Stop()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for controller to stop")
+	}
+
+	env.collectEvents(200 * time.Millisecond)
+
+	epicEvt := env.findEvent(events.EventEpicClosed)
+	if epicEvt == nil {
+		t.Error("expected EpicClosedEvent for single child epic")
+		return
+	}
+
+	epicClosedEvt := epicEvt.(*events.EpicClosedEvent)
+	if epicClosedEvt.TotalChildren != 1 {
+		t.Errorf("expected total_children 1, got %d", epicClosedEvt.TotalChildren)
+	}
+
+	t.Logf("single child epic auto-closure verified: epic_id=%s", epicID)
+}
+
+func TestNoEpicClosureWhenNoneEligible(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.cleanup()
+
+	// Scenario: bead completes but no epic is eligible for closure
+	beadID := "bd-standalone"
+	beadJSON := singleBeadJSON(beadID, "Standalone bead")
+
+	callCount := 0
+	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "bd" && len(args) >= 1 {
+			switch {
+			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
+				callCount++
+				if callCount > 1 {
+					return []byte("[]"), nil, true
+				}
+				return beadJSON, nil, true
+			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
+				return []byte(`[{"status":"closed"}]`), nil, true
+			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
+				// Return empty array - no epics eligible
+				return []byte("[]"), nil, true
+			}
+		}
+		return nil, nil, false
+	}
+
+	wq := workqueue.New(env.cfg, env.runner)
+	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- ctrl.Run(ctx)
+	}()
+
+	time.Sleep(800 * time.Millisecond)
+	ctrl.Stop()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for controller to stop")
+	}
+
+	env.collectEvents(200 * time.Millisecond)
+
+	// Should NOT have EpicClosedEvent
+	epicCount := env.countEvents(events.EventEpicClosed)
+	if epicCount != 0 {
+		t.Errorf("expected no EpicClosedEvent when no epics eligible, got %d", epicCount)
+	}
+
+	// Should still have iteration events
+	if env.findEvent(events.EventIterationStart) == nil {
+		t.Error("expected IterationStartEvent")
+	}
+
+	t.Log("no epic closure when none eligible - verified")
+}
