@@ -153,6 +153,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey processes keyboard input and returns the updated model and command.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If quit confirmation is open, handle confirmation keys
+	if m.quitConfirmOpen {
+		return m.handleQuitConfirm(msg)
+	}
+
 	// If modal is open, forward all keys to modal
 	if m.detailModal != nil && m.detailModal.IsOpen() {
 		cmd := m.detailModal.Update(msg)
@@ -185,6 +190,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cycleFocus()
 		}
 		return m, nil
+
+	case "q":
+		// Exit fullscreen mode if active (like esc)
+		if m.focusMode != FocusModeNone {
+			m.focusMode = FocusModeNone
+			return m, nil
+		}
+		// Otherwise fall through to quit handling below
 
 	case "esc":
 		// Exit fullscreen mode if active
@@ -284,10 +297,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !m.observerPane.IsInsertMode() {
 		switch key {
 		case "q":
-			if m.onQuit != nil {
-				m.onQuit()
-			}
-			return m, tea.Quit
+			return m.tryQuit()
 
 		case "p":
 			if m.onPause != nil {
@@ -315,10 +325,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global control keys for non-observer focus (graph pane, events pane)
 	switch key {
 	case "q":
-		if m.onQuit != nil {
-			m.onQuit()
-		}
-		return m, tea.Quit
+		return m.tryQuit()
 
 	case "p":
 		if m.onPause != nil {
@@ -458,37 +465,34 @@ func (m *model) handleTick() {
 		return
 	}
 
-	// Sync stats from controller
-	completed := m.statsGetter.Completed()
-	failed := m.statsGetter.Failed()
-	abandoned := m.statsGetter.Abandoned()
+	// Sync stats from controller using single GetStats() call
+	stats := m.statsGetter.GetStats()
 
 	// Check for drift and log warning if stats differ significantly
-	if completed != m.stats.Completed {
+	if stats.Completed != m.stats.Completed {
 		slog.Warn("stats drift detected",
 			"field", "completed",
 			"tui", m.stats.Completed,
-			"controller", completed)
-		m.stats.Completed = completed
+			"controller", stats.Completed)
+		m.stats.Completed = stats.Completed
 	}
-	if failed != m.stats.Failed {
+	if stats.Failed != m.stats.Failed {
 		slog.Warn("stats drift detected",
 			"field", "failed",
 			"tui", m.stats.Failed,
-			"controller", failed)
-		m.stats.Failed = failed
+			"controller", stats.Failed)
+		m.stats.Failed = stats.Failed
 	}
-	if abandoned != m.stats.Abandoned {
+	if stats.Abandoned != m.stats.Abandoned {
 		slog.Warn("stats drift detected",
 			"field", "abandoned",
 			"tui", m.stats.Abandoned,
-			"controller", abandoned)
-		m.stats.Abandoned = abandoned
+			"controller", stats.Abandoned)
+		m.stats.Abandoned = stats.Abandoned
 	}
 
 	// Update current bead from controller
-	currentBead := m.statsGetter.CurrentBead()
-	if currentBead == "" && m.currentBead != nil {
+	if stats.CurrentBead == "" && m.currentBead != nil {
 		// Controller says no current bead but TUI thinks there is one
 		slog.Warn("current bead drift detected",
 			"tui", m.currentBead.ID,
@@ -496,6 +500,51 @@ func (m *model) handleTick() {
 		m.currentBead = nil
 	}
 
+	// Update backoff stats for header display
+	m.inBackoff = stats.InBackoff
+	m.topBlockedBead = stats.TopBlockedBead
+
 	// Note: Turn count is tracked via TurnCompleteEvent, not synced from controller.
 	// The TUI is authoritative for session turn tracking.
+}
+
+// tryQuit attempts to quit, showing confirmation if atari is actively working.
+// Only shows confirmation when status indicates active work (not idle/paused/stopped).
+func (m model) tryQuit() (tea.Model, tea.Cmd) {
+	// Check if we need confirmation - only when actively working
+	needsConfirm := m.status != "idle" && m.status != "paused" && m.status != "stopped"
+
+	if needsConfirm {
+		m.quitConfirmOpen = true
+		return m, nil
+	}
+
+	// Safe to quit immediately
+	if m.onQuit != nil {
+		m.onQuit()
+	}
+	return m, tea.Quit
+}
+
+// handleQuitConfirm handles keys when the quit confirmation dialog is open.
+func (m model) handleQuitConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "y", "Y", "enter":
+		// Confirmed - quit
+		m.quitConfirmOpen = false
+		if m.onQuit != nil {
+			m.onQuit()
+		}
+		return m, tea.Quit
+
+	case "n", "N", "esc", "q":
+		// Cancelled - close dialog
+		m.quitConfirmOpen = false
+		return m, nil
+	}
+
+	// Ignore other keys while dialog is open
+	return m, nil
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/npratt/atari/internal/events"
@@ -41,6 +42,11 @@ func (m model) View() string {
 		baseContent = m.renderEventsOnlyView()
 	}
 
+	// Overlay quit confirmation if open
+	if m.quitConfirmOpen {
+		return m.renderQuitConfirmDialog()
+	}
+
 	// Overlay modal if open
 	if m.detailModal != nil && m.detailModal.IsOpen() {
 		return m.renderWithModalOverlay(baseContent)
@@ -61,6 +67,42 @@ func (m model) renderWithModalOverlay(baseContent string) string {
 	centeredModal := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modalContent)
 
 	return centeredModal
+}
+
+// renderQuitConfirmDialog renders the quit confirmation dialog centered on screen.
+func (m model) renderQuitConfirmDialog() string {
+	// Build confirmation dialog
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("205"))
+
+	messageStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+
+	hintStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Italic(true)
+
+	var content strings.Builder
+	content.WriteString(titleStyle.Render("Quit Atari?"))
+	content.WriteString("\n\n")
+	content.WriteString(messageStyle.Render("A session is currently in progress."))
+	content.WriteString("\n")
+	content.WriteString(messageStyle.Render("Quitting will interrupt the active work."))
+	content.WriteString("\n\n")
+	content.WriteString(hintStyle.Render("[y/Enter] Quit  [n/Esc/q] Cancel"))
+
+	// Create modal box
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("205")).
+		Padding(1, 3).
+		Width(44)
+
+	modalContent := modalStyle.Render(content.String())
+
+	// Center the modal on screen
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modalContent)
 }
 
 // renderFullscreenPane renders a single pane in fullscreen mode.
@@ -434,7 +476,7 @@ func (m model) renderSharedHeader(w int) string {
 		cost,
 	)
 
-	// Line 2: Current bead (or idle message) with elapsed time and turn count
+	// Line 2: Current bead (or idle message with backoff info) with elapsed time and turn count
 	var beadLine string
 	if m.currentBead != nil {
 		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
@@ -451,7 +493,7 @@ func (m model) renderSharedHeader(w int) string {
 		}
 		beadLine = styles.Bead.Render(beadText)
 	} else {
-		beadLine = styles.Bead.Render("no active bead")
+		beadLine = m.renderBlockedInfo(w)
 	}
 
 	// Line 3: Turns, total duration, and progress stats
@@ -581,7 +623,7 @@ func (m model) renderHeaderForWidth(w int) string {
 		cost,
 	)
 
-	// Line 2: Current bead (or idle message) with elapsed time and turn count
+	// Line 2: Current bead (or idle message with backoff info) with elapsed time and turn count
 	var beadLine string
 	if m.currentBead != nil {
 		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
@@ -598,7 +640,7 @@ func (m model) renderHeaderForWidth(w int) string {
 		}
 		beadLine = styles.Bead.Render(beadText)
 	} else {
-		beadLine = styles.Bead.Render("no active bead")
+		beadLine = m.renderBlockedInfo(w)
 	}
 
 	// Line 3: Turns, total duration, and progress stats
@@ -687,7 +729,7 @@ func (m model) renderHeader() string {
 		cost,
 	)
 
-	// Line 2: Current bead (or idle message) with elapsed time and turn count
+	// Line 2: Current bead (or idle message with backoff info) with elapsed time and turn count
 	var beadLine string
 	if m.currentBead != nil {
 		elapsed := formatDurationHuman(m.stats.CurrentDurationMs)
@@ -704,7 +746,7 @@ func (m model) renderHeader() string {
 		}
 		beadLine = styles.Bead.Render(beadText)
 	} else {
-		beadLine = styles.Bead.Render("no active bead")
+		beadLine = m.renderBlockedInfo(w)
 	}
 
 	// Line 3: Turns, total duration, and progress stats
@@ -896,6 +938,53 @@ func (m model) renderEventsFooter() string {
 	parts = append(parts, "q: quit", "↑/↓: scroll")
 
 	return strings.Join(parts, "  ")
+}
+
+// formatDurationShort formats a time.Duration to compact form like "30s", "5m", "1h".
+// Returns "now" for negative or near-zero durations.
+func formatDurationShort(d time.Duration) string {
+	if d < time.Second {
+		return "now"
+	}
+
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+
+	if d < time.Hour {
+		minutes := int(d.Minutes())
+		return fmt.Sprintf("%dm", minutes)
+	}
+
+	hours := int(d.Hours())
+	return fmt.Sprintf("%dh", hours)
+}
+
+// renderBlockedInfo renders the blocked bead information for the header.
+// Returns the styled text showing backoff status when idle with blocked beads.
+func (m model) renderBlockedInfo(w int) string {
+	// Only show blocked info when idle AND no current bead AND beads in backoff
+	if m.status != "idle" || m.currentBead != nil || m.inBackoff == 0 {
+		return styles.Bead.Render("no active bead")
+	}
+
+	var text string
+	if m.topBlockedBead != nil {
+		// Format: "no active bead - N in backoff (bd-xxx failed Nx, retry in Xm)"
+		retryIn := formatDurationShort(m.topBlockedBead.RetryIn)
+		text = fmt.Sprintf("no active bead - %d in backoff (%s failed %dx, retry in %s)",
+			m.inBackoff, m.topBlockedBead.BeadID, m.topBlockedBead.FailureCount, retryIn)
+	} else {
+		// No top blocked bead info available
+		text = fmt.Sprintf("no active bead - %d in backoff", m.inBackoff)
+	}
+
+	// Truncate if exceeds width
+	if len(text) > w {
+		text = text[:w-3] + "..."
+	}
+
+	return styles.StatusPaused.Render(text)
 }
 
 // safeWidth returns a width that is at least 1 to prevent negative values.

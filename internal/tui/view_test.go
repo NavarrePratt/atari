@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/viewmodel"
 )
 
 func TestSafeWidth(t *testing.T) {
@@ -682,6 +683,210 @@ func TestToggleEvents_CanCloseLastPanel(t *testing.T) {
 
 		if m.eventsOpen {
 			t.Error("should be able to close events even when it is the only panel")
+		}
+	})
+}
+
+func TestFormatDurationShort(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration time.Duration
+		expected string
+	}{
+		{"negative", -5 * time.Second, "now"},
+		{"zero", 0, "now"},
+		{"milliseconds", 500 * time.Millisecond, "now"},
+		{"one second", time.Second, "1s"},
+		{"30 seconds", 30 * time.Second, "30s"},
+		{"59 seconds", 59 * time.Second, "59s"},
+		{"one minute", time.Minute, "1m"},
+		{"5 minutes", 5 * time.Minute, "5m"},
+		{"59 minutes", 59 * time.Minute, "59m"},
+		{"one hour", time.Hour, "1h"},
+		{"2 hours", 2 * time.Hour, "2h"},
+		{"1h 30m shows as 1h", 90 * time.Minute, "1h"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDurationShort(tt.duration)
+			if result != tt.expected {
+				t.Errorf("formatDurationShort(%v) = %q, want %q", tt.duration, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRenderBlockedInfo(t *testing.T) {
+	t.Run("idle with no backoff", func(t *testing.T) {
+		m := model{
+			width:     80,
+			status:    "idle",
+			inBackoff: 0,
+		}
+
+		result := m.renderBlockedInfo(60)
+
+		if !strings.Contains(result, "no active bead") {
+			t.Error("should show 'no active bead' when no beads in backoff")
+		}
+		// Should not contain backoff info
+		if strings.Contains(result, "in backoff") {
+			t.Error("should not show backoff info when inBackoff is 0")
+		}
+	})
+
+	t.Run("idle with backoff and top blocked bead", func(t *testing.T) {
+		m := model{
+			width:     80,
+			status:    "idle",
+			inBackoff: 3,
+			topBlockedBead: &viewmodel.BlockedBeadInfo{
+				BeadID:       "bd-test-123",
+				FailureCount: 2,
+				RetryIn:      5 * time.Minute,
+			},
+		}
+
+		result := m.renderBlockedInfo(100)
+
+		if !strings.Contains(result, "3 in backoff") {
+			t.Error("should show number of beads in backoff")
+		}
+		if !strings.Contains(result, "bd-test-123") {
+			t.Error("should show top blocked bead ID")
+		}
+		if !strings.Contains(result, "failed 2x") {
+			t.Error("should show failure count")
+		}
+		if !strings.Contains(result, "retry in 5m") {
+			t.Error("should show retry time")
+		}
+	})
+
+	t.Run("idle with backoff but no top blocked bead", func(t *testing.T) {
+		m := model{
+			width:          80,
+			status:         "idle",
+			inBackoff:      2,
+			topBlockedBead: nil,
+		}
+
+		result := m.renderBlockedInfo(60)
+
+		if !strings.Contains(result, "2 in backoff") {
+			t.Error("should show number of beads in backoff")
+		}
+		if !strings.Contains(result, "no active bead") {
+			t.Error("should show 'no active bead' prefix")
+		}
+	})
+
+	t.Run("working status does not show backoff", func(t *testing.T) {
+		m := model{
+			width:     80,
+			status:    "working",
+			inBackoff: 5,
+		}
+
+		result := m.renderBlockedInfo(60)
+
+		if !strings.Contains(result, "no active bead") {
+			t.Error("should show 'no active bead' when not idle")
+		}
+		if strings.Contains(result, "in backoff") {
+			t.Error("should not show backoff info when not idle")
+		}
+	})
+
+	t.Run("paused status does not show backoff", func(t *testing.T) {
+		m := model{
+			width:     80,
+			status:    "paused",
+			inBackoff: 5,
+		}
+
+		result := m.renderBlockedInfo(60)
+
+		if strings.Contains(result, "in backoff") {
+			t.Error("should not show backoff info when paused")
+		}
+	})
+
+	t.Run("with current bead does not show backoff", func(t *testing.T) {
+		m := model{
+			width:       80,
+			status:      "idle",
+			currentBead: &beadInfo{ID: "bd-working"},
+			inBackoff:   5,
+		}
+
+		result := m.renderBlockedInfo(60)
+
+		if strings.Contains(result, "in backoff") {
+			t.Error("should not show backoff info when current bead exists")
+		}
+	})
+
+	t.Run("truncates long text", func(t *testing.T) {
+		m := model{
+			width:     80,
+			status:    "idle",
+			inBackoff: 3,
+			topBlockedBead: &viewmodel.BlockedBeadInfo{
+				BeadID:       "bd-very-long-bead-identifier-that-exceeds-width",
+				FailureCount: 10,
+				RetryIn:      10 * time.Hour,
+			},
+		}
+
+		result := m.renderBlockedInfo(40) // narrow width
+
+		if !strings.Contains(result, "...") {
+			t.Error("should truncate long text with ellipsis")
+		}
+	})
+}
+
+func TestRenderHeader_WithBackoff(t *testing.T) {
+	t.Run("shows backoff info when idle with blocked beads", func(t *testing.T) {
+		m := model{
+			width:     80,
+			height:    25,
+			status:    "idle",
+			inBackoff: 2,
+			topBlockedBead: &viewmodel.BlockedBeadInfo{
+				BeadID:       "bd-blocked",
+				FailureCount: 3,
+				RetryIn:      10 * time.Minute,
+			},
+		}
+
+		result := m.renderHeader()
+
+		if !strings.Contains(result, "2 in backoff") {
+			t.Error("header should show beads in backoff")
+		}
+		if !strings.Contains(result, "bd-blocked") {
+			t.Error("header should show blocked bead ID")
+		}
+	})
+
+	t.Run("shows standard message when idle with no backoff", func(t *testing.T) {
+		m := model{
+			width:     80,
+			height:    25,
+			status:    "idle",
+			inBackoff: 0,
+		}
+
+		result := m.renderHeader()
+
+		if !strings.Contains(result, "no active bead") {
+			t.Error("header should show 'no active bead'")
+		}
+		if strings.Contains(result, "in backoff") {
+			t.Error("header should not show backoff info")
 		}
 	})
 }

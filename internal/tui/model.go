@@ -8,6 +8,7 @@ import (
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/observer"
+	"github.com/npratt/atari/internal/viewmodel"
 )
 
 // FocusedPane represents which pane currently has keyboard focus.
@@ -90,7 +91,9 @@ type model struct {
 	status              string
 	currentBead         *beadInfo
 	stats               modelStats
-	currentSessionTurns int // turns in current session (reset on iteration end)
+	currentSessionTurns int                        // turns in current session (reset on iteration end)
+	inBackoff           int                        // number of beads currently in backoff period
+	topBlockedBead      *viewmodel.BlockedBeadInfo // bead with shortest remaining backoff
 
 	// Event log
 	eventLines []eventLine
@@ -116,7 +119,8 @@ type model struct {
 	focusMode FocusedPane // FocusModeNone for normal, or pane index for fullscreen
 
 	// Modal state
-	detailModal *DetailModal
+	detailModal      *DetailModal
+	quitConfirmOpen  bool // Quit confirmation dialog is open
 
 	// Callbacks
 	onPause  func()
