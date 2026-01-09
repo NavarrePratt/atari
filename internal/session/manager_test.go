@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -382,40 +381,37 @@ func TestManager_WrapUpSent_InitiallyFalse(t *testing.T) {
 	}
 }
 
-func TestManager_SendWrapUp_FailsWithoutStdin(t *testing.T) {
+func TestManager_SendWrapUp_AlwaysSucceeds(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, nil)
 
+	// SendWrapUp is now a no-op that always succeeds
 	err := m.SendWrapUp("test wrap-up prompt")
-	if err == nil {
-		t.Error("expected error when stdin is nil")
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
 	}
-	if err.Error() != "stdin not available" {
-		t.Errorf("unexpected error message: %v", err)
+	if !m.WrapUpSent() {
+		t.Error("expected WrapUpSent() to be true after SendWrapUp")
 	}
 }
 
-func TestManager_SendWrapUp_OnlyOnce(t *testing.T) {
+func TestManager_SendWrapUp_Idempotent(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, nil)
 
-	// Create a pipe to simulate stdin
-	r, w, err := os.Pipe()
+	// SendWrapUp can be called multiple times (it's a no-op)
+	err := m.SendWrapUp("first prompt")
 	if err != nil {
-		t.Fatalf("failed to create pipe: %v", err)
+		t.Errorf("expected no error on first call, got: %v", err)
 	}
-	defer func() { _ = r.Close() }()
-	defer func() { _ = w.Close() }()
 
-	m.stdin = w
-	m.wrapUpSent.Store(true)
-
-	err = m.SendWrapUp("test wrap-up prompt")
-	if err == nil {
-		t.Error("expected error on second wrap-up attempt")
+	err = m.SendWrapUp("second prompt")
+	if err != nil {
+		t.Errorf("expected no error on second call, got: %v", err)
 	}
-	if err.Error() != "wrap-up already sent" {
-		t.Errorf("unexpected error message: %v", err)
+
+	if !m.WrapUpSent() {
+		t.Error("expected WrapUpSent() to be true")
 	}
 }
 

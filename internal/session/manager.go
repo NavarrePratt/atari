@@ -144,10 +144,15 @@ func (m *Manager) Start(ctx context.Context, prompt string) error {
 		return fmt.Errorf("start claude: %w", err)
 	}
 
-	// Write initial prompt to stdin
+	// Write initial prompt to stdin and close to signal EOF.
+	// Claude CLI in -p mode waits for stdin EOF before processing.
 	if _, err := m.stdin.Write([]byte(prompt)); err != nil {
 		_ = m.cmd.Process.Kill()
 		return fmt.Errorf("write prompt: %w", err)
+	}
+	if err := m.stdin.Close(); err != nil {
+		_ = m.cmd.Process.Kill()
+		return fmt.Errorf("close stdin: %w", err)
 	}
 
 	m.started = true
@@ -267,31 +272,12 @@ func (m *Manager) PauseRequested() bool {
 	return m.pauseRequested.Load()
 }
 
-// SendWrapUp injects a wrap-up prompt and closes stdin to signal session end.
-// This gives Claude a chance to save progress before the session terminates.
-// Returns an error if stdin is not available or already closed.
+// SendWrapUp is deprecated - stdin is closed immediately after the initial prompt.
+// Claude CLI in -p mode requires stdin EOF before processing, so wrap-up prompts
+// cannot be injected via stdin. This function now just marks the session as
+// wrapping up and returns nil. The graceful pause will stop the session without
+// a wrap-up prompt.
 func (m *Manager) SendWrapUp(prompt string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.stdin == nil {
-		return fmt.Errorf("stdin not available")
-	}
-
-	if m.wrapUpSent.Load() {
-		return fmt.Errorf("wrap-up already sent")
-	}
-
-	// Write wrap-up prompt
-	if _, err := m.stdin.Write([]byte("\n" + prompt + "\n")); err != nil {
-		return fmt.Errorf("write wrap-up prompt: %w", err)
-	}
-
-	// Close stdin to signal EOF - Claude will finish processing and exit
-	if err := m.stdin.Close(); err != nil {
-		return fmt.Errorf("close stdin: %w", err)
-	}
-
 	m.wrapUpSent.Store(true)
 	return nil
 }
@@ -301,15 +287,8 @@ func (m *Manager) WrapUpSent() bool {
 	return m.wrapUpSent.Load()
 }
 
-// CloseStdin closes stdin without sending a wrap-up prompt.
-// This is used for normal session completion.
+// CloseStdin is a no-op - stdin is now closed immediately in Start().
+// Kept for API compatibility.
 func (m *Manager) CloseStdin() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.stdin == nil {
-		return nil
-	}
-
-	return m.stdin.Close()
+	return nil
 }

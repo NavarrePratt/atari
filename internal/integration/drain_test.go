@@ -137,6 +137,9 @@ func setupAgentStateMocks(runner *testutil.MockRunner) {
 }
 
 // createMockClaude creates a script that simulates claude's stream-json output.
+// IMPORTANT: This mock accurately simulates real Claude behavior - it blocks
+// until stdin is closed (EOF). This ensures tests catch bugs where stdin
+// is not properly closed.
 func createMockClaude(path string) error {
 	// This script outputs a successful session:
 	// 1. system init event
@@ -146,9 +149,10 @@ func createMockClaude(path string) error {
 # Mock claude for integration testing
 # Reads prompt from stdin and outputs stream-json
 
-# Read prompt with timeout (stdin may be kept open for wrap-up injection)
-# Use timeout to avoid blocking indefinitely
-timeout 0.1 cat > /dev/null 2>&1 || true
+# CRITICAL: Read stdin until EOF, just like real Claude CLI in -p mode.
+# Real Claude waits for stdin to close before processing.
+# DO NOT use timeout here - if stdin isn't closed, the test should fail.
+cat > /dev/null 2>&1
 
 # Check for MOCK_CLAUDE_FAIL environment variable
 if [ "$MOCK_CLAUDE_FAIL" = "1" ]; then
@@ -179,8 +183,8 @@ exit 0
 func createFailingMockClaude(path string) error {
 	script := `#!/bin/bash
 # Mock claude that fails
-# Read prompt with timeout (stdin may be kept open for wrap-up injection)
-timeout 0.1 cat > /dev/null 2>&1 || true
+# Read stdin until EOF (matching real Claude behavior)
+cat > /dev/null 2>&1
 echo '{"type":"system","subtype":"init","session_id":"fail-001","cwd":"/workspace","tools":[]}'
 sleep 0.01
 echo '{"type":"result","subtype":"error_tool_use","error":"simulated failure"}'
@@ -651,15 +655,20 @@ func TestPauseResumeDuringDrain(t *testing.T) {
 }
 
 // createGracefulPauseMockClaude creates a mock that simulates a multi-turn session
-// that can be paused gracefully. It reads stdin for wrap-up prompts.
+// that can be stopped gracefully. Stdin is closed immediately after prompt, so
+// wrap-up prompts cannot be injected. The graceful pause now works by stopping
+// the session at turn boundaries.
 func createGracefulPauseMockClaude(path string) error {
 	// This script:
-	// 1. Outputs init event with session ID
-	// 2. Simulates multiple turns with delays
-	// 3. Reads stdin between turns for wrap-up prompt
+	// 1. Reads stdin until EOF (matching real Claude behavior)
+	// 2. Outputs init event with session ID
+	// 3. Simulates multiple turns with delays
 	// 4. Outputs result event with session ID
 	script := `#!/bin/bash
 # Mock claude for graceful pause testing
+
+# Read stdin until EOF (matching real Claude behavior)
+cat > /dev/null 2>&1
 
 SESSION_ID="graceful-test-session-001"
 
@@ -677,17 +686,9 @@ sleep 0.05
 
 # Turn 1: tool result (marks turn boundary)
 echo "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"tool_001\",\"content\":\"hello\"}]}}"
+sleep 0.05
 
-# Check for wrap-up prompt (with timeout to prevent blocking)
-if read -t 0.5 WRAP_UP_PROMPT; then
-    # Wrap-up received, save notes and exit
-    echo "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Saving progress notes before pausing.\"}]}}"
-    sleep 0.02
-    echo "{\"type\":\"result\",\"subtype\":\"success\",\"total_cost_usd\":0.02,\"duration_ms\":500,\"num_turns\":1,\"session_id\":\"$SESSION_ID\"}"
-    exit 0
-fi
-
-# Turn 2: continue work if no wrap-up
+# Turn 2: continue work
 echo "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Continuing work...\"}]}}"
 sleep 0.05
 
@@ -723,8 +724,8 @@ for arg in "$@"; do
     fi
 done
 
-# Read prompt with timeout
-timeout 0.1 cat > /dev/null 2>&1 || true
+# Read stdin until EOF (matching real Claude behavior)
+cat > /dev/null 2>&1
 
 if [ -n "$RESUME_ID" ]; then
     # Resumed session
@@ -915,8 +916,8 @@ for arg in "$@"; do
     fi
 done
 
-# Read prompt with timeout
-timeout 0.1 cat > /dev/null 2>&1 || true
+# Read stdin until EOF (matching real Claude behavior)
+cat > /dev/null 2>&1
 
 if [ "$RESUME_FLAG" = "1" ]; then
     # Simulate resume failure (e.g., session expired)
