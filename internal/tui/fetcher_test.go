@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -724,6 +726,192 @@ func TestParseTimestamp_RFC3339Nano_Preserves_FractionalSeconds(t *testing.T) {
 	// Check that nanoseconds are preserved (at least the precision we need)
 	if result.Nanosecond() == 0 {
 		t.Error("nanoseconds should be non-zero for RFC3339Nano input")
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails(t *testing.T) {
+	basicBeads := []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+		{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+	}
+
+	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-epic-001", "dependency_type": "parent-child"}]}]`
+	enrichedBead2 := `[{"id": "bd-002", "title": "Task 2", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-001", "dependency_type": "blocks"}]}]`
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("bd", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
+	runner.SetResponse("bd", []string{"show", "bd-002", "--json"}, []byte(enrichedBead2))
+
+	fetcher := NewBDFetcher(runner)
+	result, err := fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Fatalf("got %d beads, want 2", len(result))
+	}
+
+	if len(result[0].Dependencies) != 1 {
+		t.Errorf("bead 0 has %d dependencies, want 1", len(result[0].Dependencies))
+	}
+	if len(result[1].Dependencies) != 1 {
+		t.Errorf("bead 1 has %d dependencies, want 1", len(result[1].Dependencies))
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_Empty(t *testing.T) {
+	runner := testutil.NewMockRunner()
+	fetcher := NewBDFetcher(runner)
+
+	result, err := fetcher.enrichBeadsWithDetails(context.Background(), nil)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil for nil input, got %v", result)
+	}
+
+	result, err = fetcher.enrichBeadsWithDetails(context.Background(), []GraphBead{})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty slice, got %d beads", len(result))
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_PartialFailure(t *testing.T) {
+	basicBeads := []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+		{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+		{ID: "bd-003", Title: "Task 3", Status: "open", IssueType: "task"},
+	}
+
+	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1 enriched", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-epic-001", "dependency_type": "parent-child"}]}]`
+	enrichedBead3 := `[{"id": "bd-003", "title": "Task 3 enriched", "status": "open", "issue_type": "task"}]`
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("bd", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
+	runner.SetError("bd", []string{"show", "bd-002", "--json"}, errors.New("bead not found"))
+	runner.SetResponse("bd", []string{"show", "bd-003", "--json"}, []byte(enrichedBead3))
+
+	fetcher := NewBDFetcher(runner)
+	result, err := fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 3 {
+		t.Fatalf("got %d beads, want 3", len(result))
+	}
+
+	// bd-001 should be enriched
+	if result[0].Title != "Task 1 enriched" {
+		t.Errorf("bead 0 title = %q, want %q", result[0].Title, "Task 1 enriched")
+	}
+	if len(result[0].Dependencies) != 1 {
+		t.Errorf("bead 0 has %d dependencies, want 1", len(result[0].Dependencies))
+	}
+
+	// bd-002 should retain original data (enrichment failed)
+	if result[1].Title != "Task 2" {
+		t.Errorf("bead 1 title = %q, want %q", result[1].Title, "Task 2")
+	}
+
+	// bd-003 should be enriched
+	if result[2].Title != "Task 3 enriched" {
+		t.Errorf("bead 2 title = %q, want %q", result[2].Title, "Task 3 enriched")
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_ContextCancellation(t *testing.T) {
+	basicBeads := []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+		{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+	}
+
+	runner := testutil.NewMockRunner()
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err(), true
+		default:
+			return []byte(`[{"id": "bd-001", "title": "Task", "status": "open"}]`), nil, true
+		}
+	}
+
+	fetcher := NewBDFetcher(runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := fetcher.enrichBeadsWithDetails(ctx, basicBeads)
+	if err == nil {
+		t.Error("expected error for cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got %v", err)
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_ConcurrencyLimit(t *testing.T) {
+	// Create more beads than the concurrency limit
+	beadCount := 10
+	basicBeads := make([]GraphBead, beadCount)
+	for i := 0; i < beadCount; i++ {
+		basicBeads[i] = GraphBead{
+			ID:        fmt.Sprintf("bd-%03d", i),
+			Title:     fmt.Sprintf("Task %d", i),
+			Status:    "open",
+			IssueType: "task",
+		}
+	}
+
+	var concurrentCount int64
+	var maxConcurrent int64
+
+	runner := testutil.NewMockRunner()
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "bd" && len(args) >= 1 && args[0] == "show" {
+			current := atomic.AddInt64(&concurrentCount, 1)
+			defer atomic.AddInt64(&concurrentCount, -1)
+
+			for {
+				max := atomic.LoadInt64(&maxConcurrent)
+				if current <= max {
+					break
+				}
+				if atomic.CompareAndSwapInt64(&maxConcurrent, max, current) {
+					break
+				}
+			}
+
+			time.Sleep(10 * time.Millisecond)
+
+			id := args[1]
+			return []byte(fmt.Sprintf(`[{"id": "%s", "title": "Enriched", "status": "open"}]`, id)), nil, true
+		}
+		return nil, nil, false
+	}
+
+	fetcher := NewBDFetcher(runner)
+	result, err := fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != beadCount {
+		t.Errorf("got %d beads, want %d", len(result), beadCount)
+	}
+
+	// Verify concurrency was limited
+	observed := atomic.LoadInt64(&maxConcurrent)
+	if observed > maxConcurrentFetches {
+		t.Errorf("max concurrent fetches = %d, want <= %d", observed, maxConcurrentFetches)
 	}
 }
 

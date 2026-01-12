@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/npratt/atari/internal/testutil"
+	"golang.org/x/sync/semaphore"
 )
 
 // BeadFetcher retrieves bead data for graph visualization.
@@ -106,6 +109,64 @@ func (f *BDFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error
 	// Ignore label fetch errors - labels are optional
 
 	return bead, nil
+}
+
+// maxConcurrentFetches is the maximum number of parallel bd show commands.
+const maxConcurrentFetches = 5
+
+// enrichBeadsWithDetails fetches full dependency data for each bead in parallel.
+// Uses a semaphore to limit concurrency to maxConcurrentFetches.
+// On individual failures, the original bead data is retained.
+func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBead) ([]GraphBead, error) {
+	if len(beads) == 0 {
+		return beads, nil
+	}
+
+	result := make([]GraphBead, len(beads))
+	copy(result, beads)
+
+	sem := semaphore.NewWeighted(maxConcurrentFetches)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for i := range beads {
+		if err := sem.Acquire(ctx, 1); err != nil {
+			return result, err
+		}
+
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			defer sem.Release(1)
+
+			bead := beads[idx]
+			enriched, err := f.fetchBeadDetails(ctx, bead.ID)
+			if err != nil {
+				slog.Debug("failed to enrich bead, using basic data",
+					"bead_id", bead.ID,
+					"error", err)
+				return
+			}
+
+			mu.Lock()
+			result[idx] = *enriched
+			mu.Unlock()
+		}(i)
+	}
+
+	wg.Wait()
+	return result, nil
+}
+
+// fetchBeadDetails fetches full bead details without labels.
+// Used by enrichBeadsWithDetails for parallel fetching.
+func (f *BDFetcher) fetchBeadDetails(ctx context.Context, id string) (*GraphBead, error) {
+	output, err := f.cmdRunner.Run(ctx, "bd", "show", id, "--json")
+	if err != nil {
+		return nil, fmt.Errorf("bd show %s failed: %w", id, err)
+	}
+
+	return parseBead(output)
 }
 
 // parseBead parses JSON output from bd show into a single GraphBead.
