@@ -110,6 +110,8 @@ var graphStyles = struct {
 	NodeSelected lipgloss.Style // Selected/focused node
 	NodeCurrent  lipgloss.Style // Currently processing bead
 	NodeDimmed   lipgloss.Style // Out-of-view node (dependency from different view)
+	NodeFailed   lipgloss.Style // Bead in backoff (failed but will retry)
+	NodeAbandoned lipgloss.Style // Bead exceeded max failures
 
 	// Glyph styles
 	GlyphDimmed lipgloss.Style // Dimmed tree glyphs for out-of-view connections
@@ -129,6 +131,12 @@ var graphStyles = struct {
 
 	NodeDimmed: lipgloss.NewStyle().
 		Foreground(lipgloss.Color("245")), // Subtle gray - visible but obviously different
+
+	NodeFailed: lipgloss.NewStyle().
+		Foreground(lipgloss.Color("208")), // Orange for beads in backoff
+
+	NodeAbandoned: lipgloss.NewStyle().
+		Foreground(lipgloss.Color("196")), // Red for beads that exceeded max failures
 
 	GlyphDimmed: lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")), // Dark gray for tree lines to dimmed nodes

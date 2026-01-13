@@ -35,6 +35,9 @@ const (
 	// Bead events (internal)
 	EventBeadAbandoned EventType = "bead.abandoned"
 
+	// Epic events
+	EventEpicClosed EventType = "epic.closed"
+
 	// BD activity events (from bd activity --follow)
 	EventBeadCreated EventType = "bead.created"
 	EventBeadStatus  EventType = "bead.status"
@@ -185,6 +188,16 @@ type BeadAbandonedEvent struct {
 	Attempts    int    `json:"attempts"`
 	MaxFailures int    `json:"max_failures"`
 	LastError   string `json:"last_error"`
+}
+
+// EpicClosedEvent is emitted when an epic is auto-closed after all children complete.
+type EpicClosedEvent struct {
+	BaseEvent
+	EpicID           string `json:"epic_id"`
+	Title            string `json:"title"`
+	TotalChildren    int    `json:"total_children"`
+	TriggeringBeadID string `json:"triggering_bead_id"`
+	CloseReason      string `json:"close_reason"`
 }
 
 // BeadCreatedEvent is emitted when a new bead is created via bd activity.

@@ -200,3 +200,91 @@ var GraphComplexHierarchyJSON = `[
     ]
   }
 ]`
+
+// GraphEnrichedEpicJSON is a bd list response with an epic and child beads
+// that have fully populated dependency arrays with parent-child relationships.
+// This fixture represents the enriched data format used after bead enrichment.
+var GraphEnrichedEpicJSON = `[
+  {
+    "id": "bd-epic-enrich",
+    "title": "Epic: Feature Development",
+    "description": "Parent epic for feature work",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "epic",
+    "created_at": "2024-01-15T10:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T10:00:00Z",
+    "dependency_count": 0,
+    "dependent_count": 3
+  },
+  {
+    "id": "bd-task-enrich-1",
+    "title": "First task",
+    "description": "First child task of the epic",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T11:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T11:00:00Z",
+    "dependency_count": 1,
+    "dependent_count": 1,
+    "dependencies": [
+      {
+        "id": "bd-epic-enrich",
+        "title": "Epic: Feature Development",
+        "status": "open",
+        "dependency_type": "parent-child"
+      }
+    ]
+  },
+  {
+    "id": "bd-task-enrich-2",
+    "title": "Second task",
+    "description": "Second child task with blocking dependency",
+    "status": "blocked",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T12:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T12:00:00Z",
+    "dependency_count": 2,
+    "dependent_count": 0,
+    "dependencies": [
+      {
+        "id": "bd-epic-enrich",
+        "title": "Epic: Feature Development",
+        "status": "open",
+        "dependency_type": "parent-child"
+      },
+      {
+        "id": "bd-task-enrich-1",
+        "title": "First task",
+        "status": "open",
+        "dependency_type": "blocks"
+      }
+    ]
+  },
+  {
+    "id": "bd-task-enrich-3",
+    "title": "Third task",
+    "description": "Third child task",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T13:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T13:00:00Z",
+    "dependency_count": 1,
+    "dependent_count": 0,
+    "dependencies": [
+      {
+        "id": "bd-epic-enrich",
+        "title": "Epic: Feature Development",
+        "status": "open",
+        "dependency_type": "parent-child"
+      }
+    ]
+  }
+]`

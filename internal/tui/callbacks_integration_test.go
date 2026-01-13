@@ -199,6 +199,7 @@ func TestCallback_NilCallbacks_NoPanic(t *testing.T) {
 		env.statsGetter,
 		nil, // observer
 		nil, // graph fetcher
+		nil, // bead state getter
 	)
 	m.width = 100
 	m.height = 30

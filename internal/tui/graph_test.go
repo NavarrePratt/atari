@@ -2006,3 +2006,491 @@ func TestGraph_ConcurrentRebuildAndRender(t *testing.T) {
 
 	<-done
 }
+
+// -----------------------------------------------------------------------------
+// Epic Collapse Tests with Enriched Data
+// These tests verify collapse functionality works correctly with the new
+// bead enrichment approach where parent-child dependencies are fully populated.
+// -----------------------------------------------------------------------------
+
+// TestToggleCollapse_WithEnrichedBeads verifies that collapse works correctly
+// with enriched beads that have full dependency arrays including parent-child
+// relationships in the dependencies field.
+func TestToggleCollapse_WithEnrichedBeads(t *testing.T) {
+	cfg := defaultGraphConfig()
+
+	// Create enriched beads with full dependency information
+	enrichedBeads := []GraphBead{
+		{
+			ID:        "bd-epic-001",
+			Title:     "Epic: Authentication",
+			Status:    "open",
+			Priority:  1,
+			IssueType: "epic",
+		},
+		{
+			ID:        "bd-task-001",
+			Title:     "Implement login form",
+			Status:    "in_progress",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+			},
+		},
+		{
+			ID:        "bd-task-002",
+			Title:     "Add session management",
+			Status:    "blocked",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+				{
+					ID:             "bd-task-001",
+					Title:          "Implement login form",
+					Status:         "in_progress",
+					DependencyType: "blocks",
+				},
+			},
+		},
+		{
+			ID:        "bd-task-003",
+			Title:     "Add logout functionality",
+			Status:    "open",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+			},
+		},
+	}
+
+	fetcher := &mockFetcher{activeBeads: enrichedBeads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Verify initial structure: 1 epic + 3 tasks = 4 nodes
+	if g.NodeCount() != 4 {
+		t.Errorf("NodeCount = %d, want 4", g.NodeCount())
+	}
+
+	// Verify 3 hierarchy edges (parent-child) + 1 dependency edge (blocks)
+	edges := g.GetEdges()
+	hierarchyCount := 0
+	depCount := 0
+	for _, e := range edges {
+		switch e.Type {
+		case EdgeHierarchy:
+			hierarchyCount++
+		case EdgeDependency:
+			depCount++
+		}
+	}
+	if hierarchyCount != 3 {
+		t.Errorf("hierarchy edges = %d, want 3", hierarchyCount)
+	}
+	if depCount != 1 {
+		t.Errorf("dependency edges = %d, want 1", depCount)
+	}
+
+	// Initially, epic should not be collapsed
+	if g.IsCollapsed("bd-epic-001") {
+		t.Error("epic should not be collapsed initially")
+	}
+
+	// All nodes should be visible before collapse
+	g.mu.RLock()
+	visible := g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 4 {
+		t.Errorf("visible nodes before collapse = %d, want 4", len(visible))
+	}
+
+	// Collapse the epic
+	g.ToggleCollapse("bd-epic-001")
+
+	// Verify epic is now collapsed
+	if !g.IsCollapsed("bd-epic-001") {
+		t.Error("epic should be collapsed after toggle")
+	}
+
+	// Only epic should be visible (3 children hidden)
+	g.mu.RLock()
+	visible = g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 1 {
+		t.Errorf("visible nodes after collapse = %d, want 1 (just epic)", len(visible))
+	}
+
+	// Verify child count reports correctly for collapsed epic
+	childCount := g.ChildCount("bd-epic-001")
+	if childCount != 3 {
+		t.Errorf("ChildCount = %d, want 3", childCount)
+	}
+
+	// Expand the epic
+	g.ToggleCollapse("bd-epic-001")
+
+	// Verify epic is now expanded
+	if g.IsCollapsed("bd-epic-001") {
+		t.Error("epic should be expanded after second toggle")
+	}
+
+	// All nodes should be visible again
+	g.mu.RLock()
+	visible = g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 4 {
+		t.Errorf("visible nodes after expand = %d, want 4", len(visible))
+	}
+}
+
+// TestCollapsedState_PreservedAfterRefresh verifies that the collapsed state
+// of epics is preserved when the graph is refreshed with new data.
+func TestCollapsedState_PreservedAfterRefresh(t *testing.T) {
+	cfg := defaultGraphConfig()
+
+	// Initial enriched beads
+	initialBeads := []GraphBead{
+		{
+			ID:        "bd-epic-001",
+			Title:     "Epic: Authentication",
+			Status:    "open",
+			Priority:  1,
+			IssueType: "epic",
+		},
+		{
+			ID:        "bd-task-001",
+			Title:     "Implement login form",
+			Status:    "in_progress",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+			},
+		},
+		{
+			ID:        "bd-task-002",
+			Title:     "Add session management",
+			Status:    "open",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+			},
+		},
+	}
+
+	fetcher := &mockFetcher{activeBeads: initialBeads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Initial refresh failed: %v", err)
+	}
+
+	// Collapse the epic
+	g.ToggleCollapse("bd-epic-001")
+	if !g.IsCollapsed("bd-epic-001") {
+		t.Fatal("epic should be collapsed")
+	}
+
+	// Verify only epic is visible
+	g.mu.RLock()
+	visibleBefore := len(g.getVisibleNodes())
+	g.mu.RUnlock()
+	if visibleBefore != 1 {
+		t.Errorf("visible nodes before refresh = %d, want 1", visibleBefore)
+	}
+
+	// Update fetcher with modified data (simulating a refresh with updated status)
+	updatedBeads := []GraphBead{
+		{
+			ID:        "bd-epic-001",
+			Title:     "Epic: Authentication",
+			Status:    "open",
+			Priority:  1,
+			IssueType: "epic",
+		},
+		{
+			ID:        "bd-task-001",
+			Title:     "Implement login form",
+			Status:    "closed", // Status changed
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+			},
+		},
+		{
+			ID:        "bd-task-002",
+			Title:     "Add session management",
+			Status:    "in_progress", // Status changed
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+			},
+		},
+		{
+			ID:        "bd-task-003", // New task added
+			Title:     "Add password reset",
+			Status:    "open",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{
+					ID:             "bd-epic-001",
+					Title:          "Epic: Authentication",
+					Status:         "open",
+					DependencyType: "parent-child",
+				},
+			},
+		},
+	}
+
+	fetcher.activeBeads = updatedBeads
+
+	// Refresh the graph
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh after update failed: %v", err)
+	}
+
+	// Verify collapse state is preserved after refresh
+	if !g.IsCollapsed("bd-epic-001") {
+		t.Error("epic collapse state should be preserved after refresh")
+	}
+
+	// Verify only epic is visible (new task should also be hidden)
+	g.mu.RLock()
+	visibleAfter := len(g.getVisibleNodes())
+	g.mu.RUnlock()
+	if visibleAfter != 1 {
+		t.Errorf("visible nodes after refresh = %d, want 1 (collapse preserved)", visibleAfter)
+	}
+
+	// Verify all 4 nodes exist
+	if g.NodeCount() != 4 {
+		t.Errorf("NodeCount after refresh = %d, want 4", g.NodeCount())
+	}
+
+	// Verify child count includes the new task
+	childCount := g.ChildCount("bd-epic-001")
+	if childCount != 3 {
+		t.Errorf("ChildCount after refresh = %d, want 3", childCount)
+	}
+
+	// Expand to verify all children are present
+	g.ToggleCollapse("bd-epic-001")
+	g.mu.RLock()
+	visible := g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 4 {
+		t.Errorf("visible nodes after expand = %d, want 4", len(visible))
+	}
+}
+
+// TestToggleCollapse_MultipleEpics verifies collapse works correctly when
+// there are multiple epics with enriched child dependencies.
+func TestToggleCollapse_MultipleEpics(t *testing.T) {
+	cfg := defaultGraphConfig()
+
+	beads := []GraphBead{
+		{
+			ID:        "bd-epic-auth",
+			Title:     "Epic: Authentication",
+			Status:    "open",
+			Priority:  1,
+			IssueType: "epic",
+		},
+		{
+			ID:        "bd-epic-ui",
+			Title:     "Epic: UI Updates",
+			Status:    "open",
+			Priority:  1,
+			IssueType: "epic",
+		},
+		{
+			ID:        "bd-auth-task-1",
+			Title:     "Auth Task 1",
+			Status:    "open",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic-auth", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-auth-task-2",
+			Title:     "Auth Task 2",
+			Status:    "open",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic-auth", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-ui-task-1",
+			Title:     "UI Task 1",
+			Status:    "open",
+			Priority:  2,
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic-ui", DependencyType: "parent-child"},
+			},
+		},
+	}
+
+	fetcher := &mockFetcher{activeBeads: beads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Verify initial state: all 5 nodes visible
+	g.mu.RLock()
+	visible := g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 5 {
+		t.Errorf("visible nodes initially = %d, want 5", len(visible))
+	}
+
+	// Collapse first epic
+	g.ToggleCollapse("bd-epic-auth")
+
+	// 3 visible: 2 epics + 1 UI task
+	g.mu.RLock()
+	visible = g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 3 {
+		t.Errorf("visible after collapsing auth epic = %d, want 3", len(visible))
+	}
+
+	// Collapse second epic
+	g.ToggleCollapse("bd-epic-ui")
+
+	// 2 visible: just the 2 epics
+	g.mu.RLock()
+	visible = g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 2 {
+		t.Errorf("visible after collapsing both epics = %d, want 2", len(visible))
+	}
+
+	// Expand first epic
+	g.ToggleCollapse("bd-epic-auth")
+
+	// 4 visible: 2 epics + 2 auth tasks
+	g.mu.RLock()
+	visible = g.getVisibleNodes()
+	g.mu.RUnlock()
+	if len(visible) != 4 {
+		t.Errorf("visible after expanding auth epic = %d, want 4", len(visible))
+	}
+}
+
+// TestCollapse_NavigationSkipsHiddenChildren verifies that SelectNext/SelectPrev
+// correctly skip hidden children when navigating.
+func TestCollapse_NavigationSkipsHiddenChildren(t *testing.T) {
+	cfg := defaultGraphConfig()
+
+	beads := []GraphBead{
+		{
+			ID:        "bd-epic",
+			Title:     "Epic",
+			Status:    "open",
+			IssueType: "epic",
+		},
+		{
+			ID:        "bd-child-1",
+			Title:     "Child 1",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-child-2",
+			Title:     "Child 2",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-standalone",
+			Title:     "Standalone Task",
+			Status:    "open",
+			IssueType: "task",
+		},
+	}
+
+	fetcher := &mockFetcher{activeBeads: beads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Select the epic and collapse it
+	g.Select("bd-epic")
+	g.ToggleCollapse("bd-epic")
+
+	// Navigate to next - should skip hidden children and go to standalone
+	g.SelectNext()
+
+	selected := g.GetSelectedID()
+	if selected != "bd-standalone" {
+		t.Errorf("SelectNext should skip hidden children, got %q, want bd-standalone", selected)
+	}
+
+	// Navigate back - should go back to epic (not hidden children)
+	g.SelectPrev()
+
+	selected = g.GetSelectedID()
+	if selected != "bd-epic" {
+		t.Errorf("SelectPrev should go to epic, got %q, want bd-epic", selected)
+	}
+}

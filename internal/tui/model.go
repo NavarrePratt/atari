@@ -141,12 +141,18 @@ func newModel(
 	statsGetter StatsGetter,
 	obs *observer.Observer,
 	graphFetcher BeadFetcher,
+	beadStateGetter BeadStateGetter,
 ) model {
 	// Create default graph config for the graph pane
 	graphCfg := &config.GraphConfig{
 		Enabled:             true,
 		Density:             "standard",
 		AutoRefreshInterval: 5 * time.Second,
+	}
+
+	graphPane := NewGraphPane(graphCfg, graphFetcher, "horizontal")
+	if beadStateGetter != nil {
+		graphPane.SetStateGetter(beadStateGetter)
 	}
 
 	return model{
@@ -159,7 +165,7 @@ func newModel(
 		statsGetter:  statsGetter,
 		eventsOpen:   true, // Events panel visible by default
 		observerPane: NewObserverPane(obs),
-		graphPane:    NewGraphPane(graphCfg, graphFetcher, "horizontal"),
+		graphPane:    graphPane,
 		layout:       LayoutHorizontal,
 		focusMode:    FocusModeNone,
 		detailModal:  NewDetailModal(graphFetcher),

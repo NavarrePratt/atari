@@ -5,6 +5,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/observer"
+	"github.com/npratt/atari/internal/viewmodel"
 )
 
 // StatsGetter provides access to controller statistics.
@@ -15,17 +16,19 @@ type StatsGetter interface {
 	Abandoned() int
 	CurrentBead() string
 	CurrentTurns() int
+	GetStats() viewmodel.TUIStats
 }
 
 // TUI is the terminal UI for monitoring atari.
 type TUI struct {
-	eventChan    <-chan events.Event
-	onPause      func()
-	onResume     func()
-	onQuit       func()
-	statsGetter  StatsGetter
-	observer     *observer.Observer
-	graphFetcher BeadFetcher
+	eventChan       <-chan events.Event
+	onPause         func()
+	onResume        func()
+	onQuit          func()
+	statsGetter     StatsGetter
+	observer        *observer.Observer
+	graphFetcher    BeadFetcher
+	beadStateGetter BeadStateGetter
 }
 
 // Option configures the TUI.
@@ -86,6 +89,13 @@ func WithGraphFetcher(fetcher BeadFetcher) Option {
 	}
 }
 
+// WithBeadStateGetter sets the workqueue state getter for graph node styling.
+func WithBeadStateGetter(sg BeadStateGetter) Option {
+	return func(t *TUI) {
+		t.beadStateGetter = sg
+	}
+}
+
 // Run starts the TUI and blocks until it exits.
 // If the environment is non-interactive (no TTY) or the terminal is too small,
 // it falls back to simple line-by-line output.
@@ -101,7 +111,7 @@ func (t *TUI) Run() error {
 	}
 
 	// Run the full bubbletea TUI
-	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher)
+	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher, t.beadStateGetter)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

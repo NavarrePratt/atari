@@ -12,6 +12,7 @@ import (
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/testutil"
+	"github.com/npratt/atari/internal/viewmodel"
 )
 
 // Re-export types from events package for convenience.
@@ -315,4 +316,84 @@ func (m *Manager) SetHistory(history map[string]*BeadHistory) {
 		copy := *v
 		m.history[k] = &copy
 	}
+}
+
+// GetBeadState returns the workqueue state for a bead.
+// Returns:
+//   - status: "", "failed", or "abandoned"
+//   - attempts: number of attempts (0 if never tried)
+//   - inBackoff: true if bead is currently in backoff period
+func (m *Manager) GetBeadState(beadID string) (status string, attempts int, inBackoff bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	h, ok := m.history[beadID]
+	if !ok {
+		return "", 0, false
+	}
+
+	attempts = h.Attempts
+
+	switch h.Status {
+	case HistoryFailed:
+		status = "failed"
+		// Check if in backoff
+		if !h.LastAttempt.IsZero() {
+			backoff := m.calculateBackoff(h.Attempts)
+			elapsed := time.Since(h.LastAttempt)
+			inBackoff = elapsed < backoff
+		}
+	case HistoryAbandoned:
+		status = "abandoned"
+	default:
+		// pending, working, completed - not relevant for styling
+		status = ""
+	}
+
+	return status, attempts, inBackoff
+}
+
+// GetBlockedBeads returns beads that are currently in backoff, sorted by
+// shortest remaining backoff (most urgent first). Only includes beads with
+// HistoryFailed status and positive remaining backoff time.
+func (m *Manager) GetBlockedBeads() []viewmodel.BlockedBeadInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	now := time.Now()
+	var blocked []viewmodel.BlockedBeadInfo
+
+	for _, h := range m.history {
+		if h.Status != HistoryFailed {
+			continue
+		}
+
+		// Skip entries with missing LastAttempt (graceful degradation)
+		if h.LastAttempt.IsZero() {
+			continue
+		}
+
+		backoff := m.calculateBackoff(h.Attempts)
+		elapsed := now.Sub(h.LastAttempt)
+		remaining := backoff - elapsed
+
+		// Only include if still in backoff (remaining > 0)
+		if remaining <= 0 {
+			continue
+		}
+
+		blocked = append(blocked, viewmodel.BlockedBeadInfo{
+			BeadID:       h.ID,
+			FailureCount: h.Attempts,
+			RetryIn:      remaining,
+			LastError:    h.LastError,
+		})
+	}
+
+	// Sort by shortest remaining backoff (most urgent first)
+	sort.Slice(blocked, func(i, j int) bool {
+		return blocked[i].RetryIn < blocked[j].RetryIn
+	})
+
+	return blocked
 }

@@ -12,6 +12,14 @@ import (
 	"github.com/npratt/atari/internal/config"
 )
 
+// BeadStateGetter provides workqueue state information for beads.
+// This is used to overlay failure/abandoned status onto graph nodes.
+type BeadStateGetter interface {
+	// GetBeadState returns the workqueue status for a bead.
+	// Returns status ("", "failed", "abandoned"), attempt count, and whether in backoff.
+	GetBeadState(beadID string) (status string, attempts int, inBackoff bool)
+}
+
 const (
 	// graphTickInterval is the interval for updating elapsed time during refresh.
 	graphTickInterval = 100 * time.Millisecond
@@ -21,19 +29,20 @@ const (
 
 // GraphPane is a TUI component for bead graph visualization.
 type GraphPane struct {
-	graph     *Graph
-	fetcher   BeadFetcher
-	cfg       *config.GraphConfig
-	layout    string // "horizontal" or "vertical"
-	spinner   spinner.Model
-	loading   bool
-	startedAt time.Time
-	errorMsg  string
-	width     int
-	height    int
-	focused   bool
-	visible   bool // Whether the pane is visible (for auto-refresh)
-	requestID int  // For staleness detection
+	graph       *Graph
+	fetcher     BeadFetcher
+	stateGetter BeadStateGetter // Optional: provides workqueue state overlay
+	cfg         *config.GraphConfig
+	layout      string // "horizontal" or "vertical"
+	spinner     spinner.Model
+	loading     bool
+	startedAt   time.Time
+	errorMsg    string
+	width       int
+	height      int
+	focused     bool
+	visible     bool // Whether the pane is visible (for auto-refresh)
+	requestID   int  // For staleness detection
 
 	// Inline detail view state (shown before full-screen modal)
 	showingDetail   bool        // Whether inline detail view is active
@@ -417,6 +426,29 @@ func (p *GraphPane) rebuildGraph(beads []GraphBead) {
 		p.graph = NewGraph(p.cfg, p.fetcher, p.layout)
 	}
 	p.graph.RebuildFromBeads(beads)
+
+	// Overlay workqueue state if state getter is available
+	if p.stateGetter != nil {
+		p.overlayWorkqueueState()
+	}
+}
+
+// overlayWorkqueueState updates graph nodes with workqueue failure/abandoned status.
+func (p *GraphPane) overlayWorkqueueState() {
+	if p.graph == nil || p.stateGetter == nil {
+		return
+	}
+
+	nodes := p.graph.GetNodes()
+	for id, node := range nodes {
+		status, attempts, inBackoff := p.stateGetter.GetBeadState(id)
+		if status != "" || attempts > 0 || inBackoff {
+			node.WQStatus = status
+			node.Attempts = attempts
+			node.InBackoff = inBackoff
+			p.graph.UpdateNode(node)
+		}
+	}
 }
 
 // View renders the graph pane.
@@ -544,6 +576,11 @@ func (p *GraphPane) SetCurrentBead(beadID string) {
 	if p.graph != nil {
 		p.graph.SetCurrentBead(beadID)
 	}
+}
+
+// SetStateGetter sets the workqueue state getter for overlay information.
+func (p *GraphPane) SetStateGetter(sg BeadStateGetter) {
+	p.stateGetter = sg
 }
 
 // GetSelectedNode returns the currently selected node, or nil if none.

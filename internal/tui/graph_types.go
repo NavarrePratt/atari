@@ -83,6 +83,10 @@ type GraphNode struct {
 	Cost      float64 // Accumulated cost
 	Attempts  int     // Number of work attempts
 	OutOfView bool    // True if node is from a different view (e.g., closed dep in Active view)
+
+	// Workqueue state overlay (populated from BeadStateGetter)
+	WQStatus  string // "", "failed", "abandoned" - workqueue status
+	InBackoff bool   // True if bead is currently in backoff period
 }
 
 // GraphEdge represents a relationship between two nodes.

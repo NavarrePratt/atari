@@ -7,6 +7,7 @@ import (
 
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/testutil"
+	"github.com/npratt/atari/internal/viewmodel"
 )
 
 // tuiTestEnv provides an isolated test environment for TUI integration tests.
@@ -121,6 +122,7 @@ func (env *tuiTestEnv) newModel() model {
 		env.statsGetter,
 		nil, // observer - nil is acceptable for most tests
 		nil, // graph fetcher - nil is acceptable for most tests
+		nil, // bead state getter - nil is acceptable for most tests
 	)
 }
 
@@ -174,6 +176,17 @@ func (f *fakeStatsGetter) CurrentBead() string {
 // CurrentTurns implements StatsGetter.
 func (f *fakeStatsGetter) CurrentTurns() int {
 	return f.currentTurns
+}
+
+// GetStats implements StatsGetter.
+func (f *fakeStatsGetter) GetStats() viewmodel.TUIStats {
+	return viewmodel.TUIStats{
+		Completed:    f.completed,
+		Failed:       f.failed,
+		Abandoned:    f.abandoned,
+		CurrentBead:  f.currentBead,
+		CurrentTurns: f.currentTurns,
+	}
 }
 
 // SetStats updates all stats at once for testing.

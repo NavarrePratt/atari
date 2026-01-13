@@ -492,3 +492,243 @@ func TestGraphPane_UnfocusedIgnoresKeyPresses(t *testing.T) {
 		t.Error("selection should not change when unfocused")
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Epic Collapse Integration Tests
+// These tests verify collapse/expand functionality through the GraphPane
+// with mock fetcher returning enriched beads.
+// -----------------------------------------------------------------------------
+
+// TestEpicCollapse_EndToEnd verifies the full collapse/expand flow through
+// the GraphPane using enriched beads from the mock fetcher.
+func TestEpicCollapse_EndToEnd(t *testing.T) {
+	env := newGraphTestEnv(t)
+
+	// Set enriched beads with parent-child dependencies
+	env.setActiveBeads(testutil.GraphEnrichedEpicJSON)
+
+	pane := env.newPane()
+	pane.SetFocused(true)
+
+	// Initialize graph with enriched beads
+	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
+	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
+	if err != nil {
+		t.Fatalf("failed to parse enriched beads: %v", err)
+	}
+	pane.graph.RebuildFromBeads(beads)
+	pane.graph.SetViewport(100, 30)
+
+	// Verify initial state: 4 nodes (1 epic + 3 children)
+	if pane.graph.NodeCount() != 4 {
+		t.Errorf("expected 4 nodes, got %d", pane.graph.NodeCount())
+	}
+
+	// Select the epic
+	pane.graph.Select("bd-epic-enrich")
+
+	// Verify all 4 nodes are visible before collapse
+	pane.graph.mu.RLock()
+	visibleBefore := len(pane.graph.getVisibleNodes())
+	pane.graph.mu.RUnlock()
+	if visibleBefore != 4 {
+		t.Errorf("expected 4 visible nodes before collapse, got %d", visibleBefore)
+	}
+
+	// Press 'c' to toggle collapse
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	pane, _ = pane.Update(keyMsg)
+
+	// Verify epic is collapsed
+	if !pane.graph.IsCollapsed("bd-epic-enrich") {
+		t.Error("epic should be collapsed after pressing 'c'")
+	}
+
+	// Verify only 1 node visible (epic only)
+	pane.graph.mu.RLock()
+	visibleAfter := len(pane.graph.getVisibleNodes())
+	pane.graph.mu.RUnlock()
+	if visibleAfter != 1 {
+		t.Errorf("expected 1 visible node after collapse, got %d", visibleAfter)
+	}
+
+	// Render and verify +3 indicator appears
+	output := pane.graph.Render(100, 30)
+	if !containsSubstring(output, "+3") {
+		t.Error("collapsed epic should show +3 indicator in render")
+	}
+
+	// Press 'c' again to expand
+	pane, _ = pane.Update(keyMsg)
+
+	// Verify epic is expanded
+	if pane.graph.IsCollapsed("bd-epic-enrich") {
+		t.Error("epic should be expanded after second 'c'")
+	}
+
+	// Verify all 4 nodes visible again
+	pane.graph.mu.RLock()
+	visibleExpanded := len(pane.graph.getVisibleNodes())
+	pane.graph.mu.RUnlock()
+	if visibleExpanded != 4 {
+		t.Errorf("expected 4 visible nodes after expand, got %d", visibleExpanded)
+	}
+}
+
+// TestViewSwitch_CollapsedState verifies that collapse state is preserved
+// when switching between views (Active/Backlog/Closed).
+func TestViewSwitch_CollapsedState(t *testing.T) {
+	env := newGraphTestEnv(t)
+
+	// Set up mock responses for different views
+	env.setActiveBeads(testutil.GraphEnrichedEpicJSON)
+	env.runner.SetResponse("bd", []string{"list", "--json", "--status", "deferred"},
+		[]byte(testutil.GraphBacklogBeadsJSON))
+
+	pane := env.newPane()
+	pane.SetFocused(true)
+
+	// Initialize with enriched beads
+	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
+	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
+	if err != nil {
+		t.Fatalf("failed to parse beads: %v", err)
+	}
+	pane.graph.RebuildFromBeads(beads)
+	pane.graph.SetViewport(100, 30)
+
+	// Select and collapse epic
+	pane.graph.Select("bd-epic-enrich")
+	pane.graph.ToggleCollapse("bd-epic-enrich")
+
+	if !pane.graph.IsCollapsed("bd-epic-enrich") {
+		t.Fatal("epic should be collapsed")
+	}
+
+	// Verify initial view is Active
+	if pane.graph.GetView() != ViewActive {
+		t.Errorf("expected ViewActive, got %v", pane.graph.GetView())
+	}
+
+	// Switch to Backlog view
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
+	pane, _ = pane.Update(keyMsg)
+
+	if pane.graph.GetView() != ViewBacklog {
+		t.Errorf("expected ViewBacklog after toggle, got %v", pane.graph.GetView())
+	}
+
+	// Collapse state should still be preserved in the graph state
+	// (even though we're showing different beads)
+	if !pane.graph.IsCollapsed("bd-epic-enrich") {
+		t.Error("collapse state should be preserved after view switch")
+	}
+
+	// Switch back to Active view
+	pane, _ = pane.Update(keyMsg) // to Closed
+	pane, _ = pane.Update(keyMsg) // back to Active
+
+	if pane.graph.GetView() != ViewActive {
+		t.Errorf("expected ViewActive after cycling, got %v", pane.graph.GetView())
+	}
+
+	// Collapse state should still be preserved
+	if !pane.graph.IsCollapsed("bd-epic-enrich") {
+		t.Error("collapse state should be preserved after cycling views")
+	}
+}
+
+// TestCollapseExpand_SelectionRecovery verifies that when a collapsed epic
+// hides the currently selected node, selection recovers to the epic.
+func TestCollapseExpand_SelectionRecovery(t *testing.T) {
+	env := newGraphTestEnv(t)
+
+	pane := env.newPane()
+	pane.SetFocused(true)
+
+	// Initialize with enriched beads
+	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
+	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
+	if err != nil {
+		t.Fatalf("failed to parse beads: %v", err)
+	}
+	pane.graph.RebuildFromBeads(beads)
+	pane.graph.SetViewport(100, 30)
+
+	// Select a child node
+	pane.graph.Select("bd-task-enrich-1")
+
+	if pane.graph.GetSelectedID() != "bd-task-enrich-1" {
+		t.Fatalf("expected bd-task-enrich-1 selected, got %s", pane.graph.GetSelectedID())
+	}
+
+	// Collapse the parent epic
+	pane.graph.ToggleCollapse("bd-epic-enrich")
+
+	// Selection should recover to the epic (visible ancestor)
+	if pane.graph.GetSelectedID() != "bd-epic-enrich" {
+		t.Errorf("expected selection to recover to bd-epic-enrich, got %s", pane.graph.GetSelectedID())
+	}
+
+	// Expand the epic
+	pane.graph.ToggleCollapse("bd-epic-enrich")
+
+	// Selection should still be on epic after expand
+	if pane.graph.GetSelectedID() != "bd-epic-enrich" {
+		t.Errorf("expected selection to remain on bd-epic-enrich after expand, got %s", pane.graph.GetSelectedID())
+	}
+
+	// Verify we can navigate to children again
+	pane.graph.SelectChild()
+	selected := pane.graph.GetSelectedID()
+	if selected == "bd-epic-enrich" {
+		t.Error("should be able to navigate to children after expand")
+	}
+}
+
+// TestCollapse_RenderWithDependencyBadge verifies that collapsed epic renders
+// correctly and child nodes with dependencies show badges when expanded.
+func TestCollapse_RenderWithDependencyBadge(t *testing.T) {
+	env := newGraphTestEnv(t)
+
+	pane := env.newPane()
+	pane.SetFocused(true)
+
+	// Initialize with enriched beads that include blocking dependencies
+	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
+	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
+	if err != nil {
+		t.Fatalf("failed to parse beads: %v", err)
+	}
+	pane.graph.RebuildFromBeads(beads)
+	pane.graph.SetViewport(100, 30)
+
+	// Render expanded state
+	expandedOutput := pane.graph.Render(100, 30)
+
+	// Should show dependency badge for blocked task
+	if !containsSubstring(expandedOutput, "[1 dep]") {
+		t.Error("expanded render should show [1 dep] badge for blocked task")
+	}
+
+	// Collapse the epic
+	pane.graph.ToggleCollapse("bd-epic-enrich")
+
+	// Render collapsed state
+	collapsedOutput := pane.graph.Render(100, 30)
+
+	// Should show collapsed indicator
+	if !containsSubstring(collapsedOutput, "+3") {
+		t.Error("collapsed render should show +3 indicator")
+	}
+
+	// Should NOT show dependency badge (children hidden)
+	if containsSubstring(collapsedOutput, "[1 dep]") {
+		t.Error("collapsed render should not show [1 dep] badge (children hidden)")
+	}
+}
+
+// containsSubstring is a helper to check if output contains a substring.
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && (s[:len(substr)] == substr || containsSubstring(s[1:], substr)))
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/session"
 	"github.com/npratt/atari/internal/testutil"
+	"github.com/npratt/atari/internal/viewmodel"
 	"github.com/npratt/atari/internal/workqueue"
 )
 
@@ -320,6 +321,9 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 			)
 			c.workQueue.RecordSuccess(bead.ID)
 
+			// Auto-close any eligible epics asynchronously
+			go c.closeEligibleEpics(bead.ID)
+
 			// Accumulate total cost
 			c.totalCostUSD += result.TotalCostUSD
 
@@ -357,6 +361,9 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 					"total_duration", duration,
 				)
 				c.workQueue.RecordSuccess(bead.ID)
+
+				// Auto-close any eligible epics asynchronously
+				go c.closeEligibleEpics(bead.ID)
 
 				c.emit(&events.IterationEndEvent{
 					BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
@@ -768,6 +775,32 @@ func (c *Controller) CurrentTurns() int {
 	return c.currentTurnCount
 }
 
+// GetStats returns an atomic snapshot of all TUI statistics.
+func (c *Controller) GetStats() viewmodel.TUIStats {
+	queueStats := c.workQueue.Stats()
+	blockedBeads := c.workQueue.GetBlockedBeads()
+
+	c.currentTurnMu.RLock()
+	turns := c.currentTurnCount
+	c.currentTurnMu.RUnlock()
+
+	stats := viewmodel.TUIStats{
+		Completed:    queueStats.Completed,
+		Failed:       queueStats.Failed,
+		Abandoned:    queueStats.Abandoned,
+		InBackoff:    queueStats.InBackoff,
+		CurrentBead:  c.CurrentBead(),
+		CurrentTurns: turns,
+	}
+
+	// Set TopBlockedBead if there are any blocked beads
+	if len(blockedBeads) > 0 {
+		stats.TopBlockedBead = &blockedBeads[0]
+	}
+
+	return stats
+}
+
 // getState returns the current state (thread-safe).
 func (c *Controller) getState() State {
 	c.stateMu.RLock()
@@ -859,6 +892,16 @@ func (c *Controller) GetDrainState() observer.DrainState {
 // Broker returns the session broker, if configured.
 func (c *Controller) Broker() *observer.SessionBroker {
 	return c.broker
+}
+
+// GetBeadState returns the workqueue state for a bead.
+// Implements tui.BeadStateGetter interface.
+// Returns:
+//   - status: "", "failed", or "abandoned"
+//   - attempts: number of attempts (0 if never tried)
+//   - inBackoff: true if bead is currently in backoff period
+func (c *Controller) GetBeadState(beadID string) (status string, attempts int, inBackoff bool) {
+	return c.workQueue.GetBeadState(beadID)
 }
 
 // reportAgentState reports the controller state to beads via bd agent state command.
@@ -1076,4 +1119,66 @@ func (c *Controller) getStoredSessionID(beadID string) string {
 		return h.LastSessionID
 	}
 	return ""
+}
+
+// closeEligibleEpics runs bd epic close-eligible and emits events for any epics closed.
+// This is called asynchronously after a successful bead completion.
+// Errors are logged but not propagated - this is a best-effort operation.
+func (c *Controller) closeEligibleEpics(triggeringBeadID string) {
+	if c.runner == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	output, err := c.runner.Run(ctx, "bd", "epic", "close-eligible", "--json")
+	if err != nil {
+		c.logger.Warn("failed to close eligible epics",
+			"triggering_bead_id", triggeringBeadID,
+			"error", err)
+		return
+	}
+
+	// Parse JSON output - bd epic close-eligible returns array of closed epics
+	var closedEpics []struct {
+		ID            string `json:"id"`
+		Title         string `json:"title"`
+		TotalChildren int    `json:"total_children"`
+		CloseReason   string `json:"close_reason"`
+	}
+
+	if len(output) == 0 {
+		c.logger.Debug("no epics eligible for closure", "triggering_bead_id", triggeringBeadID)
+		return
+	}
+
+	if err := json.Unmarshal(output, &closedEpics); err != nil {
+		c.logger.Warn("failed to parse epic close-eligible output",
+			"triggering_bead_id", triggeringBeadID,
+			"error", err)
+		return
+	}
+
+	if len(closedEpics) == 0 {
+		c.logger.Debug("no epics closed", "triggering_bead_id", triggeringBeadID)
+		return
+	}
+
+	// Emit event for each closed epic
+	for _, epic := range closedEpics {
+		c.logger.Info("epic auto-closed",
+			"epic_id", epic.ID,
+			"title", epic.Title,
+			"triggering_bead_id", triggeringBeadID)
+
+		c.emit(&events.EpicClosedEvent{
+			BaseEvent:        events.NewInternalEvent(events.EventEpicClosed),
+			EpicID:           epic.ID,
+			Title:            epic.Title,
+			TotalChildren:    epic.TotalChildren,
+			TriggeringBeadID: triggeringBeadID,
+			CloseReason:      epic.CloseReason,
+		})
+	}
 }

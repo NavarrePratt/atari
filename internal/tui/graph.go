@@ -73,8 +73,9 @@ func (g *Graph) Refresh(ctx context.Context) error {
 		return err
 	}
 
-	// Identify and fetch missing dependencies (out-of-view beads)
-	beads, outOfViewIDs := g.fetchMissingDeps(ctx, beads)
+	// Identify out-of-view dependencies (beads referenced but not in current view).
+	// These need to be fetched and marked as out-of-view in the graph.
+	beads, outOfViewIDs := g.fetchOutOfViewDeps(ctx, beads)
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -92,36 +93,34 @@ func (g *Graph) RebuildFromBeads(beads []GraphBead) {
 	g.buildFromBeads(beads, nil)
 }
 
-// fetchMissingDeps identifies dependencies that are not in the current bead set,
-// fetches them, and returns the augmented beads slice plus a set of out-of-view IDs.
-func (g *Graph) fetchMissingDeps(ctx context.Context, beads []GraphBead) ([]GraphBead, map[string]bool) {
-	// Build set of existing IDs
-	existingIDs := make(map[string]bool)
+// fetchOutOfViewDeps fetches dependencies that are not in the current bead set.
+// Returns the augmented beads slice and a set of out-of-view IDs for marking.
+func (g *Graph) fetchOutOfViewDeps(ctx context.Context, beads []GraphBead) ([]GraphBead, map[string]bool) {
+	existingIDs := make(map[string]bool, len(beads))
 	for _, b := range beads {
 		existingIDs[b.ID] = true
 	}
 
-	// Find missing dependency IDs (direct deps only, one level)
+	// Find dependency IDs not in current view
 	missingIDs := make(map[string]bool)
 	for _, b := range beads {
 		for _, dep := range b.Dependencies {
-			if !existingIDs[dep.ID] && !missingIDs[dep.ID] {
+			if !existingIDs[dep.ID] {
 				missingIDs[dep.ID] = true
 			}
 		}
 	}
 
-	// Fetch missing deps and add to beads
-	outOfViewIDs := make(map[string]bool)
+	if len(missingIDs) == 0 {
+		return beads, nil
+	}
+
+	// Fetch out-of-view beads
+	outOfViewIDs := make(map[string]bool, len(missingIDs))
 	for id := range missingIDs {
 		bead, err := g.fetcher.FetchBead(ctx, id)
 		if err != nil || bead == nil {
-			// Create placeholder for unavailable bead
-			beads = append(beads, GraphBead{
-				ID:     id,
-				Title:  "?",
-				Status: "?",
-			})
+			beads = append(beads, GraphBead{ID: id, Title: "?", Status: "?"})
 		} else {
 			beads = append(beads, *bead)
 		}
@@ -826,6 +825,23 @@ func (g *Graph) GetNodes() map[string]*GraphNode {
 	return result
 }
 
+// UpdateNode updates a node's properties in the graph.
+// This is used to overlay additional state (like workqueue status) onto nodes.
+func (g *Graph) UpdateNode(node *GraphNode) {
+	if node == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if existing := g.nodes[node.ID]; existing != nil {
+		// Update fields that can be overlaid
+		existing.WQStatus = node.WQStatus
+		existing.Attempts = node.Attempts
+		existing.InBackoff = node.InBackoff
+	}
+}
+
 // GetEdges returns a copy of the edges slice.
 func (g *Graph) GetEdges() []GraphEdge {
 	g.mu.RLock()
@@ -901,6 +917,23 @@ func statusIcon(status string) string {
 		return "."
 	default:
 		return "?"
+	}
+}
+
+// nodeIcon returns the display icon for a node, considering workqueue state.
+// Failed beads in backoff get "!" prefix, abandoned beads get "X" prefix.
+func nodeIcon(node *GraphNode) string {
+	baseIcon := statusIcon(node.Status)
+	switch node.WQStatus {
+	case "failed":
+		if node.InBackoff {
+			return "!" + baseIcon
+		}
+		return baseIcon
+	case "abandoned":
+		return "X" + baseIcon
+	default:
+		return baseIcon
 	}
 }
 
@@ -1104,7 +1137,7 @@ func (g *Graph) hasMoreSiblingsAtDepth(targetDepth int, visibleItems []ListNode,
 // - Standard: glyphs + icon + ID + truncated title
 // - Detailed: glyphs + icon + ID + priority + title + cost/attempts
 func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, width int, children map[string][]string) string {
-	icon := statusIcon(node.Status)
+	icon := nodeIcon(node)
 	isCurrent := node.ID == g.currentBead
 	isSelected := node.ID == g.selected
 	isCollapsedEpic := node.IsEpic && g.collapsed[node.ID]
@@ -1112,7 +1145,7 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 
 	// Calculate available width
 	glyphWidth := len(glyphs)
-	iconWidth := 2 // icon + space
+	iconWidth := len(icon) + 1 // icon + space (icon can be 1-2 chars with WQ prefix)
 	idWidth := len(node.ID) + 1 // ID + space
 
 	// Collapsed indicator
@@ -1199,12 +1232,16 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 		line = line[:width]
 	}
 
-	// Apply styling (priority: current > selected > dimmed > default)
+	// Apply styling (priority: current > selected > abandoned > failed > dimmed > default)
 	style := graphStyles.Node
 	if isCurrent {
 		style = graphStyles.NodeCurrent
 	} else if isSelected {
 		style = graphStyles.NodeSelected
+	} else if node.WQStatus == "abandoned" {
+		style = graphStyles.NodeAbandoned
+	} else if node.WQStatus == "failed" && node.InBackoff {
+		style = graphStyles.NodeFailed
 	} else if node.OutOfView {
 		style = graphStyles.NodeDimmed
 	}

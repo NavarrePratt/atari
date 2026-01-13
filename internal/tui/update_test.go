@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
+	"github.com/npratt/atari/internal/viewmodel"
 )
 
 // mockStatsGetter is a mock implementation of StatsGetter for testing.
@@ -27,6 +28,15 @@ func (m *mockStatsGetter) Failed() int         { return m.failed }
 func (m *mockStatsGetter) Abandoned() int      { return m.abandoned }
 func (m *mockStatsGetter) CurrentBead() string { return m.currentBead }
 func (m *mockStatsGetter) CurrentTurns() int   { return m.currentTurns }
+func (m *mockStatsGetter) GetStats() viewmodel.TUIStats {
+	return viewmodel.TUIStats{
+		Completed:    m.completed,
+		Failed:       m.failed,
+		Abandoned:    m.abandoned,
+		CurrentBead:  m.currentBead,
+		CurrentTurns: m.currentTurns,
+	}
+}
 
 func TestHandleKey_Quit(t *testing.T) {
 	tests := []struct {
@@ -41,8 +51,9 @@ func TestHandleKey_Quit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			quitCalled := false
 			m := model{
-				status: "idle",
-				onQuit: func() { quitCalled = true },
+				status:    "idle",
+				focusMode: FocusModeNone,
+				onQuit:    func() { quitCalled = true },
 			}
 
 			newM, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
@@ -791,6 +802,7 @@ func TestHandleKey_ObserverFocused_NormalMode_GlobalKeysWork(t *testing.T) {
 		quitCalled := false
 		m := model{
 			focusedPane:  FocusObserver,
+			focusMode:    FocusModeNone,
 			observerOpen: true,
 			observerPane: NewObserverPane(nil),
 			status:       "idle",
@@ -913,6 +925,7 @@ func TestHandleKey_EventsFocused_NormalBehavior(t *testing.T) {
 		quitCalled := false
 		m := model{
 			focusedPane: FocusEvents,
+			focusMode:   FocusModeNone,
 			status:      "idle",
 			onQuit:      func() { quitCalled = true },
 		}
@@ -1737,6 +1750,321 @@ func TestUpdate_SpinnerTickMsg_ForwardedToBothPanesWhenBothLoading(t *testing.T)
 	if !resultM.graphPane.IsLoading() {
 		t.Error("graph should still be loading")
 	}
+}
+
+// TestUpdate_GraphAutoRefreshMsg_ForwardedWhenOpenButNotFocused verifies that
+// graphAutoRefreshMsg is forwarded to the graph pane even when it doesn't have focus.
+// This is a regression test for a bug where auto-refresh only worked when graph was focused.
+func TestUpdate_GraphAutoRefreshMsg_ForwardedWhenOpenButNotFocused(t *testing.T) {
+	t.Run("forwards to graph when open but events is focused", func(t *testing.T) {
+		cfg := &config.GraphConfig{
+			Enabled:             true,
+			AutoRefreshInterval: 5 * time.Second,
+		}
+		graphPane := NewGraphPane(cfg, nil, "horizontal")
+		graphPane.visible = true
+
+		m := model{
+			focusedPane:  FocusEvents, // Events is focused, NOT graph
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+		}
+
+		newM, cmd := m.Update(graphAutoRefreshMsg{})
+		_ = newM.(model)
+
+		// Should return commands (refresh + schedule next auto-refresh)
+		if cmd == nil {
+			t.Error("graphAutoRefreshMsg should produce commands when graph is open")
+		}
+	})
+
+	t.Run("forwards to graph when open but observer is focused", func(t *testing.T) {
+		cfg := &config.GraphConfig{
+			Enabled:             true,
+			AutoRefreshInterval: 5 * time.Second,
+		}
+		graphPane := NewGraphPane(cfg, nil, "horizontal")
+		graphPane.visible = true
+
+		obsPane := NewObserverPane(nil)
+		obsPane.SetFocused(true)
+
+		m := model{
+			focusedPane:  FocusObserver, // Observer is focused, NOT graph
+			graphOpen:    true,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    graphPane,
+		}
+
+		newM, cmd := m.Update(graphAutoRefreshMsg{})
+		_ = newM.(model)
+
+		// Should return commands (refresh + schedule next auto-refresh)
+		if cmd == nil {
+			t.Error("graphAutoRefreshMsg should produce commands when graph is open")
+		}
+	})
+
+	t.Run("not forwarded when graph is closed", func(t *testing.T) {
+		cfg := &config.GraphConfig{
+			Enabled:             true,
+			AutoRefreshInterval: 5 * time.Second,
+		}
+		graphPane := NewGraphPane(cfg, nil, "horizontal")
+		graphPane.visible = false
+
+		m := model{
+			focusedPane:  FocusEvents,
+			graphOpen:    false, // Graph is closed
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+		}
+
+		_, cmd := m.Update(graphAutoRefreshMsg{})
+
+		// Should return nil since graph is closed
+		if cmd != nil {
+			t.Error("graphAutoRefreshMsg should NOT produce commands when graph is closed")
+		}
+	})
+}
+
+// TestHandleKey_Q_ExitsFullscreen verifies 'q' exits fullscreen mode.
+func TestHandleKey_Q_ExitsFullscreen(t *testing.T) {
+	t.Run("q exits fullscreen when in graph fullscreen", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusGraph,
+			focusMode:    FocusGraph,
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+			status:       "idle",
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after q in fullscreen, got %v", resultM.focusMode)
+		}
+	})
+
+	t.Run("q exits fullscreen when in observer fullscreen", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusObserver,
+			focusMode:    FocusObserver,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+			status:       "idle",
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after q in fullscreen, got %v", resultM.focusMode)
+		}
+	})
+}
+
+// TestTryQuit verifies quit confirmation behavior based on status.
+func TestTryQuit(t *testing.T) {
+	t.Run("shows confirmation when working", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			status:    "working",
+			focusMode: FocusModeNone,
+			onQuit:    func() { quitCalled = true },
+		}
+
+		newM, cmd := m.tryQuit()
+		resultM := newM.(model)
+
+		if !resultM.quitConfirmOpen {
+			t.Error("quitConfirmOpen should be true when working")
+		}
+		if quitCalled {
+			t.Error("onQuit should not be called yet")
+		}
+		if cmd != nil {
+			t.Error("should return nil command when showing confirmation")
+		}
+	})
+
+	t.Run("quits immediately when idle", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			status:    "idle",
+			focusMode: FocusModeNone,
+			onQuit:    func() { quitCalled = true },
+		}
+
+		_, cmd := m.tryQuit()
+
+		if !quitCalled {
+			t.Error("onQuit should be called when idle")
+		}
+		if cmd == nil {
+			t.Error("should return tea.Quit command when idle")
+		}
+	})
+
+	t.Run("quits immediately when paused", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			status:    "paused",
+			focusMode: FocusModeNone,
+			onQuit:    func() { quitCalled = true },
+		}
+
+		_, cmd := m.tryQuit()
+
+		if !quitCalled {
+			t.Error("onQuit should be called when paused")
+		}
+		if cmd == nil {
+			t.Error("should return tea.Quit command when paused")
+		}
+	})
+
+	t.Run("quits immediately when stopped", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			status:    "stopped",
+			focusMode: FocusModeNone,
+			onQuit:    func() { quitCalled = true },
+		}
+
+		_, cmd := m.tryQuit()
+
+		if !quitCalled {
+			t.Error("onQuit should be called when stopped")
+		}
+		if cmd == nil {
+			t.Error("should return tea.Quit command when stopped")
+		}
+	})
+}
+
+// TestHandleQuitConfirm verifies the quit confirmation dialog behavior.
+func TestHandleQuitConfirm(t *testing.T) {
+	t.Run("y confirms quit", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			quitConfirmOpen: true,
+			onQuit:          func() { quitCalled = true },
+		}
+
+		newM, cmd := m.handleQuitConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+		resultM := newM.(model)
+
+		if resultM.quitConfirmOpen {
+			t.Error("quitConfirmOpen should be false after confirmation")
+		}
+		if !quitCalled {
+			t.Error("onQuit should be called on confirmation")
+		}
+		if cmd == nil {
+			t.Error("should return tea.Quit command")
+		}
+	})
+
+	t.Run("enter confirms quit", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			quitConfirmOpen: true,
+			onQuit:          func() { quitCalled = true },
+		}
+
+		newM, cmd := m.handleQuitConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+		resultM := newM.(model)
+
+		if resultM.quitConfirmOpen {
+			t.Error("quitConfirmOpen should be false after confirmation")
+		}
+		if !quitCalled {
+			t.Error("onQuit should be called on confirmation")
+		}
+		if cmd == nil {
+			t.Error("should return tea.Quit command")
+		}
+	})
+
+	t.Run("n cancels quit", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			quitConfirmOpen: true,
+			onQuit:          func() { quitCalled = true },
+		}
+
+		newM, cmd := m.handleQuitConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+		resultM := newM.(model)
+
+		if resultM.quitConfirmOpen {
+			t.Error("quitConfirmOpen should be false after cancel")
+		}
+		if quitCalled {
+			t.Error("onQuit should not be called on cancel")
+		}
+		if cmd != nil {
+			t.Error("should return nil command on cancel")
+		}
+	})
+
+	t.Run("esc cancels quit", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			quitConfirmOpen: true,
+			onQuit:          func() { quitCalled = true },
+		}
+
+		newM, cmd := m.handleQuitConfirm(tea.KeyMsg{Type: tea.KeyEscape})
+		resultM := newM.(model)
+
+		if resultM.quitConfirmOpen {
+			t.Error("quitConfirmOpen should be false after esc")
+		}
+		if quitCalled {
+			t.Error("onQuit should not be called on esc")
+		}
+		if cmd != nil {
+			t.Error("should return nil command on esc")
+		}
+	})
+
+	t.Run("q cancels quit from confirmation", func(t *testing.T) {
+		quitCalled := false
+		m := model{
+			quitConfirmOpen: true,
+			onQuit:          func() { quitCalled = true },
+		}
+
+		newM, cmd := m.handleQuitConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+		resultM := newM.(model)
+
+		if resultM.quitConfirmOpen {
+			t.Error("quitConfirmOpen should be false after q in confirmation")
+		}
+		if quitCalled {
+			t.Error("onQuit should not be called when q cancels confirmation")
+		}
+		if cmd != nil {
+			t.Error("should return nil command when q cancels")
+		}
+	})
 }
 
 // TestFullscreen_VisualDifference ensures fullscreen actually looks different.

@@ -119,15 +119,17 @@ func (p ObserverPane) Update(msg tea.Msg) (ObserverPane, tea.Cmd) {
 			p.errorMsg = msg.err.Error()
 		} else {
 			p.errorMsg = ""
+			// Calculate where the new response will start
+			startLine := p.calculateHistoryLines(len(p.history))
 			// Add assistant response to history
 			p.history = append(p.history, chatMessage{
 				role:    roleAssistant,
 				content: msg.response,
 				time:    time.Now(),
 			})
-			// Update viewport content and scroll to bottom
+			// Update viewport content and scroll to show response start
 			p.updateViewportContent()
-			p.viewport.GotoBottom()
+			p.scrollToLine(startLine)
 		}
 		return p, nil
 
@@ -282,6 +284,9 @@ func (p ObserverPane) submitQuestion() (ObserverPane, tea.Cmd) {
 		return p, nil
 	}
 
+	// Calculate where the new question will start
+	startLine := p.calculateHistoryLines(len(p.history))
+
 	// Add user question to history
 	p.history = append(p.history, chatMessage{
 		role:    roleUser,
@@ -292,9 +297,9 @@ func (p ObserverPane) submitQuestion() (ObserverPane, tea.Cmd) {
 	// Clear input
 	p.input.Reset()
 
-	// Update viewport and scroll to bottom
+	// Update viewport and scroll to show the submitted question
 	p.updateViewportContent()
-	p.viewport.GotoBottom()
+	p.scrollToLine(startLine)
 
 	p.loading = true
 	p.startedAt = time.Now()
@@ -376,6 +381,77 @@ func (p *ObserverPane) updateViewportContent() {
 	}
 
 	p.viewport.SetContent(strings.Join(lines, "\n"))
+}
+
+// calculateHistoryLines returns the number of rendered lines for the first n messages.
+// This is used to determine where new content will start in the viewport.
+func (p *ObserverPane) calculateHistoryLines(n int) int {
+	if n <= 0 || n > len(p.history) {
+		return 0
+	}
+
+	contentWidth := safeWidth(p.width - 6)
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+
+	lineCount := 0
+	for i := 0; i < n; i++ {
+		msg := p.history[i]
+		var prefix string
+		if msg.role == roleUser {
+			prefix = "You: "
+		} else {
+			prefix = "Claude: "
+		}
+
+		wrapped := wordWrap(msg.content, contentWidth-len(prefix))
+		wrappedLines := strings.Split(wrapped, "\n")
+		lineCount += len(wrappedLines)
+		lineCount++ // Blank line between messages
+	}
+
+	return lineCount
+}
+
+// scrollToLine scrolls the viewport to show the given line at the top,
+// but tries to show some context (the triggering question) if space permits.
+func (p *ObserverPane) scrollToLine(targetLine int) {
+	totalLines := p.viewport.TotalLineCount()
+	viewportHeight := p.viewport.Height
+
+	// If all content fits in viewport, just go to top
+	if totalLines <= viewportHeight {
+		p.viewport.GotoTop()
+		return
+	}
+
+	// Try to show one message of context above the target if it fits
+	// Find where the previous message starts (if any)
+	contextLine := targetLine
+	if len(p.history) > 1 && targetLine > 0 {
+		// Try to include the previous message for context
+		prevMsgLines := p.calculateHistoryLines(len(p.history) - 1)
+		if targetLine-prevMsgLines >= 0 {
+			// Check if we can fit the previous message + current content in viewport
+			contentFromPrev := totalLines - prevMsgLines
+			if contentFromPrev <= viewportHeight {
+				contextLine = prevMsgLines
+			}
+		}
+	}
+
+	// Calculate offset - we want targetLine (or contextLine) at top of viewport
+	offset := contextLine
+	maxOffset := totalLines - viewportHeight
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	p.viewport.SetYOffset(offset)
 }
 
 // View renders the observer pane.
