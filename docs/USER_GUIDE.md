@@ -351,7 +351,7 @@ Create `.atari/config.yaml` in your project. Note: Claude model and settings com
 ```yaml
 # Claude settings (most come from your global ~/.claude/settings.json)
 claude:
-  timeout: 5m                    # Session timeout
+  timeout: 60m                   # Session timeout (inactivity)
   # extra_args: ["--model", "sonnet"]  # Override global config if needed
 
 # Filter beads by label

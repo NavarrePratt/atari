@@ -15,8 +15,8 @@ func TestDefault(t *testing.T) {
 func TestDefaultClaudeConfig(t *testing.T) {
 	cfg := Default()
 
-	if cfg.Claude.Timeout != 5*time.Minute {
-		t.Errorf("Claude.Timeout = %v, want %v", cfg.Claude.Timeout, 5*time.Minute)
+	if cfg.Claude.Timeout != 60*time.Minute {
+		t.Errorf("Claude.Timeout = %v, want %v", cfg.Claude.Timeout, 60*time.Minute)
 	}
 
 	if cfg.Claude.MaxTurns != 0 {

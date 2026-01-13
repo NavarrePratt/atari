@@ -151,13 +151,13 @@ By default, atari uses your global Claude configuration from `~/.claude/settings
 
 ```yaml
 claude:
-  timeout: 5m
+  timeout: 60m
   extra_args: []
 ```
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `timeout` | duration | 5m | Kill session if no activity |
+| `timeout` | duration | 60m | Kill session if no activity |
 | `extra_args` | []string | [] | Extra CLI args passed to claude |
 
 To override global settings for atari sessions only:
@@ -366,7 +366,7 @@ type ObserverConfig struct {
 func Default() *Config {
     return &Config{
         Claude: ClaudeConfig{
-            Timeout:   5 * time.Minute,
+            Timeout:   60 * time.Minute,
             ExtraArgs: []string{},
         },
         Observer: ObserverConfig{

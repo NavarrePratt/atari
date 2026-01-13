@@ -171,7 +171,7 @@ Closing the bead marks the work as done and releases it from in_progress state.`
 func Default() *Config {
 	return &Config{
 		Claude: ClaudeConfig{
-			Timeout:   5 * time.Minute,
+			Timeout:   60 * time.Minute,
 			MaxTurns:  0, // 0 = unlimited; set to 10 for faster graceful pause
 			ExtraArgs: []string{},
 		},

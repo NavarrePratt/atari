@@ -7,7 +7,7 @@ Type definitions and defaults for atari configuration.
 ```go
 Config
 ├── Claude        // Session settings
-│   ├── Timeout   // Per-session timeout (default: 5m)
+│   ├── Timeout   // Per-session timeout (default: 60m)
 │   └── ExtraArgs // Additional CLI args
 ├── WorkQueue     // Polling settings
 │   ├── PollInterval // bd ready poll interval (default: 5s)

@@ -17,8 +17,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 
 	// Check defaults are applied
-	if cfg.Claude.Timeout != 5*time.Minute {
-		t.Errorf("Claude.Timeout = %v, want %v", cfg.Claude.Timeout, 5*time.Minute)
+	if cfg.Claude.Timeout != 60*time.Minute {
+		t.Errorf("Claude.Timeout = %v, want %v", cfg.Claude.Timeout, 60*time.Minute)
 	}
 	if cfg.WorkQueue.PollInterval != 5*time.Second {
 		t.Errorf("WorkQueue.PollInterval = %v, want %v", cfg.WorkQueue.PollInterval, 5*time.Second)
