@@ -81,7 +81,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case graphTickMsg, graphResultMsg, graphStartLoadingMsg, graphDetailResultMsg:
+	case graphTickMsg, graphResultMsg, graphStartLoadingMsg, graphDetailResultMsg, graphAutoRefreshMsg:
 		// Forward graph messages to graph pane
 		if m.graphOpen {
 			var cmd tea.Cmd
