@@ -13,6 +13,7 @@ const (
 	FlagTUI               = "tui"
 	FlagMaxTurns          = "max-turns"
 	FlagLabel             = "label"
+	FlagEpic              = "epic"
 	FlagUnassignedOnly    = "unassigned-only"
 	FlagExcludeLabels     = "exclude-labels"
 	FlagPrompt            = "prompt"

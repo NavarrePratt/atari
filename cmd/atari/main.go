@@ -305,6 +305,9 @@ Use --daemon to run in the background.`,
 			if cmd.Flags().Changed(FlagLabel) {
 				cfg.WorkQueue.Label = viper.GetString(FlagLabel)
 			}
+			if cmd.Flags().Changed(FlagEpic) {
+				cfg.WorkQueue.Epic = viper.GetString(FlagEpic)
+			}
 			if cmd.Flags().Changed(FlagUnassignedOnly) {
 				cfg.WorkQueue.UnassignedOnly = viper.GetBool(FlagUnassignedOnly)
 			}
@@ -556,6 +559,7 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().Bool(FlagTUI, false, "Enable terminal UI")
 	startCmd.Flags().Int(FlagMaxTurns, 0, "Max turns per Claude session (0 = unlimited)")
 	startCmd.Flags().String(FlagLabel, "", "Filter br ready by label")
+	startCmd.Flags().String(FlagEpic, "", "Restrict work to beads under this epic (e.g., bd-xxx)")
 	startCmd.Flags().Bool(FlagUnassignedOnly, false, "Only claim unassigned beads")
 	startCmd.Flags().StringSlice(FlagExcludeLabels, nil, "Labels to exclude from work selection (comma-separated)")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")

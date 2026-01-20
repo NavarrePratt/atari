@@ -30,6 +30,7 @@ type ClaudeConfig struct {
 type WorkQueueConfig struct {
 	PollInterval   time.Duration `yaml:"poll_interval" mapstructure:"poll_interval"`
 	Label          string        `yaml:"label" mapstructure:"label"`
+	Epic           string        `yaml:"epic" mapstructure:"epic"`                       // Restrict work to beads under this epic
 	UnassignedOnly bool          `yaml:"unassigned_only" mapstructure:"unassigned_only"` // Only claim unassigned beads
 	ExcludeLabels  []string      `yaml:"exclude_labels" mapstructure:"exclude_labels"`   // Labels to exclude from selection
 }
