@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -197,6 +198,18 @@ func printEventLine(line string) {
 	}
 }
 
+// checkBrInstalled verifies that the br (beads_rust) binary is available in PATH.
+func checkBrInstalled() error {
+	if _, err := exec.LookPath("br"); err != nil {
+		return fmt.Errorf("br (beads_rust) not found in PATH\n\n" +
+			"Atari requires beads_rust for issue tracking.\n\n" +
+			"Install with:\n" +
+			"  cargo install beads_rust\n\n" +
+			"Or see: https://github.com/Dicklesworthstone/beads_rust")
+	}
+	return nil
+}
+
 func main() {
 	logLevel := &slog.LevelVar{}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
@@ -249,6 +262,11 @@ sessions to work on each bead until completion.
 
 Use --daemon to run in the background.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Verify br (beads_rust) is installed before proceeding
+			if err := checkBrInstalled(); err != nil {
+				return err
+			}
+
 			daemonMode := viper.GetBool(FlagDaemon)
 
 			// Determine TUI mode: explicit flag > auto-detect from TTY
