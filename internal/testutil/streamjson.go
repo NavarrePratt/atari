@@ -40,13 +40,13 @@ func NewSuccessfulSession(sessionID string) *MockClaudeOutput {
 	}
 }
 
-// NewSuccessfulSessionWithBDClose creates events for a session that closes a bead.
-func NewSuccessfulSessionWithBDClose(sessionID, beadID string) *MockClaudeOutput {
+// NewSuccessfulSessionWithBRClose creates events for a session that closes a bead.
+func NewSuccessfulSessionWithBRClose(sessionID, beadID string) *MockClaudeOutput {
 	return &MockClaudeOutput{
 		Events: []string{
 			fmt.Sprintf(`{"type":"system","subtype":"init","session_id":"%s","cwd":"/workspace"}`, sessionID),
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"Working on the task..."}]}}`,
-			fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool_001","name":"Bash","input":{"command":"bd close %s --reason done"}}]}}`, beadID),
+			fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool_001","name":"Bash","input":{"command":"br close %s --reason done"}}]}}`, beadID),
 			`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_001","content":"Issue closed"}]}}`,
 			fmt.Sprintf(`{"type":"result","subtype":"success","total_cost_usd":0.05,"duration_ms":15000,"num_turns":4,"session_id":"%s"}`, sessionID),
 		},

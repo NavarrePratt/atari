@@ -608,8 +608,8 @@ func TestContextBuilder_TipsSection(t *testing.T) {
 	if !strings.Contains(tips, "tail") {
 		t.Error("missing tail command")
 	}
-	if !strings.Contains(tips, "bd show") {
-		t.Error("missing bd show command")
+	if !strings.Contains(tips, "br show") {
+		t.Error("missing br show command")
 	}
 }
 

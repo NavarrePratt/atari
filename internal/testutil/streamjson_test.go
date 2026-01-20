@@ -93,19 +93,19 @@ func TestNewSuccessfulSession(t *testing.T) {
 	}
 }
 
-func TestNewSuccessfulSessionWithBDClose(t *testing.T) {
-	output := NewSuccessfulSessionWithBDClose("test-session", "bd-001")
+func TestNewSuccessfulSessionWithBRClose(t *testing.T) {
+	output := NewSuccessfulSessionWithBRClose("test-session", "bd-001")
 
-	// Should contain a tool_use for bd close
+	// Should contain a tool_use for br close
 	found := false
 	for _, event := range output.Events {
-		if strings.Contains(event, "bd close bd-001") {
+		if strings.Contains(event, "br close bd-001") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("expected bd close command in tool_use")
+		t.Error("expected br close command in tool_use")
 	}
 }
 
@@ -209,7 +209,7 @@ func TestNewSessionWithToolUse(t *testing.T) {
 func TestAllEventsAreValidJSON(t *testing.T) {
 	outputs := []*MockClaudeOutput{
 		NewSuccessfulSession("s1"),
-		NewSuccessfulSessionWithBDClose("s2", "bd-001"),
+		NewSuccessfulSessionWithBRClose("s2", "bd-001"),
 		NewFailedSession("s3", "error"),
 		NewMaxTurnsSession("s4", 3),
 		NewTimeoutSession("s5"),

@@ -106,7 +106,7 @@ func TestMockRunner_Run_UnexpectedCommand(t *testing.T) {
 
 func TestMockRunner_Run_PrefixMatch(t *testing.T) {
 	mock := NewMockRunner()
-	// Set response for "bd close" prefix
+	// Set response for "br close" prefix
 	mock.Responses["br close"] = []byte("ok")
 
 	ctx := context.Background()

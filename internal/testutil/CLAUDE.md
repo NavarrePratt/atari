@@ -6,7 +6,7 @@ Test infrastructure for unit and integration testing. Provides mocks, fixtures, 
 
 ### CommandRunner Interface
 
-Abstraction for command execution, allowing tests to mock external commands (bd, claude).
+Abstraction for command execution, allowing tests to mock external commands (br, claude).
 
 ```go
 type CommandRunner interface {
@@ -22,15 +22,15 @@ Mock implementation with canned responses and call recording.
 mock := testutil.NewMockRunner()
 
 // Configure responses
-mock.SetResponse("bd", []string{"ready", "--json"}, []byte(`[...]`))
-mock.SetError("bd", []string{"close", "bd-001"}, errors.New("not found"))
+mock.SetResponse("br", []string{"ready", "--json"}, []byte(`[...]`))
+mock.SetError("br", []string{"close", "bd-001"}, errors.New("not found"))
 
 // Execute (records calls)
-output, err := mock.Run(ctx, "bd", "ready", "--json")
+output, err := mock.Run(ctx, "br", "ready", "--json")
 
 // Assert
-testutil.AssertCalled(t, mock, "bd", "ready", "--json")
-testutil.AssertCallCount(t, mock, "bd", 2)
+testutil.AssertCalled(t, mock, "br", "ready", "--json")
+testutil.AssertCallCount(t, mock, "br", 2)
 ```
 
 **Prefix matching**: Commands with variable args can use prefix matching - if no exact match is found, the runner checks if any registered key is a prefix of the actual command.
@@ -39,7 +39,7 @@ testutil.AssertCallCount(t, mock, "bd", 2)
 
 ```go
 mock.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-    if name == "bd" && len(args) > 0 && args[0] == "ready" {
+    if name == "br" && len(args) > 0 && args[0] == "ready" {
         // Return different beads on each call
         callCount++
         if callCount == 1 {
@@ -57,12 +57,12 @@ Production implementation using os/exec. Used by the CLI start command for real 
 
 ```go
 runner := testutil.NewExecRunner()
-output, err := runner.Run(ctx, "bd", "ready", "--json")
+output, err := runner.Run(ctx, "br", "ready", "--json")
 ```
 
 ### MockProcessRunner
 
-Mock implementation of runner.ProcessRunner for testing streaming process scenarios (e.g., bd activity --follow).
+Mock implementation of runner.ProcessRunner for testing streaming process scenarios (e.g., br activity --follow).
 
 ```go
 mock := testutil.NewMockProcessRunner()
@@ -76,7 +76,7 @@ mock.SetStartError(errors.New("command not found"))
 mock.SetWaitError(errors.New("exit code 1"))
 
 // Start the mock process
-stdout, stderr, err := mock.Start(ctx, "bd", "activity", "--follow")
+stdout, stderr, err := mock.Start(ctx, "br", "activity", "--follow")
 data, _ := io.ReadAll(stdout)
 err = mock.Wait()
 
@@ -106,9 +106,9 @@ Pre-defined JSON responses for common scenarios:
 
 | Fixture | Description |
 |---------|-------------|
-| `SampleBeadReadyJSON` | bd ready response with multiple beads |
-| `SingleBeadReadyJSON` | bd ready response with one bead |
-| `EmptyBeadReadyJSON` | bd ready response when no beads available |
+| `SampleBeadReadyJSON` | br ready response with multiple beads |
+| `SingleBeadReadyJSON` | br ready response with one bead |
+| `EmptyBeadReadyJSON` | br ready response when no beads available |
 | `SampleClaudeInit` | Claude system init event |
 | `SampleClaudeAssistant` | Claude text response event |
 | `SampleClaudeToolUse` | Claude tool use event |
@@ -125,7 +125,7 @@ Generate mock Claude stream-json output for testing session parsing.
 output := testutil.NewSuccessfulSession("session-001")
 
 // Session that closes a bead
-output := testutil.NewSuccessfulSessionWithBDClose("session-001", "bd-001")
+output := testutil.NewSuccessfulSessionWithBRClose("session-001", "bd-001")
 
 // Failed session
 output := testutil.NewFailedSession("session-001", "command failed")
@@ -163,9 +163,9 @@ dir, cleanup := testutil.SetupTestDir(t)              // Creates .atari/
 dir, cleanup := testutil.SetupTestDirWithState(t, json) // Creates .atari/state.json
 
 // Mock setup helpers
-testutil.SetupMockBDReady(mock, testutil.SampleBeadReadyJSON)
-testutil.SetupMockBDAgentState(mock)
-testutil.SetupMockBDClose(mock, "bd-001")
+testutil.SetupMockBRReady(mock, testutil.SampleBeadReadyJSON)
+testutil.SetupMockBRAgentState(mock, "agent-id")
+testutil.SetupMockBRClose(mock, "bd-001")
 ```
 
 ## Usage Pattern
@@ -176,13 +176,13 @@ func TestController(t *testing.T) {
     defer cleanup()
 
     mock := testutil.NewMockRunner()
-    testutil.SetupMockBDReady(mock, testutil.SingleBeadReadyJSON)
+    testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
 
     // Create component with mock runner
     ctrl := controller.New(mock, dir)
 
     // Run test...
 
-    testutil.AssertCalled(t, mock, "bd", "ready", "--json")
+    testutil.AssertCalled(t, mock, "br", "ready", "--json")
 }
 ```
