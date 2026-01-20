@@ -36,7 +36,7 @@ func TestBDFetcher_FetchActive(t *testing.T) {
 		},
 		{
 			name:    "command error",
-			err:     errors.New("bd command failed"),
+			err:     errors.New("br command failed"),
 			wantErr: true,
 		},
 		{
@@ -97,7 +97,7 @@ func TestBDFetcher_FetchBacklog(t *testing.T) {
 		},
 		{
 			name:    "command error",
-			err:     errors.New("bd command failed"),
+			err:     errors.New("br command failed"),
 			wantErr: true,
 		},
 	}

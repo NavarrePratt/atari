@@ -28,7 +28,7 @@ func testConfig() *config.Config {
 	return cfg
 }
 
-// setupAgentStateMocks configures mock responses for all bd agent state commands.
+// setupAgentStateMocks configures mock responses for all br agent state commands.
 func setupAgentStateMocks(runner *testutil.MockRunner) {
 	for _, state := range []string{"idle", "running", "stopped", "dead"} {
 		runner.SetResponse("br", []string{"agent", "state", testAgentID, state}, []byte(""))
@@ -566,10 +566,10 @@ func TestControllerAgentStateReporting(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
 		// Set up errors for agent state commands
-		runner.SetError("br", []string{"agent", "state", testAgentID, "idle"}, errors.New("bd not available"))
-		runner.SetError("br", []string{"agent", "state", testAgentID, "running"}, errors.New("bd not available"))
-		runner.SetError("br", []string{"agent", "state", testAgentID, "stopped"}, errors.New("bd not available"))
-		runner.SetError("br", []string{"agent", "state", testAgentID, "dead"}, errors.New("bd not available"))
+		runner.SetError("br", []string{"agent", "state", testAgentID, "idle"}, errors.New("br not available"))
+		runner.SetError("br", []string{"agent", "state", testAgentID, "running"}, errors.New("br not available"))
+		runner.SetError("br", []string{"agent", "state", testAgentID, "stopped"}, errors.New("br not available"))
+		runner.SetError("br", []string{"agent", "state", testAgentID, "dead"}, errors.New("br not available"))
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -625,7 +625,7 @@ func TestControllerAgentStateReporting(t *testing.T) {
 }
 
 func TestControllerResetBeadToOpen(t *testing.T) {
-	t.Run("calls bd update with correct args", func(t *testing.T) {
+	t.Run("calls br update with correct args", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
 		runner.SetResponse("br", []string{"update", "test-bead", "--status", "open", "--notes", "test notes"}, []byte(""))
@@ -653,14 +653,14 @@ func TestControllerResetBeadToOpen(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Error("expected bd update command to be called")
+			t.Error("expected br update command to be called")
 		}
 	})
 
 	t.Run("handles command error", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		runner.SetError("br", []string{"update", "test-bead", "--status", "open", "--notes", "test notes"}, errors.New("bd unavailable"))
+		runner.SetError("br", []string{"update", "test-bead", "--status", "open", "--notes", "test notes"}, errors.New("br unavailable"))
 
 		wq := workqueue.New(cfg, runner)
 		c := New(cfg, wq, nil, runner, nil, nil)
@@ -715,7 +715,7 @@ func TestControllerGetBeadStatus(t *testing.T) {
 	t.Run("returns empty string on error", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		runner.SetError("br", []string{"show", "test-bead", "--json"}, errors.New("bd unavailable"))
+		runner.SetError("br", []string{"show", "test-bead", "--json"}, errors.New("br unavailable"))
 
 		wq := workqueue.New(cfg, runner)
 		c := New(cfg, wq, nil, runner, nil, nil)
@@ -1041,7 +1041,7 @@ func TestControllerIsBeadClosed(t *testing.T) {
 	t.Run("returns false on error", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		runner.SetError("br", []string{"show", "test-bead", "--json"}, errors.New("bd unavailable"))
+		runner.SetError("br", []string{"show", "test-bead", "--json"}, errors.New("br unavailable"))
 
 		wq := workqueue.New(cfg, runner)
 		c := New(cfg, wq, nil, runner, nil, nil)

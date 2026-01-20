@@ -129,7 +129,7 @@ func testConfig() *config.Config {
 	return cfg
 }
 
-// setupAgentStateMocks configures mock responses for bd agent state commands.
+// setupAgentStateMocks configures mock responses for br agent state commands.
 func setupAgentStateMocks(runner *testutil.MockRunner) {
 	for _, state := range []string{"idle", "running", "stopped", "dead"} {
 		runner.SetResponse("br", []string{"agent", "state", testAgentID, state}, []byte(""))
@@ -165,7 +165,7 @@ echo '{"type":"system","subtype":"init","session_id":"test-001","cwd":"/workspac
 sleep 0.01
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Working on the task..."}]}}'
 sleep 0.01
-echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool_001","name":"Bash","input":{"command":"bd close test-bead-001 --reason done"}}]}}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool_001","name":"Bash","input":{"command":"br close test-bead-001 --reason done"}}]}}'
 sleep 0.01
 echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_001","content":"closed"}]}}'
 sleep 0.01
@@ -196,7 +196,7 @@ exit 1
 	return nil
 }
 
-// singleBeadJSON returns bd ready response with a single bead.
+// singleBeadJSON returns br ready response with a single bead.
 func singleBeadJSON(id, title string) []byte {
 	bead := []map[string]interface{}{
 		{
@@ -214,7 +214,7 @@ func singleBeadJSON(id, title string) []byte {
 	return data
 }
 
-// multipleBeadsJSON returns bd ready response with multiple beads.
+// multipleBeadsJSON returns br ready response with multiple beads.
 func multipleBeadsJSON(count int) []byte {
 	beads := make([]map[string]interface{}, count)
 	for i := 0; i < count; i++ {
@@ -692,7 +692,7 @@ sleep 0.05
 echo "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Continuing work...\"}]}}"
 sleep 0.05
 
-echo "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"tool_002\",\"name\":\"Bash\",\"input\":{\"command\":\"bd close test-bead-graceful --reason done\"}}]}}"
+echo "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"tool_002\",\"name\":\"Bash\",\"input\":{\"command\":\"br close test-bead-graceful --reason done\"}}]}}"
 sleep 0.05
 
 echo "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"tool_002\",\"content\":\"closed\"}]}}"
@@ -740,7 +740,7 @@ else
 fi
 
 sleep 0.02
-echo "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"tool_001\",\"name\":\"Bash\",\"input\":{\"command\":\"bd close test-bead-resume --reason done\"}}]}}"
+echo "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"tool_001\",\"name\":\"Bash\",\"input\":{\"command\":\"br close test-bead-resume --reason done\"}}]}}"
 sleep 0.02
 echo "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"tool_001\",\"content\":\"closed\"}]}}"
 sleep 0.02
@@ -928,7 +928,7 @@ fi
 # Fresh session works
 echo '{"type":"system","subtype":"init","session_id":"fallback-session-001","cwd":"/workspace","tools":["Bash"]}'
 sleep 0.02
-echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool_001","name":"Bash","input":{"command":"bd close test-bead-fallback --reason done"}}]}}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool_001","name":"Bash","input":{"command":"br close test-bead-fallback --reason done"}}]}}'
 sleep 0.02
 echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_001","content":"closed"}]}}'
 sleep 0.02
@@ -1000,7 +1000,7 @@ exit 0
 	t.Log("session resume fallback test completed")
 }
 
-// epicCloseEligibleJSON returns a mock response for bd epic close-eligible --json.
+// epicCloseEligibleJSON returns a mock response for br epic close-eligible --json.
 func epicCloseEligibleJSON(epicID, title string, totalChildren int, closeReason string) []byte {
 	response := []map[string]any{
 		{

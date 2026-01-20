@@ -13,7 +13,7 @@ import (
 
 func TestPoll_ReturnsBeads(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	testutil.SetupMockBDReady(mock, testutil.SampleBeadReadyJSON)
+	testutil.SetupMockBRReady(mock, testutil.SampleBeadReadyJSON)
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -50,7 +50,7 @@ func TestPoll_ReturnsBeads(t *testing.T) {
 
 func TestPoll_SingleBead(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	testutil.SetupMockBDReady(mock, testutil.SingleBeadReadyJSON)
+	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -69,7 +69,7 @@ func TestPoll_SingleBead(t *testing.T) {
 
 func TestPoll_EmptyArray(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	testutil.SetupMockBDReady(mock, testutil.EmptyBeadReadyJSON)
+	testutil.SetupMockBRReady(mock, testutil.EmptyBeadReadyJSON)
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -550,7 +550,7 @@ func TestNext_SamePriorityOldestFirst(t *testing.T) {
 
 func TestNext_NoBeadsAvailable(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	testutil.SetupMockBDReady(mock, testutil.EmptyBeadReadyJSON)
+	testutil.SetupMockBRReady(mock, testutil.EmptyBeadReadyJSON)
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -566,7 +566,7 @@ func TestNext_NoBeadsAvailable(t *testing.T) {
 
 func TestNext_AllBeadsFiltered(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	testutil.SetupMockBDReady(mock, testutil.SingleBeadReadyJSON)
+	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -585,7 +585,7 @@ func TestNext_AllBeadsFiltered(t *testing.T) {
 
 func TestNext_MarksAsWorking(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	testutil.SetupMockBDReady(mock, testutil.SingleBeadReadyJSON)
+	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -613,7 +613,7 @@ func TestNext_MarksAsWorking(t *testing.T) {
 
 func TestNext_IncrementsAttempts(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	testutil.SetupMockBDReady(mock, testutil.SingleBeadReadyJSON)
+	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
 
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Millisecond

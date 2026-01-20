@@ -185,9 +185,9 @@ func TestSetupTestDirWithState(t *testing.T) {
 	}
 }
 
-func TestSetupMockBDReady(t *testing.T) {
+func TestSetupMockBRReady(t *testing.T) {
 	mock := NewMockRunner()
-	SetupMockBDReady(mock, SampleBeadReadyJSON)
+	SetupMockBRReady(mock, SampleBeadReadyJSON)
 
 	result, err := mock.Run(context.Background(), "br", "ready", "--json")
 	if err != nil {
@@ -198,28 +198,28 @@ func TestSetupMockBDReady(t *testing.T) {
 	}
 }
 
-func TestSetupMockBDAgentState(t *testing.T) {
+func TestSetupMockBRAgentState(t *testing.T) {
 	mock := NewMockRunner()
-	SetupMockBDAgentState(mock, "test-agent")
+	SetupMockBRAgentState(mock, "test-agent")
 
 	result, err := mock.Run(context.Background(), "br", "agent", "state", "test-agent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if string(result) != BDAgentStateSuccess {
+	if string(result) != BRAgentStateSuccess {
 		t.Error("response mismatch")
 	}
 }
 
-func TestSetupMockBDClose(t *testing.T) {
+func TestSetupMockBRClose(t *testing.T) {
 	mock := NewMockRunner()
-	SetupMockBDClose(mock, "bd-001")
+	SetupMockBRClose(mock, "bd-001")
 
 	result, err := mock.Run(context.Background(), "br", "close", "bd-001")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if string(result) != BDCloseSuccess {
+	if string(result) != BRCloseSuccess {
 		t.Error("response mismatch")
 	}
 }

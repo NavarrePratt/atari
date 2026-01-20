@@ -1,30 +1,30 @@
 package testutil
 
-// Sample bd ready responses
+// Sample br ready responses
 
-// SampleBeadReadyJSON is a typical bd ready --json response with multiple beads.
+// SampleBeadReadyJSON is a typical br ready --json response with multiple beads.
 var SampleBeadReadyJSON = `[
   {"id": "bd-001", "title": "Test bead 1", "description": "First test bead", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z", "created_by": "user"},
   {"id": "bd-002", "title": "Test bead 2", "description": "Second test bead", "status": "open", "priority": 2, "issue_type": "task", "created_at": "2024-01-15T11:00:00Z", "created_by": "user"}
 ]`
 
-// SingleBeadReadyJSON is a bd ready response with a single bead.
+// SingleBeadReadyJSON is a br ready response with a single bead.
 var SingleBeadReadyJSON = `[
   {"id": "bd-001", "title": "Test bead 1", "description": "First test bead", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z", "created_by": "user"}
 ]`
 
-// EmptyBeadReadyJSON is a bd ready response when no beads are available.
+// EmptyBeadReadyJSON is a br ready response when no beads are available.
 var EmptyBeadReadyJSON = `[]`
 
-// Sample bd agent state responses
+// Sample br agent state responses
 
-// BDAgentStateSuccess is a successful bd agent state response.
-var BDAgentStateSuccess = `{"status": "ok"}`
+// BRAgentStateSuccess is a successful br agent state response.
+var BRAgentStateSuccess = `{"status": "ok"}`
 
-// Sample bd close responses
+// Sample br close responses
 
-// BDCloseSuccess is a successful bd close response.
-var BDCloseSuccess = `{"id": "bd-001", "status": "closed"}`
+// BRCloseSuccess is a successful br close response.
+var BRCloseSuccess = `{"id": "bd-001", "status": "closed"}`
 
 // Sample Claude stream-json events
 
@@ -49,7 +49,7 @@ var SampleClaudeResultError = `{"type":"result","subtype":"error_tool_use","erro
 // SampleClaudeResultMaxTurns is a session that hit max turns limit.
 var SampleClaudeResultMaxTurns = `{"type":"result","subtype":"error_max_turns","total_cost_usd":0.15,"duration_ms":60000,"num_turns":10}`
 
-// Bead represents the structure of a bead from bd ready output.
+// Bead represents the structure of a bead from br ready output.
 type Bead struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`

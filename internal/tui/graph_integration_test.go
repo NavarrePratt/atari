@@ -192,7 +192,7 @@ func TestGraphPane_FetchErrorDisplaysMessage(t *testing.T) {
 	// Simulate a fetch result with error
 	resultMsg := graphResultMsg{
 		beads:     nil,
-		err:       errors.New("bd list active failed: network timeout"),
+		err:       errors.New("br list active failed: network timeout"),
 		requestID: 1,
 	}
 
@@ -213,8 +213,8 @@ func TestGraphPane_FetchErrorDisplaysMessage(t *testing.T) {
 		t.Error("expected error message to be set")
 	}
 
-	if pane.errorMsg != "bd list active failed: network timeout" {
-		t.Errorf("expected error message 'bd list active failed: network timeout', got %q", pane.errorMsg)
+	if pane.errorMsg != "br list active failed: network timeout" {
+		t.Errorf("expected error message 'br list active failed: network timeout', got %q", pane.errorMsg)
 	}
 }
 
