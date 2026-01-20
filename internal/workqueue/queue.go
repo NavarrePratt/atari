@@ -37,6 +37,7 @@ type Bead struct {
 	Priority    int       `json:"priority"`
 	IssueType   string    `json:"issue_type"`
 	Labels      []string  `json:"labels,omitempty"`
+	Parent      string    `json:"parent,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	CreatedBy   string    `json:"created_by"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -110,7 +111,16 @@ func (m *Manager) Next(ctx context.Context) (*Bead, error) {
 		return nil, nil
 	}
 
-	eligible := m.filterEligible(beads)
+	// If epic filter is configured, fetch descendants to filter by
+	var epicDescendants map[string]bool
+	if m.config.WorkQueue.Epic != "" {
+		epicDescendants, err = m.fetchDescendants(ctx, m.config.WorkQueue.Epic)
+		if err != nil {
+			return nil, fmt.Errorf("fetch epic descendants: %w", err)
+		}
+	}
+
+	eligible := m.filterEligible(beads, epicDescendants)
 	if len(eligible) == 0 {
 		return nil, nil
 	}
@@ -139,7 +149,8 @@ func (m *Manager) Next(ctx context.Context) (*Bead, error) {
 }
 
 // filterEligible returns beads that are not completed, abandoned, in backoff, or have excluded labels.
-func (m *Manager) filterEligible(beads []Bead) []Bead {
+// If epicDescendants is non-nil, only beads in that set are considered.
+func (m *Manager) filterEligible(beads []Bead, epicDescendants map[string]bool) []Bead {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -149,6 +160,11 @@ func (m *Manager) filterEligible(beads []Bead) []Bead {
 	for _, bead := range beads {
 		// Skip epics - they are containers, not work items
 		if bead.IssueType == "epic" {
+			continue
+		}
+
+		// If epic filter is active, skip beads not in descendant set
+		if epicDescendants != nil && !epicDescendants[bead.ID] {
 			continue
 		}
 
@@ -220,6 +236,56 @@ func (m *Manager) hasExcludedLabel(beadLabels []string) bool {
 		}
 	}
 	return false
+}
+
+// fetchDescendants fetches all beads and builds a set of IDs that are descendants
+// of the given epic ID. Returns a map where keys are bead IDs that are descendants
+// (including the epic itself). The algorithm iteratively adds beads whose parent
+// is already in the set until no new beads are found.
+func (m *Manager) fetchDescendants(ctx context.Context, epicID string) (map[string]bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	output, err := m.runner.Run(ctx, "br", "list", "--json")
+	if err != nil {
+		return nil, fmt.Errorf("br list failed: %w", err)
+	}
+
+	if len(output) == 0 {
+		return map[string]bool{epicID: true}, nil
+	}
+
+	var beads []Bead
+	if err := json.Unmarshal(output, &beads); err != nil {
+		return nil, fmt.Errorf("parse br list output: %w", err)
+	}
+
+	return buildDescendantSet(epicID, beads), nil
+}
+
+// buildDescendantSet builds a set of bead IDs that are descendants of the given epic.
+// The epic ID itself is included in the set. Uses iterative expansion: starting with
+// the epic, repeatedly add any bead whose parent is already in the set.
+func buildDescendantSet(epicID string, beads []Bead) map[string]bool {
+	descendants := map[string]bool{epicID: true}
+
+	for {
+		added := false
+		for _, bead := range beads {
+			if bead.Parent == "" {
+				continue
+			}
+			if descendants[bead.Parent] && !descendants[bead.ID] {
+				descendants[bead.ID] = true
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+
+	return descendants
 }
 
 // RecordSuccess marks a bead as completed.

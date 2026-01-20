@@ -340,7 +340,7 @@ func TestFilterEligible_NewBeads(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 2 {
 		t.Errorf("expected 2 eligible beads, got %d", len(eligible))
 	}
@@ -356,7 +356,7 @@ func TestFilterEligible_ExcludesEpics(t *testing.T) {
 		{ID: "bd-003", Priority: 3, IssueType: "bug"},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 2 {
 		t.Errorf("expected 2 eligible beads (excluding epic), got %d", len(eligible))
 	}
@@ -388,7 +388,7 @@ func TestFilterEligible_ExcludesCompleted(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 1 {
 		t.Errorf("expected 1 eligible bead, got %d", len(eligible))
 	}
@@ -409,7 +409,7 @@ func TestFilterEligible_ExcludesAbandoned(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 1 {
 		t.Errorf("expected 1 eligible bead, got %d", len(eligible))
 	}
@@ -437,7 +437,7 @@ func TestFilterEligible_ExcludesInBackoff(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 1 {
 		t.Errorf("expected 1 eligible bead, got %d", len(eligible))
 	}
@@ -465,7 +465,7 @@ func TestFilterEligible_IncludesAfterBackoff(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 2 {
 		t.Errorf("expected 2 eligible beads after backoff, got %d", len(eligible))
 	}
@@ -491,7 +491,7 @@ func TestFilterEligible_ExcludesMaxFailures(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 1 {
 		t.Errorf("expected 1 eligible bead when max failures reached, got %d", len(eligible))
 	}
@@ -919,7 +919,7 @@ func TestFilterEligible_ExcludesLabels(t *testing.T) {
 		{ID: "bd-004", Priority: 4, Labels: nil},                             // no labels - included
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 2 {
 		t.Errorf("expected 2 eligible beads, got %d", len(eligible))
 	}
@@ -953,7 +953,7 @@ func TestFilterEligible_NoExcludeLabels(t *testing.T) {
 		{ID: "bd-002", Priority: 2, Labels: []string{"blocked"}},
 	}
 
-	eligible := m.filterEligible(beads)
+	eligible := m.filterEligible(beads, nil)
 	if len(eligible) != 2 {
 		t.Errorf("expected 2 eligible beads when no exclude labels, got %d", len(eligible))
 	}
@@ -995,5 +995,275 @@ func TestHasExcludedLabel_EmptyExcludeList(t *testing.T) {
 	// Should always return false when exclude list is empty
 	if m.hasExcludedLabel([]string{"manual", "blocked"}) {
 		t.Error("expected false when exclude list is empty")
+	}
+}
+
+// Tests for buildDescendantSet
+
+func TestBuildDescendantSet_SingleLevel(t *testing.T) {
+	beads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+		{ID: "task-002", Parent: "epic-001"},
+		{ID: "task-003", Parent: "other-epic"},
+	}
+
+	descendants := buildDescendantSet("epic-001", beads)
+
+	// Epic and its direct children should be included
+	if !descendants["epic-001"] {
+		t.Error("expected epic-001 to be in descendants")
+	}
+	if !descendants["task-001"] {
+		t.Error("expected task-001 to be in descendants")
+	}
+	if !descendants["task-002"] {
+		t.Error("expected task-002 to be in descendants")
+	}
+	// Other beads should not be included
+	if descendants["task-003"] {
+		t.Error("expected task-003 to NOT be in descendants")
+	}
+}
+
+func TestBuildDescendantSet_MultiLevel(t *testing.T) {
+	beads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "sub-epic", Parent: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "sub-epic"},
+		{ID: "grandchild", Parent: "task-001"},
+	}
+
+	descendants := buildDescendantSet("epic-001", beads)
+
+	// All nested descendants should be included
+	if !descendants["epic-001"] {
+		t.Error("expected epic-001 to be in descendants")
+	}
+	if !descendants["sub-epic"] {
+		t.Error("expected sub-epic to be in descendants")
+	}
+	if !descendants["task-001"] {
+		t.Error("expected task-001 to be in descendants")
+	}
+	if !descendants["grandchild"] {
+		t.Error("expected grandchild to be in descendants")
+	}
+	if len(descendants) != 4 {
+		t.Errorf("expected 4 descendants, got %d", len(descendants))
+	}
+}
+
+func TestBuildDescendantSet_NoChildren(t *testing.T) {
+	beads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "other-epic"},
+	}
+
+	descendants := buildDescendantSet("epic-001", beads)
+
+	// Only the epic itself should be in the set
+	if !descendants["epic-001"] {
+		t.Error("expected epic-001 to be in descendants")
+	}
+	if len(descendants) != 1 {
+		t.Errorf("expected 1 descendant (epic only), got %d", len(descendants))
+	}
+}
+
+func TestBuildDescendantSet_EmptyBeads(t *testing.T) {
+	descendants := buildDescendantSet("epic-001", nil)
+
+	// Epic should still be in the set
+	if !descendants["epic-001"] {
+		t.Error("expected epic-001 to be in descendants")
+	}
+	if len(descendants) != 1 {
+		t.Errorf("expected 1 descendant, got %d", len(descendants))
+	}
+}
+
+// Tests for epic filtering in filterEligible
+
+func TestFilterEligible_WithEpicDescendants(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, testutil.NewMockRunner())
+
+	beads := []Bead{
+		{ID: "task-001", Priority: 1, IssueType: "task"},
+		{ID: "task-002", Priority: 2, IssueType: "task"},
+		{ID: "task-003", Priority: 3, IssueType: "task"},
+	}
+
+	// Only task-001 and task-003 are descendants
+	descendants := map[string]bool{
+		"epic-001": true,
+		"task-001": true,
+		"task-003": true,
+	}
+
+	eligible := m.filterEligible(beads, descendants)
+
+	if len(eligible) != 2 {
+		t.Fatalf("expected 2 eligible beads, got %d", len(eligible))
+	}
+	if eligible[0].ID != "task-001" {
+		t.Errorf("expected task-001, got %s", eligible[0].ID)
+	}
+	if eligible[1].ID != "task-003" {
+		t.Errorf("expected task-003, got %s", eligible[1].ID)
+	}
+}
+
+func TestFilterEligible_WithNilDescendants(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, testutil.NewMockRunner())
+
+	beads := []Bead{
+		{ID: "task-001", Priority: 1, IssueType: "task"},
+		{ID: "task-002", Priority: 2, IssueType: "task"},
+	}
+
+	// nil descendants = no epic filtering
+	eligible := m.filterEligible(beads, nil)
+
+	if len(eligible) != 2 {
+		t.Errorf("expected 2 eligible beads when no epic filter, got %d", len(eligible))
+	}
+}
+
+func TestFilterEligible_EpicDescendantsEmptyResult(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, testutil.NewMockRunner())
+
+	beads := []Bead{
+		{ID: "task-001", Priority: 1, IssueType: "task"},
+		{ID: "task-002", Priority: 2, IssueType: "task"},
+	}
+
+	// No beads match the descendant set
+	descendants := map[string]bool{
+		"epic-001": true,
+	}
+
+	eligible := m.filterEligible(beads, descendants)
+
+	if len(eligible) != 0 {
+		t.Errorf("expected 0 eligible beads, got %d", len(eligible))
+	}
+}
+
+// Test for Next with epic filter
+
+func TestNext_WithEpicFilter(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns beads from multiple epics
+	readyJSON := `[
+		{"id": "task-001", "title": "Task in epic", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
+		{"id": "task-002", "title": "Task outside epic", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T11:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list returns all beads with parent info
+	listJSON := `[
+		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic"},
+		{"id": "task-001", "title": "Task in epic", "status": "open", "parent": "epic-001"},
+		{"id": "task-002", "title": "Task outside epic", "status": "open", "parent": "other-epic"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	cfg.WorkQueue.Epic = "epic-001"
+	m := New(cfg, mock)
+
+	bead, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead, got nil")
+	}
+	if bead.ID != "task-001" {
+		t.Errorf("expected task-001 (in epic), got %s", bead.ID)
+	}
+}
+
+func TestNext_WithEpicFilter_NoEligibleBeads(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns beads not in the epic
+	readyJSON := `[
+		{"id": "task-002", "title": "Task outside epic", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T11:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list shows the bead is not under the epic
+	listJSON := `[
+		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic"},
+		{"id": "task-002", "title": "Task outside epic", "status": "open", "parent": "other-epic"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	cfg.WorkQueue.Epic = "epic-001"
+	m := New(cfg, mock)
+
+	bead, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead != nil {
+		t.Errorf("expected nil bead when no eligible beads in epic, got %v", bead)
+	}
+}
+
+func TestNext_WithEpicFilter_NestedDescendants(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns a nested descendant
+	readyJSON := `[
+		{"id": "task-nested", "title": "Nested task", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list shows nested hierarchy: epic -> sub-epic -> task
+	listJSON := `[
+		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic"},
+		{"id": "sub-epic", "title": "Sub Epic", "status": "open", "parent": "epic-001", "issue_type": "epic"},
+		{"id": "task-nested", "title": "Nested task", "status": "open", "parent": "sub-epic"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	cfg.WorkQueue.Epic = "epic-001"
+	m := New(cfg, mock)
+
+	bead, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected nested task to be selected")
+	}
+	if bead.ID != "task-nested" {
+		t.Errorf("expected task-nested, got %s", bead.ID)
+	}
+}
+
+func TestNext_WithoutEpicFilter(t *testing.T) {
+	mock := testutil.NewMockRunner()
+	testutil.SetupMockBRReady(mock, testutil.SampleBeadReadyJSON)
+
+	cfg := config.Default()
+	// No epic filter set
+	m := New(cfg, mock)
+
+	bead, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead when no epic filter")
 	}
 }
