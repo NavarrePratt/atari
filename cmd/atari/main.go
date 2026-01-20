@@ -496,6 +496,22 @@ Use --daemon to run in the background.`,
 					ctrlDone <- ctrl.Run(ctx)
 				}()
 
+				// Check for early controller errors (e.g., invalid epic)
+				// Give controller a brief window to fail during initialization
+				select {
+				case err := <-ctrlDone:
+					// Controller failed immediately - clean up and return error
+					sinkCancel()
+					router.Close()
+					_ = logSink.Stop()
+					_ = stateSink.Stop()
+					_ = tuiLogResult.Close()
+					_ = daemon.RemoveDaemonInfo(daemon.DaemonInfoPath(projectRoot))
+					return err
+				case <-time.After(100 * time.Millisecond):
+					// Controller is running, proceed with TUI
+				}
+
 				// Run TUI in foreground (blocks until quit)
 				tuiErr := tuiApp.Run()
 
