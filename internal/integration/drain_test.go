@@ -117,6 +117,7 @@ func (e *testEnv) countEvents(eventType events.EventType) int {
 func testConfig() *config.Config {
 	cfg := config.Default()
 	cfg.WorkQueue.PollInterval = 10 * time.Millisecond
+	cfg.WorkQueue.SelectionMode = "global" // Use global mode for simpler test setup
 	cfg.Claude.Timeout = 5 * time.Second
 	cfg.Backoff.Initial = 10 * time.Millisecond
 	cfg.Backoff.Max = 50 * time.Millisecond

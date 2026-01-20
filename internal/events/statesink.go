@@ -15,14 +15,16 @@ const StateBufferSize = 1000
 
 // State represents the persistent drain state.
 type State struct {
-	Version     int                      `json:"version"`
-	Status      string                   `json:"status"`
-	Iteration   int                      `json:"iteration"`
-	CurrentBead string                   `json:"current_bead,omitempty"`
-	History     map[string]*BeadHistory  `json:"history"`
-	TotalCost   float64                  `json:"total_cost"`
-	TotalTurns  int                      `json:"total_turns"`
-	UpdatedAt   time.Time                `json:"updated_at"`
+	Version            int                     `json:"version"`
+	Status             string                  `json:"status"`
+	Iteration          int                     `json:"iteration"`
+	CurrentBead        string                  `json:"current_bead,omitempty"`
+	History            map[string]*BeadHistory `json:"history"`
+	TotalCost          float64                 `json:"total_cost"`
+	TotalTurns         int                     `json:"total_turns"`
+	UpdatedAt          time.Time               `json:"updated_at"`
+	ActiveTopLevel     string                  `json:"active_top_level,omitempty"`
+	ActiveTopLevelTitle string                 `json:"active_top_level_title,omitempty"`
 }
 
 // DefaultMinSaveDelay is the minimum time between saves.
@@ -253,4 +255,20 @@ func (s *StateSink) SetMinDelay(d time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.minDelay = d
+}
+
+// SetActiveTopLevel updates the active top-level item in the state.
+// Pass empty strings to clear the active top-level.
+func (s *StateSink) SetActiveTopLevel(id, title string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.state.ActiveTopLevel = id
+	s.state.ActiveTopLevelTitle = title
+	s.dirty = true
+
+	// Debounced save
+	if time.Since(s.lastSave) >= s.minDelay {
+		s.saveUnlocked()
+	}
 }

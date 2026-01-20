@@ -57,6 +57,9 @@ type Controller struct {
 	// Session broker for coordinating Claude process access (optional)
 	broker *observer.SessionBroker
 
+	// State sink for persistence (optional)
+	stateSink *events.StateSink
+
 	state   State
 	stateMu sync.RWMutex
 
@@ -97,6 +100,13 @@ type ControllerOption func(*Controller)
 func WithBroker(broker *observer.SessionBroker) ControllerOption {
 	return func(c *Controller) {
 		c.broker = broker
+	}
+}
+
+// WithStateSink sets the state sink for persistence.
+func WithStateSink(sink *events.StateSink) ControllerOption {
+	return func(c *Controller) {
+		c.stateSink = sink
 	}
 }
 
@@ -147,6 +157,9 @@ func (c *Controller) Run(ctx context.Context) error {
 	if err := c.validateEpic(c.ctx); err != nil {
 		return err
 	}
+
+	// Restore active top-level from persisted state (for top-level selection mode)
+	c.restoreActiveTopLevel()
 
 	// Start BD activity watcher if configured (best-effort, non-fatal)
 	if c.bdWatcher != nil {
@@ -213,8 +226,10 @@ func (c *Controller) runIdle() {
 	default:
 	}
 
-	// Poll for work
-	bead, err := c.workQueue.Next(c.ctx)
+	// Poll for work using appropriate selection method.
+	// Epic flag takes precedence (handled within workqueue.Next via config).
+	// Selection mode only matters when no epic is specified.
+	bead, err := c.selectNextBead()
 	if err != nil {
 		c.logger.Error("work queue poll failed", "error", err)
 		c.emit(&events.ErrorEvent{
@@ -234,6 +249,174 @@ func (c *Controller) runIdle() {
 
 	// Work available - run session
 	c.runWorkingOnBead(bead)
+}
+
+// selectNextBead uses the appropriate selection method based on configuration.
+// Epic flag takes precedence over selection mode.
+func (c *Controller) selectNextBead() (*workqueue.Bead, error) {
+	// If epic is configured, use global selection (workqueue.Next already filters by epic)
+	if c.config.WorkQueue.Epic != "" {
+		return c.workQueue.Next(c.ctx)
+	}
+
+	// Check selection mode
+	if c.config.WorkQueue.SelectionMode == "top-level" {
+		// Track the active top-level before selection
+		beforeTopLevel := c.workQueue.ActiveTopLevel()
+
+		bead, err := c.workQueue.NextTopLevel(c.ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Sync active top-level changes to state sink
+		afterTopLevel := c.workQueue.ActiveTopLevel()
+		if afterTopLevel != beforeTopLevel {
+			c.syncActiveTopLevel()
+		}
+
+		return bead, nil
+	}
+
+	// Default to global selection
+	return c.workQueue.Next(c.ctx)
+}
+
+// syncActiveTopLevel persists the current active top-level to the state sink.
+func (c *Controller) syncActiveTopLevel() {
+	if c.stateSink == nil {
+		return
+	}
+
+	activeID := c.workQueue.ActiveTopLevel()
+	activeTitle := c.getActiveTopLevelTitle(activeID)
+
+	c.stateSink.SetActiveTopLevel(activeID, activeTitle)
+	c.logger.Debug("synced active top-level to state",
+		"id", activeID,
+		"title", activeTitle)
+}
+
+// getActiveTopLevelTitle fetches the title for an active top-level item.
+func (c *Controller) getActiveTopLevelTitle(id string) string {
+	if id == "" || c.runner == nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	output, err := c.runner.Run(ctx, "br", "show", id, "--json")
+	if err != nil {
+		return ""
+	}
+
+	var beads []struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(output, &beads); err != nil || len(beads) == 0 {
+		return ""
+	}
+
+	return beads[0].Title
+}
+
+// restoreActiveTopLevel restores the active top-level from persisted state.
+// It verifies the restored top-level still has ready descendants before using it.
+func (c *Controller) restoreActiveTopLevel() {
+	if c.stateSink == nil {
+		return
+	}
+
+	// Only relevant for top-level selection mode (without epic override)
+	if c.config.WorkQueue.Epic != "" || c.config.WorkQueue.SelectionMode != "top-level" {
+		return
+	}
+
+	state := c.stateSink.State()
+	if state.ActiveTopLevel == "" {
+		return
+	}
+
+	// Verify the restored top-level still has ready descendants
+	if c.verifyTopLevelHasReadyWork(state.ActiveTopLevel) {
+		c.workQueue.SetActiveTopLevel(state.ActiveTopLevel)
+		c.logger.Info("restored active top-level from state",
+			"id", state.ActiveTopLevel,
+			"title", state.ActiveTopLevelTitle)
+	} else {
+		// Clear stale active top-level from state
+		c.stateSink.SetActiveTopLevel("", "")
+		c.logger.Info("cleared stale active top-level from state",
+			"id", state.ActiveTopLevel)
+	}
+}
+
+// verifyTopLevelHasReadyWork checks if a top-level item still has ready descendants.
+func (c *Controller) verifyTopLevelHasReadyWork(topLevelID string) bool {
+	if c.runner == nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get all beads for hierarchy traversal
+	output, err := c.runner.Run(ctx, "br", "list", "--json")
+	if err != nil || len(output) == 0 {
+		return false
+	}
+
+	var allBeads []struct {
+		ID        string `json:"id"`
+		Parent    string `json:"parent"`
+		Status    string `json:"status"`
+		IssueType string `json:"issue_type"`
+	}
+	if err := json.Unmarshal(output, &allBeads); err != nil {
+		return false
+	}
+
+	// Build descendant set
+	descendants := map[string]bool{topLevelID: true}
+	for {
+		added := false
+		for _, bead := range allBeads {
+			if bead.Parent != "" && descendants[bead.Parent] && !descendants[bead.ID] {
+				descendants[bead.ID] = true
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+
+	// Get ready beads
+	readyOutput, err := c.runner.Run(ctx, "br", "ready", "--json")
+	if err != nil || len(readyOutput) == 0 {
+		return false
+	}
+
+	var readyBeads []struct {
+		ID        string `json:"id"`
+		IssueType string `json:"issue_type"`
+	}
+	if err := json.Unmarshal(readyOutput, &readyBeads); err != nil {
+		return false
+	}
+
+	// Check if any ready bead is a descendant (excluding epics)
+	for _, bead := range readyBeads {
+		if bead.IssueType == "epic" {
+			continue
+		}
+		if descendants[bead.ID] {
+			return true
+		}
+	}
+
+	return false
 }
 
 // runWorkingOnBead executes a Claude session for the given bead.
@@ -429,6 +612,9 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 		}
 	}
 
+	// Check for eager switching to higher priority work (after successful completion)
+	c.checkEagerSwitch()
+
 	// Transition based on pending signals
 	select {
 	case <-c.stopSignal:
@@ -446,6 +632,148 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 	default:
 		c.setState(StateIdle)
 	}
+}
+
+// checkEagerSwitch checks if a higher priority top-level item is available.
+// If eager_switch is enabled and a higher priority item exists, clears the
+// active top-level to force re-selection on the next iteration.
+func (c *Controller) checkEagerSwitch() {
+	// Only applies to top-level mode with eager_switch enabled
+	if c.config.WorkQueue.Epic != "" {
+		return
+	}
+	if c.config.WorkQueue.SelectionMode != "top-level" {
+		return
+	}
+	if !c.config.WorkQueue.EagerSwitch {
+		return
+	}
+
+	activeID := c.workQueue.ActiveTopLevel()
+	if activeID == "" {
+		return
+	}
+
+	// Check if there's a higher priority top-level available
+	higherPriorityID := c.findHigherPriorityTopLevel(activeID)
+	if higherPriorityID != "" {
+		c.logger.Info("eager switch: clearing active top-level for higher priority work",
+			"current", activeID,
+			"higher_priority", higherPriorityID)
+		c.workQueue.ClearActiveTopLevel()
+		c.syncActiveTopLevel()
+	}
+}
+
+// findHigherPriorityTopLevel checks if there's a top-level item with higher
+// priority (lower number) than the current one that has ready work.
+// Returns the ID of the higher priority item, or empty string if none.
+func (c *Controller) findHigherPriorityTopLevel(currentID string) string {
+	if c.runner == nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get current item's priority
+	output, err := c.runner.Run(ctx, "br", "show", currentID, "--json")
+	if err != nil || len(output) == 0 {
+		return ""
+	}
+
+	var currentItems []struct {
+		Priority int `json:"priority"`
+	}
+	if err := json.Unmarshal(output, &currentItems); err != nil || len(currentItems) == 0 {
+		return ""
+	}
+	currentPriority := currentItems[0].Priority
+
+	// Get all beads for hierarchy analysis
+	allOutput, err := c.runner.Run(ctx, "br", "list", "--json")
+	if err != nil || len(allOutput) == 0 {
+		return ""
+	}
+
+	var allBeads []struct {
+		ID        string `json:"id"`
+		Parent    string `json:"parent"`
+		Priority  int    `json:"priority"`
+		IssueType string `json:"issue_type"`
+	}
+	if err := json.Unmarshal(allOutput, &allBeads); err != nil {
+		return ""
+	}
+
+	// Get ready beads
+	readyOutput, err := c.runner.Run(ctx, "br", "ready", "--json")
+	if err != nil || len(readyOutput) == 0 {
+		return ""
+	}
+
+	var readyBeads []struct {
+		ID        string `json:"id"`
+		IssueType string `json:"issue_type"`
+	}
+	if err := json.Unmarshal(readyOutput, &readyBeads); err != nil {
+		return ""
+	}
+
+	// Build map of ready bead IDs (excluding epics)
+	readySet := make(map[string]bool)
+	for _, b := range readyBeads {
+		if b.IssueType != "epic" {
+			readySet[b.ID] = true
+		}
+	}
+
+	// Identify top-level items
+	topLevelItems := make([]struct {
+		ID       string
+		Priority int
+	}, 0)
+	for _, b := range allBeads {
+		if b.IssueType == "epic" || b.Parent == "" {
+			topLevelItems = append(topLevelItems, struct {
+				ID       string
+				Priority int
+			}{b.ID, b.Priority})
+		}
+	}
+
+	// Check each top-level item with higher priority than current
+	for _, item := range topLevelItems {
+		if item.ID == currentID {
+			continue
+		}
+		if item.Priority >= currentPriority {
+			continue
+		}
+
+		// Check if this top-level has ready descendants
+		descendants := map[string]bool{item.ID: true}
+		for {
+			added := false
+			for _, b := range allBeads {
+				if b.Parent != "" && descendants[b.Parent] && !descendants[b.ID] {
+					descendants[b.ID] = true
+					added = true
+				}
+			}
+			if !added {
+				break
+			}
+		}
+
+		for id := range descendants {
+			if readySet[id] {
+				return item.ID
+			}
+		}
+	}
+
+	return ""
 }
 
 // SessionResult holds the outcome of a Claude session.

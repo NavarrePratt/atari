@@ -461,9 +461,10 @@ Use --daemon to run in the background.`,
 			// Create session broker for coordinating Claude process access
 			broker := observer.NewSessionBroker()
 
-			// Create controller with appropriate logger and broker
+			// Create controller with appropriate logger, broker, and state sink
 			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, ctrlLogger,
-				controller.WithBroker(broker))
+				controller.WithBroker(broker),
+				controller.WithStateSink(stateSink))
 
 			// TUI mode: run TUI in foreground with controller in background
 			if tuiEnabled {
