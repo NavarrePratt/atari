@@ -139,7 +139,7 @@ type BeadReference struct {
 	ID             string `json:"id"`
 	Title          string `json:"title"`
 	Status         string `json:"status"`
-	DependencyType string `json:"dependency_type"` // "parent-child" or "blocks"
+	DependencyType string `json:"dep_type"` // "parent-child" or "blocks"
 }
 
 // ToNode converts a GraphBead to a GraphNode for visualization.
