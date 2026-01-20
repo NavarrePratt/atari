@@ -904,28 +904,15 @@ func (c *Controller) GetBeadState(beadID string) (status string, attempts int, i
 	return c.workQueue.GetBeadState(beadID)
 }
 
-// reportAgentState reports the controller state to beads via bd agent state command.
-// Errors are logged but do not affect controller operation.
-// If config.AgentID is empty, agent state reporting is disabled.
+// reportAgentState logs the controller state change.
 func (c *Controller) reportAgentState(state State) {
-	if c.runner == nil || c.config.AgentID == "" {
-		return
-	}
-
 	agentState, ok := agentStateMap[state]
 	if !ok {
 		agentState = "idle"
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := c.runner.Run(ctx, "br", "agent", "state", c.config.AgentID, agentState)
-	if err != nil {
-		c.logger.Warn("failed to report agent state",
-			"state", agentState,
-			"error", err)
-	}
+	c.logger.Info("agent state changed",
+		"state", agentState,
+		"controller_state", state)
 }
 
 // isBeadClosed checks if a bead has been closed in bd.

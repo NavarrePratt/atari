@@ -98,7 +98,6 @@ func TestLoadConfig_ExplicitFile(t *testing.T) {
 	configContent := `
 claude:
   timeout: 15m
-agent_id: "bd-test-agent"
 `
 	configPath := filepath.Join(tmpDir, "custom-config.yaml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
@@ -115,9 +114,6 @@ agent_id: "bd-test-agent"
 
 	if cfg.Claude.Timeout != 15*time.Minute {
 		t.Errorf("Claude.Timeout = %v, want %v", cfg.Claude.Timeout, 15*time.Minute)
-	}
-	if cfg.AgentID != "bd-test-agent" {
-		t.Errorf("AgentID = %q, want %q", cfg.AgentID, "bd-test-agent")
 	}
 }
 

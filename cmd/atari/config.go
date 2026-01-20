@@ -16,7 +16,6 @@ const (
 	FlagUnassignedOnly    = "unassigned-only"
 	FlagExcludeLabels     = "exclude-labels"
 	FlagPrompt            = "prompt"
-	FlagAgentID           = "agent-id"
 	FlagBDActivityEnabled = "bd-activity-enabled"
 
 	// Start command daemon mode flags

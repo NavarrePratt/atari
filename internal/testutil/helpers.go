@@ -133,12 +133,6 @@ func SetupMockBRReady(mock *MockRunner, response string) {
 	mock.SetResponse("br", []string{"ready", "--json"}, []byte(response))
 }
 
-// SetupMockBRAgentState configures a MockRunner to respond to br agent state commands.
-// The agentID parameter specifies which agent bead ID to mock responses for.
-func SetupMockBRAgentState(mock *MockRunner, agentID string) {
-	mock.SetResponse("br", []string{"agent", "state", agentID}, []byte(BRAgentStateSuccess))
-}
-
 // SetupMockBRClose configures a MockRunner to respond to br close commands.
 func SetupMockBRClose(mock *MockRunner, beadID string) {
 	mock.SetResponse("br", []string{"close", beadID}, []byte(BRCloseSuccess))

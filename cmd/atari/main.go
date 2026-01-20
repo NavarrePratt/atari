@@ -296,9 +296,6 @@ Use --daemon to run in the background.`,
 			if cmd.Flags().Changed(FlagPrompt) {
 				cfg.PromptFile = viper.GetString(FlagPrompt)
 			}
-			if cmd.Flags().Changed(FlagAgentID) {
-				cfg.AgentID = viper.GetString(FlagAgentID)
-			}
 			if cmd.Flags().Changed(FlagBDActivityEnabled) {
 				cfg.BDActivity.Enabled = viper.GetBool(FlagBDActivityEnabled)
 			}
@@ -368,7 +365,6 @@ Use --daemon to run in the background.`,
 				"log_file", cfg.Paths.Log,
 				"state_file", cfg.Paths.State,
 				"label", cfg.WorkQueue.Label,
-				"agent_id", cfg.AgentID,
 				"daemon_mode", viper.GetBool(FlagDaemon),
 			)
 
@@ -545,7 +541,6 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().Bool(FlagUnassignedOnly, false, "Only claim unassigned beads")
 	startCmd.Flags().StringSlice(FlagExcludeLabels, nil, "Labels to exclude from work selection (comma-separated)")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")
-	startCmd.Flags().String(FlagAgentID, "", "Agent bead ID for state reporting (e.g., bd-xxx)")
 	startCmd.Flags().Bool(FlagBDActivityEnabled, true, "Enable BD activity watcher")
 
 	// Observer flags

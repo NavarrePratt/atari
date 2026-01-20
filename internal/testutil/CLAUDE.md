@@ -164,7 +164,6 @@ dir, cleanup := testutil.SetupTestDirWithState(t, json) // Creates .atari/state.
 
 // Mock setup helpers
 testutil.SetupMockBRReady(mock, testutil.SampleBeadReadyJSON)
-testutil.SetupMockBRAgentState(mock, "agent-id")
 testutil.SetupMockBRClose(mock, "bd-001")
 ```
 

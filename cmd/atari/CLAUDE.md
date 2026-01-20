@@ -35,7 +35,6 @@ CLI entrypoint using Cobra and Viper for command-line parsing and configuration 
 | `--exclude-labels` | "" | Labels to exclude (comma-separated) |
 | `--prompt` | "" | Custom prompt template file |
 | `--model` | opus | Claude model to use |
-| `--agent-id` | "" | Agent bead ID for state reporting (e.g., bd-xxx) |
 
 ## Stop Command Flags
 

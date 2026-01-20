@@ -138,7 +138,6 @@ atari stop --force  # Stop immediately
 | `--max-turns N` | Limit Claude session turns | 0 (unlimited) |
 | `--label LABEL` | Filter `bd ready` by label | none |
 | `--prompt FILE` | Custom prompt template file | built-in |
-| `--agent-id ID` | Bead ID for state reporting | none |
 | `--bd-activity-enabled` | Enable BD activity watcher | true |
 | `--observer-enabled` | Enable observer mode in TUI | true |
 | `--observer-model` | Claude model for observer | haiku |

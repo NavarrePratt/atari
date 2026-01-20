@@ -15,9 +15,8 @@ type Config struct {
 	Graph       GraphConfig       `yaml:"graph" mapstructure:"graph"`
 	FollowUp    FollowUpConfig    `yaml:"follow_up" mapstructure:"follow_up"`
 	WrapUp      WrapUpConfig      `yaml:"wrap_up" mapstructure:"wrap_up"`
-	Prompt      string            `yaml:"prompt" mapstructure:"prompt"`
-	PromptFile  string            `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
-	AgentID     string            `yaml:"agent_id" mapstructure:"agent_id"`       // Bead ID for agent state reporting (empty = disabled)
+	Prompt     string `yaml:"prompt" mapstructure:"prompt"`
+	PromptFile string `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
 }
 
 // ClaudeConfig holds Claude Code session settings.

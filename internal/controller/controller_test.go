@@ -13,9 +13,6 @@ import (
 	"github.com/npratt/atari/internal/workqueue"
 )
 
-// testAgentID is the agent bead ID used in tests.
-const testAgentID = "test-agent"
-
 // testConfig returns a config suitable for testing with short intervals.
 func testConfig() *config.Config {
 	cfg := config.Default()
@@ -24,15 +21,7 @@ func testConfig() *config.Config {
 	cfg.Backoff.Initial = 10 * time.Millisecond
 	cfg.Backoff.Max = 50 * time.Millisecond
 	cfg.Backoff.MaxFailures = 2
-	cfg.AgentID = testAgentID
 	return cfg
-}
-
-// setupAgentStateMocks configures mock responses for all br agent state commands.
-func setupAgentStateMocks(runner *testutil.MockRunner) {
-	for _, state := range []string{"idle", "running", "stopped", "dead"} {
-		runner.SetResponse("br", []string{"agent", "state", testAgentID, state}, []byte(""))
-	}
 }
 
 func TestControllerStates(t *testing.T) {
@@ -50,7 +39,6 @@ func TestControllerStates(t *testing.T) {
 	t.Run("state transitions are thread-safe", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		wq := workqueue.New(cfg, runner)
 		c := New(cfg, wq, nil, runner, nil, nil)
 
@@ -78,7 +66,6 @@ func TestControllerPauseResume(t *testing.T) {
 	t.Run("pause transitions from idle", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		// Return empty beads so controller stays in idle
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
@@ -128,7 +115,6 @@ func TestControllerStop(t *testing.T) {
 	t.Run("stop from idle", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -161,7 +147,6 @@ func TestControllerStop(t *testing.T) {
 	t.Run("stop from paused", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -202,7 +187,6 @@ func TestControllerStop(t *testing.T) {
 func TestControllerContextCancellation(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
-	setupAgentStateMocks(runner)
 	runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(cfg, runner)
@@ -282,7 +266,6 @@ func TestControllerCurrentTurns(t *testing.T) {
 func TestControllerEventEmission(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
-	setupAgentStateMocks(runner)
 	runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(cfg, runner)
@@ -345,7 +328,6 @@ func TestControllerEventEmission(t *testing.T) {
 func TestControllerWorkQueueError(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
-	setupAgentStateMocks(runner)
 	runner.SetError("br", []string{"ready", "--json"}, errors.New("connection refused"))
 
 	wq := workqueue.New(cfg, runner)
@@ -390,7 +372,6 @@ func TestControllerMultipleSignals(t *testing.T) {
 	t.Run("multiple pause signals are deduplicated", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -407,7 +388,6 @@ func TestControllerMultipleSignals(t *testing.T) {
 	t.Run("multiple stop signals are deduplicated", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -425,7 +405,6 @@ func TestControllerMultipleSignals(t *testing.T) {
 func TestControllerEmitsDrainStateChangedEvent(t *testing.T) {
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
-	setupAgentStateMocks(runner)
 	runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(cfg, runner)
@@ -509,98 +488,7 @@ func TestControllerEmitsDrainStateChangedEvent(t *testing.T) {
 	<-done
 }
 
-func TestControllerAgentStateReporting(t *testing.T) {
-	t.Run("reports agent state on state transitions", func(t *testing.T) {
-		cfg := testConfig()
-		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
-		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
-
-		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil, nil)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		done := make(chan error, 1)
-		go func() {
-			done <- c.Run(ctx)
-		}()
-
-		// Wait for controller to run a bit
-		time.Sleep(50 * time.Millisecond)
-		c.Stop()
-		<-done
-
-		// Check that agent state commands were called
-		calls := runner.GetCalls()
-		var agentStateCalls []testutil.CommandCall
-		for _, call := range calls {
-			if call.Name == "br" && len(call.Args) >= 3 && call.Args[0] == "agent" && call.Args[1] == "state" {
-				agentStateCalls = append(agentStateCalls, call)
-			}
-		}
-
-		if len(agentStateCalls) == 0 {
-			t.Error("expected at least one agent state call")
-		}
-
-		// Verify we see the expected state transitions
-		seenStates := make(map[string]bool)
-		for _, call := range agentStateCalls {
-			if len(call.Args) >= 4 {
-				seenStates[call.Args[3]] = true
-			}
-		}
-
-		// Should have at least stopped and dead states from shutdown sequence
-		if !seenStates["stopped"] {
-			t.Error("expected to see 'stopped' agent state")
-		}
-		if !seenStates["dead"] {
-			t.Error("expected to see 'dead' agent state")
-		}
-	})
-
-	t.Run("handles agent state command failure gracefully", func(t *testing.T) {
-		cfg := testConfig()
-		runner := testutil.NewMockRunner()
-		// Set up errors for agent state commands
-		runner.SetError("br", []string{"agent", "state", testAgentID, "idle"}, errors.New("br not available"))
-		runner.SetError("br", []string{"agent", "state", testAgentID, "running"}, errors.New("br not available"))
-		runner.SetError("br", []string{"agent", "state", testAgentID, "stopped"}, errors.New("br not available"))
-		runner.SetError("br", []string{"agent", "state", testAgentID, "dead"}, errors.New("br not available"))
-		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
-
-		wq := workqueue.New(cfg, runner)
-		c := New(cfg, wq, nil, runner, nil, nil)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		done := make(chan error, 1)
-		go func() {
-			done <- c.Run(ctx)
-		}()
-
-		time.Sleep(30 * time.Millisecond)
-		c.Stop()
-
-		// Controller should still stop cleanly even with agent state errors
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for controller to stop")
-		}
-
-		if c.State() != StateStopped {
-			t.Errorf("expected state %s, got %s", StateStopped, c.State())
-		}
-	})
-
+func TestAgentStateMapping(t *testing.T) {
 	t.Run("maps controller states to agent states correctly", func(t *testing.T) {
 		// Verify the mapping
 		expectedMappings := map[State]string{
@@ -805,7 +693,6 @@ func TestControllerGracefulPause(t *testing.T) {
 	t.Run("graceful pause signal is sent correctly", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -834,7 +721,6 @@ func TestControllerGracefulPause(t *testing.T) {
 	t.Run("graceful pause from idle transitions to paused", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -871,7 +757,6 @@ func TestControllerGracefulPause(t *testing.T) {
 	t.Run("multiple graceful pause signals are deduplicated", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)
@@ -902,7 +787,6 @@ func TestControllerGracefulPause(t *testing.T) {
 	t.Run("graceful pause after iteration transitions to paused", func(t *testing.T) {
 		cfg := testConfig()
 		runner := testutil.NewMockRunner()
-		setupAgentStateMocks(runner)
 		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 		wq := workqueue.New(cfg, runner)

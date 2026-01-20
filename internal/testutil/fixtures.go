@@ -16,11 +16,6 @@ var SingleBeadReadyJSON = `[
 // EmptyBeadReadyJSON is a br ready response when no beads are available.
 var EmptyBeadReadyJSON = `[]`
 
-// Sample br agent state responses
-
-// BRAgentStateSuccess is a successful br agent state response.
-var BRAgentStateSuccess = `{"status": "ok"}`
-
 // Sample br close responses
 
 // BRCloseSuccess is a successful br close response.

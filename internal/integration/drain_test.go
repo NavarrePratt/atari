@@ -53,7 +53,6 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	cfg := testConfig()
 	runner := testutil.NewMockRunner()
-	setupAgentStateMocks(runner)
 
 	router := events.NewRouter(1000)
 	sub := router.Subscribe()
@@ -114,9 +113,6 @@ func (e *testEnv) countEvents(eventType events.EventType) int {
 	return count
 }
 
-// testAgentID is the agent bead ID used in integration tests.
-const testAgentID = "test-agent"
-
 // testConfig returns a config suitable for fast integration tests.
 func testConfig() *config.Config {
 	cfg := config.Default()
@@ -125,15 +121,7 @@ func testConfig() *config.Config {
 	cfg.Backoff.Initial = 10 * time.Millisecond
 	cfg.Backoff.Max = 50 * time.Millisecond
 	cfg.Backoff.MaxFailures = 3
-	cfg.AgentID = testAgentID
 	return cfg
-}
-
-// setupAgentStateMocks configures mock responses for br agent state commands.
-func setupAgentStateMocks(runner *testutil.MockRunner) {
-	for _, state := range []string{"idle", "running", "stopped", "dead"} {
-		runner.SetResponse("br", []string{"agent", "state", testAgentID, state}, []byte(""))
-	}
 }
 
 // createMockClaude creates a script that simulates claude's stream-json output.

@@ -198,19 +198,6 @@ func TestSetupMockBRReady(t *testing.T) {
 	}
 }
 
-func TestSetupMockBRAgentState(t *testing.T) {
-	mock := NewMockRunner()
-	SetupMockBRAgentState(mock, "test-agent")
-
-	result, err := mock.Run(context.Background(), "br", "agent", "state", "test-agent")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(result) != BRAgentStateSuccess {
-		t.Error("response mismatch")
-	}
-}
-
 func TestSetupMockBRClose(t *testing.T) {
 	mock := NewMockRunner()
 	SetupMockBRClose(mock, "bd-001")

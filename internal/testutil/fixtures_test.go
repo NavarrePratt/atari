@@ -38,13 +38,6 @@ func TestEmptyBeadReadyJSON_IsValidJSON(t *testing.T) {
 	}
 }
 
-func TestBRAgentStateSuccess_IsValidJSON(t *testing.T) {
-	var result map[string]any
-	if err := json.Unmarshal([]byte(BRAgentStateSuccess), &result); err != nil {
-		t.Fatalf("BRAgentStateSuccess is not valid JSON: %v", err)
-	}
-}
-
 func TestBRCloseSuccess_IsValidJSON(t *testing.T) {
 	var result map[string]any
 	if err := json.Unmarshal([]byte(BRCloseSuccess), &result); err != nil {

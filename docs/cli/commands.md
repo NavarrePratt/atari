@@ -47,7 +47,6 @@ Flags:
       --label LABEL      Filter beads by label
       --prompt FILE      Custom prompt template file
       --model MODEL      Claude model (default: opus)
-      --agent-id ID      Agent bead ID for state reporting (e.g., bd-xxx)
   -h, --help             Help for start
 
 Examples:
@@ -62,9 +61,6 @@ Examples:
 
   # Start with verbose logging
   atari start -v --log /tmp/atari.log
-
-  # Start with agent state reporting enabled
-  atari start --agent-id bd-agent-001
 ```
 
 **Implementation:**

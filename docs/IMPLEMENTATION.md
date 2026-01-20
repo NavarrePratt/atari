@@ -62,7 +62,7 @@ For detailed component specifications, see the [components/](components/) direct
 8. [x] Controller main loop (idle/working/paused/stopping/stopped states)
 9. [x] Signal handling (SIGINT, SIGTERM via shutdown package)
 10. [x] Exponential backoff for failed beads (moved from Phase 6)
-11. [x] Agent state reporting (configurable via `--agent-id` flag)
+11. [x] Agent state logging via structured logs
 
 ### Success Criteria
 
@@ -71,12 +71,11 @@ For detailed component specifications, see the [components/](components/) direct
 - [x] State persisted to `.atari/state.json`
 - [x] Graceful shutdown on Ctrl+C
 - [x] Recovers state on restart
-- [x] Reports agent state to beads via `bd agent state` (when `--agent-id` configured)
+- [x] Agent state transitions logged via slog
 
 ### Notes
 
 - Backoff implementation was pulled forward from Phase 6 into the workqueue
-- Agent state reporting requires creating an agent bead and passing `--agent-id bd-xxx`
 - Integration tests use mock Claude script for reliable testing
 - All tests pass: `mise run test` (7 packages, 100+ tests)
 
