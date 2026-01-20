@@ -257,7 +257,7 @@ and persists state for pause/resume capability.`,
 		Short: "Start the atari daemon",
 		Long: `Start the atari daemon to process available beads.
 
-The daemon will poll bd ready for available work and spawn Claude Code
+The daemon will poll br ready for available work and spawn Claude Code
 sessions to work on each bead until completion.
 
 Use --daemon to run in the background.`,
@@ -555,7 +555,7 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().Bool(FlagDaemon, false, "Run as a background daemon")
 	startCmd.Flags().Bool(FlagTUI, false, "Enable terminal UI")
 	startCmd.Flags().Int(FlagMaxTurns, 0, "Max turns per Claude session (0 = unlimited)")
-	startCmd.Flags().String(FlagLabel, "", "Filter bd ready by label")
+	startCmd.Flags().String(FlagLabel, "", "Filter br ready by label")
 	startCmd.Flags().Bool(FlagUnassignedOnly, false, "Only claim unassigned beads")
 	startCmd.Flags().StringSlice(FlagExcludeLabels, nil, "Labels to exclude from work selection (comma-separated)")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")

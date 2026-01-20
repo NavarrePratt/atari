@@ -170,7 +170,7 @@ func TestPoll_CanceledContext(t *testing.T) {
 }
 
 func TestBead_JSONParsing(t *testing.T) {
-	// Test that Bead struct correctly parses all fields from bd ready JSON
+	// Test that Bead struct correctly parses all fields from br ready JSON
 	jsonData := `{
 		"id": "bd-042",
 		"title": "Fix auth bug",

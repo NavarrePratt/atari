@@ -1,4 +1,4 @@
-// Package workqueue manages work discovery by polling bd ready.
+// Package workqueue manages work discovery by polling br ready.
 package workqueue
 
 import (
@@ -28,7 +28,7 @@ const (
 	HistoryAbandoned = events.HistoryAbandoned
 )
 
-// Bead represents an issue from bd ready --json output.
+// Bead represents an issue from br ready --json output.
 type Bead struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
@@ -42,7 +42,7 @@ type Bead struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// Manager discovers available work by polling bd ready.
+// Manager discovers available work by polling br ready.
 type Manager struct {
 	config  *config.Config
 	runner  testutil.CommandRunner
@@ -59,11 +59,11 @@ func New(cfg *config.Config, runner testutil.CommandRunner) *Manager {
 	}
 }
 
-// Poll executes bd ready --json and returns available beads.
+// Poll executes br ready --json and returns available beads.
 // It applies the configured label filter and uses a 30 second timeout.
 // Returns nil slice (not error) when no work is available.
 func (m *Manager) Poll(ctx context.Context) ([]Bead, error) {
-	// Apply 30 second timeout for bd command
+	// Apply 30 second timeout for br command
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 

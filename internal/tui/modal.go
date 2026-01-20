@@ -14,7 +14,7 @@ import (
 // DetailModal displays full bead information in a modal overlay.
 type DetailModal struct {
 	node      *GraphNode  // Summary data from graph
-	fullBead  *GraphBead  // Full data from bd show
+	fullBead  *GraphBead  // Full data from br show
 	fetcher   BeadFetcher // For fetching full details
 	loading   bool
 	errorMsg  string

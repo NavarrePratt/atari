@@ -44,7 +44,7 @@ func newTestDaemonEnv(t *testing.T) *testDaemonEnv {
 	cfg.Paths.Log = filepath.Join(tmpDir, "events.log")
 
 	runner := testutil.NewMockRunner()
-	// Setup empty bd ready response
+	// Setup empty br ready response
 	runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 	router := events.NewRouter(1000)
