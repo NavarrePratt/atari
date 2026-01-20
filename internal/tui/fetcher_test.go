@@ -50,9 +50,9 @@ func TestBDFetcher_FetchActive(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := testutil.NewMockRunner()
 			if tt.err != nil {
-				runner.SetError("bd", []string{"list", "--json"}, tt.err)
+				runner.SetError("br", []string{"list", "--json"}, tt.err)
 			} else {
-				runner.SetResponse("bd", []string{"list", "--json"}, tt.response)
+				runner.SetResponse("br", []string{"list", "--json"}, tt.response)
 			}
 
 			fetcher := NewBDFetcher(runner)
@@ -106,9 +106,9 @@ func TestBDFetcher_FetchBacklog(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := testutil.NewMockRunner()
 			if tt.err != nil {
-				runner.SetError("bd", []string{"list", "--json"}, tt.err)
+				runner.SetError("br", []string{"list", "--json"}, tt.err)
 			} else {
-				runner.SetResponse("bd", []string{"list", "--json"}, tt.response)
+				runner.SetResponse("br", []string{"list", "--json"}, tt.response)
 			}
 
 			fetcher := NewBDFetcher(runner)
@@ -512,7 +512,7 @@ func TestFilterOutAgentBeads_NoAgents(t *testing.T) {
 
 func TestBDFetcher_FetchActive_FiltersAgentBeads(t *testing.T) {
 	runner := testutil.NewMockRunner()
-	runner.SetResponse("bd", []string{"list", "--json"}, []byte(testutil.GraphMixedWithAgentJSON))
+	runner.SetResponse("br", []string{"list", "--json"}, []byte(testutil.GraphMixedWithAgentJSON))
 
 	fetcher := NewBDFetcher(runner)
 	beads, err := fetcher.FetchActive(context.Background())
@@ -652,8 +652,8 @@ func TestBDFetcher_EnrichBeadsWithDetails(t *testing.T) {
 	enrichedBead2 := `[{"id": "bd-002", "title": "Task 2", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-001", "dependency_type": "blocks"}]}]`
 
 	runner := testutil.NewMockRunner()
-	runner.SetResponse("bd", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
-	runner.SetResponse("bd", []string{"show", "bd-002", "--json"}, []byte(enrichedBead2))
+	runner.SetResponse("br", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
+	runner.SetResponse("br", []string{"show", "bd-002", "--json"}, []byte(enrichedBead2))
 
 	fetcher := NewBDFetcher(runner)
 	result, err := fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
@@ -706,9 +706,9 @@ func TestBDFetcher_EnrichBeadsWithDetails_PartialFailure(t *testing.T) {
 	enrichedBead3 := `[{"id": "bd-003", "title": "Task 3 enriched", "status": "open", "issue_type": "task"}]`
 
 	runner := testutil.NewMockRunner()
-	runner.SetResponse("bd", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
-	runner.SetError("bd", []string{"show", "bd-002", "--json"}, errors.New("bead not found"))
-	runner.SetResponse("bd", []string{"show", "bd-003", "--json"}, []byte(enrichedBead3))
+	runner.SetResponse("br", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
+	runner.SetError("br", []string{"show", "bd-002", "--json"}, errors.New("bead not found"))
+	runner.SetResponse("br", []string{"show", "bd-003", "--json"}, []byte(enrichedBead3))
 
 	fetcher := NewBDFetcher(runner)
 	result, err := fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
@@ -788,7 +788,7 @@ func TestBDFetcher_EnrichBeadsWithDetails_ConcurrencyLimit(t *testing.T) {
 
 	runner := testutil.NewMockRunner()
 	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "bd" && len(args) >= 1 && args[0] == "show" {
+		if name == "br" && len(args) >= 1 && args[0] == "show" {
 			current := atomic.AddInt64(&concurrentCount, 1)
 			defer atomic.AddInt64(&concurrentCount, -1)
 

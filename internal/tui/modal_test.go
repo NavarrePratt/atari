@@ -396,7 +396,7 @@ func TestDetailModal_ViewWithFullBead(t *testing.T) {
 // Test FetchBead using testutil.MockRunner
 func TestBDFetcher_FetchBead_Success(t *testing.T) {
 	runner := testutil.NewMockRunner()
-	runner.SetResponse("bd", []string{"show", "bd-test-123", "--json"}, []byte(`[{
+	runner.SetResponse("br", []string{"show", "bd-test-123", "--json"}, []byte(`[{
 		"id": "bd-test-123",
 		"title": "Test bead",
 		"description": "Test description",
@@ -424,7 +424,7 @@ func TestBDFetcher_FetchBead_Success(t *testing.T) {
 
 func TestBDFetcher_FetchBead_Error(t *testing.T) {
 	runner := testutil.NewMockRunner()
-	runner.SetError("bd", []string{"show", "bd-test-123", "--json"}, errors.New("command failed"))
+	runner.SetError("br", []string{"show", "bd-test-123", "--json"}, errors.New("command failed"))
 
 	fetcher := NewBDFetcher(runner)
 
@@ -432,14 +432,14 @@ func TestBDFetcher_FetchBead_Error(t *testing.T) {
 	if err == nil {
 		t.Error("expected error")
 	}
-	if !strings.Contains(err.Error(), "bd show") {
-		t.Errorf("expected error to mention 'bd show', got %q", err.Error())
+	if !strings.Contains(err.Error(), "br show") {
+		t.Errorf("expected error to mention 'br show', got %q", err.Error())
 	}
 }
 
 func TestBDFetcher_FetchBead_NotFound(t *testing.T) {
 	runner := testutil.NewMockRunner()
-	runner.SetResponse("bd", []string{"show", "bd-nonexistent", "--json"}, []byte(`[]`))
+	runner.SetResponse("br", []string{"show", "bd-nonexistent", "--json"}, []byte(`[]`))
 
 	fetcher := NewBDFetcher(runner)
 

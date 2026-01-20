@@ -22,17 +22,17 @@ func TestNewMockRunner(t *testing.T) {
 
 func TestMockRunner_Run_RecordsCalls(t *testing.T) {
 	mock := NewMockRunner()
-	mock.Responses["bd ready --json"] = []byte("[]")
+	mock.Responses["br ready --json"] = []byte("[]")
 
 	ctx := context.Background()
-	_, _ = mock.Run(ctx, "bd", "ready", "--json")
+	_, _ = mock.Run(ctx, "br", "ready", "--json")
 
 	calls := mock.GetCalls()
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
-	if calls[0].Name != "bd" {
-		t.Errorf("expected name 'bd', got %s", calls[0].Name)
+	if calls[0].Name != "br" {
+		t.Errorf("expected name 'br', got %s", calls[0].Name)
 	}
 	if len(calls[0].Args) != 2 || calls[0].Args[0] != "ready" || calls[0].Args[1] != "--json" {
 		t.Errorf("unexpected args: %v", calls[0].Args)
@@ -42,10 +42,10 @@ func TestMockRunner_Run_RecordsCalls(t *testing.T) {
 func TestMockRunner_Run_ReturnsResponse(t *testing.T) {
 	mock := NewMockRunner()
 	expected := []byte(`[{"id": "bd-001"}]`)
-	mock.SetResponse("bd", []string{"ready", "--json"}, expected)
+	mock.SetResponse("br", []string{"ready", "--json"}, expected)
 
 	ctx := context.Background()
-	result, err := mock.Run(ctx, "bd", "ready", "--json")
+	result, err := mock.Run(ctx, "br", "ready", "--json")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -58,10 +58,10 @@ func TestMockRunner_Run_ReturnsResponse(t *testing.T) {
 func TestMockRunner_Run_ReturnsError(t *testing.T) {
 	mock := NewMockRunner()
 	expectedErr := errors.New("command failed")
-	mock.SetError("bd", []string{"ready", "--json"}, expectedErr)
+	mock.SetError("br", []string{"ready", "--json"}, expectedErr)
 
 	ctx := context.Background()
-	result, err := mock.Run(ctx, "bd", "ready", "--json")
+	result, err := mock.Run(ctx, "br", "ready", "--json")
 
 	if err == nil {
 		t.Error("expected error, got nil")
@@ -76,11 +76,11 @@ func TestMockRunner_Run_ReturnsError(t *testing.T) {
 
 func TestMockRunner_Run_ErrorTakesPrecedence(t *testing.T) {
 	mock := NewMockRunner()
-	mock.SetResponse("bd", []string{"ready"}, []byte("response"))
-	mock.SetError("bd", []string{"ready"}, errors.New("error"))
+	mock.SetResponse("br", []string{"ready"}, []byte("response"))
+	mock.SetError("br", []string{"ready"}, errors.New("error"))
 
 	ctx := context.Background()
-	result, err := mock.Run(ctx, "bd", "ready")
+	result, err := mock.Run(ctx, "br", "ready")
 
 	if err == nil {
 		t.Error("expected error when both response and error are set")
@@ -107,10 +107,10 @@ func TestMockRunner_Run_UnexpectedCommand(t *testing.T) {
 func TestMockRunner_Run_PrefixMatch(t *testing.T) {
 	mock := NewMockRunner()
 	// Set response for "bd close" prefix
-	mock.Responses["bd close"] = []byte("ok")
+	mock.Responses["br close"] = []byte("ok")
 
 	ctx := context.Background()
-	result, err := mock.Run(ctx, "bd", "close", "bd-001", "--reason", "done")
+	result, err := mock.Run(ctx, "br", "close", "bd-001", "--reason", "done")
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)

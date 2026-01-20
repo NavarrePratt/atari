@@ -128,18 +128,18 @@ func SetupTestDirWithState(t *testing.T, stateJSON string) (string, func()) {
 	return dir, cleanup
 }
 
-// SetupMockBDReady configures a MockRunner to respond to bd ready commands.
+// SetupMockBDReady configures a MockRunner to respond to br ready commands.
 func SetupMockBDReady(mock *MockRunner, response string) {
-	mock.SetResponse("bd", []string{"ready", "--json"}, []byte(response))
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(response))
 }
 
-// SetupMockBDAgentState configures a MockRunner to respond to bd agent state commands.
+// SetupMockBDAgentState configures a MockRunner to respond to br agent state commands.
 // The agentID parameter specifies which agent bead ID to mock responses for.
 func SetupMockBDAgentState(mock *MockRunner, agentID string) {
-	mock.SetResponse("bd", []string{"agent", "state", agentID}, []byte(BDAgentStateSuccess))
+	mock.SetResponse("br", []string{"agent", "state", agentID}, []byte(BDAgentStateSuccess))
 }
 
-// SetupMockBDClose configures a MockRunner to respond to bd close commands.
+// SetupMockBDClose configures a MockRunner to respond to br close commands.
 func SetupMockBDClose(mock *MockRunner, beadID string) {
-	mock.SetResponse("bd", []string{"close", beadID}, []byte(BDCloseSuccess))
+	mock.SetResponse("br", []string{"close", beadID}, []byte(BDCloseSuccess))
 }

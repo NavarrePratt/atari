@@ -104,19 +104,19 @@ func TestFileExists(t *testing.T) {
 
 func TestAssertCalled(t *testing.T) {
 	mock := NewMockRunner()
-	mock.Responses["bd ready --json"] = []byte("[]")
+	mock.Responses["br ready --json"] = []byte("[]")
 
-	_, _ = mock.Run(context.Background(), "bd", "ready", "--json")
+	_, _ = mock.Run(context.Background(), "br", "ready", "--json")
 
 	// This should not fail
-	AssertCalled(t, mock, "bd", "ready", "--json")
+	AssertCalled(t, mock, "br", "ready", "--json")
 }
 
 func TestAssertNotCalled(t *testing.T) {
 	mock := NewMockRunner()
-	mock.Responses["bd ready --json"] = []byte("[]")
+	mock.Responses["br ready --json"] = []byte("[]")
 
-	_, _ = mock.Run(context.Background(), "bd", "ready", "--json")
+	_, _ = mock.Run(context.Background(), "br", "ready", "--json")
 
 	// This should not fail - "git" was not called
 	AssertNotCalled(t, mock, "git")
@@ -189,7 +189,7 @@ func TestSetupMockBDReady(t *testing.T) {
 	mock := NewMockRunner()
 	SetupMockBDReady(mock, SampleBeadReadyJSON)
 
-	result, err := mock.Run(context.Background(), "bd", "ready", "--json")
+	result, err := mock.Run(context.Background(), "br", "ready", "--json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestSetupMockBDAgentState(t *testing.T) {
 	mock := NewMockRunner()
 	SetupMockBDAgentState(mock, "test-agent")
 
-	result, err := mock.Run(context.Background(), "bd", "agent", "state", "test-agent")
+	result, err := mock.Run(context.Background(), "br", "agent", "state", "test-agent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestSetupMockBDClose(t *testing.T) {
 	mock := NewMockRunner()
 	SetupMockBDClose(mock, "bd-001")
 
-	result, err := mock.Run(context.Background(), "bd", "close", "bd-001")
+	result, err := mock.Run(context.Background(), "br", "close", "bd-001")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -45,7 +45,7 @@ func newTestDaemonEnv(t *testing.T) *testDaemonEnv {
 
 	runner := testutil.NewMockRunner()
 	// Setup empty bd ready response
-	runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+	runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 	router := events.NewRouter(1000)
 	wq := workqueue.New(cfg, runner)

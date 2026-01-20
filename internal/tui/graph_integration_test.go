@@ -47,12 +47,12 @@ func (env *graphTestEnv) newPane() GraphPane {
 
 // setActiveBeads configures the mock runner to return the given JSON for bd list.
 func (env *graphTestEnv) setActiveBeads(json string) {
-	env.runner.SetResponse("bd", []string{"list", "--json"}, []byte(json))
+	env.runner.SetResponse("br", []string{"list", "--json"}, []byte(json))
 }
 
 // setError configures the mock runner to return an error for bd list.
 func (env *graphTestEnv) setError(err error) {
-	env.runner.SetError("bd", []string{"list", "--json"}, err)
+	env.runner.SetError("br", []string{"list", "--json"}, err)
 }
 
 // TestGraphPane_InitialFetchLoadsBeads verifies that Init triggers a fetch

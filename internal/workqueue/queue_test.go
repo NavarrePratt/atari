@@ -45,7 +45,7 @@ func TestPoll_ReturnsBeads(t *testing.T) {
 		t.Errorf("expected priority 2, got %d", beads[1].Priority)
 	}
 
-	testutil.AssertCalled(t, mock, "bd", "ready", "--json")
+	testutil.AssertCalled(t, mock, "br", "ready", "--json")
 }
 
 func TestPoll_SingleBead(t *testing.T) {
@@ -85,7 +85,7 @@ func TestPoll_EmptyArray(t *testing.T) {
 
 func TestPoll_EmptyOutput(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	mock.SetResponse("bd", []string{"ready", "--json"}, []byte(""))
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(""))
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -101,7 +101,7 @@ func TestPoll_EmptyOutput(t *testing.T) {
 
 func TestPoll_WithLabelFilter(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	mock.SetResponse("bd", []string{"ready", "--json", "--label", "automated"}, []byte(testutil.SingleBeadReadyJSON))
+	mock.SetResponse("br", []string{"ready", "--json", "--label", "automated"}, []byte(testutil.SingleBeadReadyJSON))
 
 	cfg := config.Default()
 	cfg.WorkQueue.Label = "automated"
@@ -115,12 +115,12 @@ func TestPoll_WithLabelFilter(t *testing.T) {
 		t.Fatalf("expected 1 bead, got %d", len(beads))
 	}
 
-	testutil.AssertCalled(t, mock, "bd", "ready", "--json", "--label", "automated")
+	testutil.AssertCalled(t, mock, "br", "ready", "--json", "--label", "automated")
 }
 
 func TestPoll_CommandError(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	mock.SetError("bd", []string{"ready", "--json"}, errors.New("command not found"))
+	mock.SetError("br", []string{"ready", "--json"}, errors.New("command not found"))
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -136,7 +136,7 @@ func TestPoll_CommandError(t *testing.T) {
 
 func TestPoll_InvalidJSON(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	mock.SetResponse("bd", []string{"ready", "--json"}, []byte("not valid json"))
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte("not valid json"))
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -152,7 +152,7 @@ func TestPoll_InvalidJSON(t *testing.T) {
 
 func TestPoll_CanceledContext(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	mock.SetError("bd", []string{"ready", "--json"}, context.Canceled)
+	mock.SetError("br", []string{"ready", "--json"}, context.Canceled)
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -505,7 +505,7 @@ func TestFilterEligible_ExcludesMaxFailures(t *testing.T) {
 func TestNext_ReturnsHighestPriority(t *testing.T) {
 	mock := testutil.NewMockRunner()
 	// Return beads in non-priority order
-	mock.SetResponse("bd", []string{"ready", "--json"}, []byte(`[
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(`[
 		{"id": "bd-002", "title": "Low priority", "status": "open", "priority": 3, "created_at": "2024-01-15T10:00:00Z"},
 		{"id": "bd-001", "title": "High priority", "status": "open", "priority": 1, "created_at": "2024-01-15T11:00:00Z"}
 	]`))
@@ -528,7 +528,7 @@ func TestNext_ReturnsHighestPriority(t *testing.T) {
 func TestNext_SamePriorityOldestFirst(t *testing.T) {
 	mock := testutil.NewMockRunner()
 	// Return beads with same priority, different creation times
-	mock.SetResponse("bd", []string{"ready", "--json"}, []byte(`[
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(`[
 		{"id": "bd-002", "title": "Newer", "status": "open", "priority": 1, "created_at": "2024-01-15T12:00:00Z"},
 		{"id": "bd-001", "title": "Older", "status": "open", "priority": 1, "created_at": "2024-01-15T10:00:00Z"}
 	]`))
@@ -868,7 +868,7 @@ func TestSetHistory_CopiesInput(t *testing.T) {
 
 func TestPoll_WithUnassignedFilter(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	mock.SetResponse("bd", []string{"ready", "--json", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
+	mock.SetResponse("br", []string{"ready", "--json", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
 
 	cfg := config.Default()
 	cfg.WorkQueue.UnassignedOnly = true
@@ -882,12 +882,12 @@ func TestPoll_WithUnassignedFilter(t *testing.T) {
 		t.Fatalf("expected 1 bead, got %d", len(beads))
 	}
 
-	testutil.AssertCalled(t, mock, "bd", "ready", "--json", "--unassigned")
+	testutil.AssertCalled(t, mock, "br", "ready", "--json", "--unassigned")
 }
 
 func TestPoll_WithLabelAndUnassigned(t *testing.T) {
 	mock := testutil.NewMockRunner()
-	mock.SetResponse("bd", []string{"ready", "--json", "--label", "automated", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
+	mock.SetResponse("br", []string{"ready", "--json", "--label", "automated", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
 
 	cfg := config.Default()
 	cfg.WorkQueue.Label = "automated"
@@ -902,7 +902,7 @@ func TestPoll_WithLabelAndUnassigned(t *testing.T) {
 		t.Fatalf("expected 1 bead, got %d", len(beads))
 	}
 
-	testutil.AssertCalled(t, mock, "bd", "ready", "--json", "--label", "automated", "--unassigned")
+	testutil.AssertCalled(t, mock, "br", "ready", "--json", "--label", "automated", "--unassigned")
 }
 
 // Tests for ExcludeLabels filtering

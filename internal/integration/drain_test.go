@@ -132,7 +132,7 @@ func testConfig() *config.Config {
 // setupAgentStateMocks configures mock responses for bd agent state commands.
 func setupAgentStateMocks(runner *testutil.MockRunner) {
 	for _, state := range []string{"idle", "running", "stopped", "dead"} {
-		runner.SetResponse("bd", []string{"agent", "state", testAgentID, state}, []byte(""))
+		runner.SetResponse("br", []string{"agent", "state", testAgentID, state}, []byte(""))
 	}
 }
 
@@ -242,7 +242,7 @@ func TestFullDrainCycle(t *testing.T) {
 	beadJSON := singleBeadJSON("bd-001", "Test bead 1")
 
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "bd" && len(args) >= 2 && args[0] == "ready" {
+		if name == "br" && len(args) >= 2 && args[0] == "ready" {
 			callCount++
 			if callCount > 1 {
 				return []byte("[]"), nil, true
@@ -319,7 +319,7 @@ func TestDrainWithMultipleBeads(t *testing.T) {
 	beadsJSON := multipleBeadsJSON(3)
 
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "bd" && len(args) >= 2 && args[0] == "ready" {
+		if name == "br" && len(args) >= 2 && args[0] == "ready" {
 			callCount++
 			// Return beads for first 3 calls, then empty
 			if callCount <= 3 {
@@ -376,7 +376,7 @@ func TestDrainWithFailedBead(t *testing.T) {
 	}
 
 	// Return one bead
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-fail-001", "Failing bead"))
+	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-fail-001", "Failing bead"))
 
 	wq := workqueue.New(env.cfg, env.runner)
 	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
@@ -422,7 +422,7 @@ func TestGracefulShutdown(t *testing.T) {
 	defer env.cleanup()
 
 	// Return beads continuously
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-shutdown-001", "Shutdown test"))
+	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-shutdown-001", "Shutdown test"))
 
 	wq := workqueue.New(env.cfg, env.runner)
 	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
@@ -488,7 +488,7 @@ func TestBackoffProgression(t *testing.T) {
 	}
 
 	// Return one bead repeatedly
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-backoff-001", "Backoff test"))
+	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-backoff-001", "Backoff test"))
 
 	wq := workqueue.New(env.cfg, env.runner)
 	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
@@ -542,7 +542,7 @@ func TestContextCancellation(t *testing.T) {
 	defer env.cleanup()
 
 	// Return beads
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, singleBeadJSON("bd-cancel-001", "Cancel test"))
+	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-cancel-001", "Cancel test"))
 
 	wq := workqueue.New(env.cfg, env.runner)
 	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
@@ -583,7 +583,7 @@ func TestPauseResumeDuringDrain(t *testing.T) {
 	defer env.cleanup()
 
 	// Always return empty beads to keep controller in idle state
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
+	env.runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
 
 	wq := workqueue.New(env.cfg, env.runner)
 	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
@@ -769,11 +769,11 @@ func TestGracefulPauseDuringSession(t *testing.T) {
 
 	// Return a bead
 	beadJSON := singleBeadJSON("bd-graceful-001", "Graceful pause test")
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, beadJSON)
+	env.runner.SetResponse("br", []string{"ready", "--json"}, beadJSON)
 
 	// Setup bead status responses
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "bd" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
+		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
 			// Bead not closed (in_progress)
 			return []byte(`[{"status":"in_progress"}]`), nil, true
 		}
@@ -851,8 +851,8 @@ func TestSessionResumeWithStoredID(t *testing.T) {
 
 	beadID := "bd-resume-001"
 	beadJSON := singleBeadJSON(beadID, "Resume test")
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, beadJSON)
-	env.runner.SetResponse("bd", []string{"show", beadID, "--json"}, []byte(`[{"status":"closed"}]`))
+	env.runner.SetResponse("br", []string{"ready", "--json"}, beadJSON)
+	env.runner.SetResponse("br", []string{"show", beadID, "--json"}, []byte(`[{"status":"closed"}]`))
 
 	wq := workqueue.New(env.cfg, env.runner)
 
@@ -941,8 +941,8 @@ exit 0
 
 	beadID := "bd-fallback-001"
 	beadJSON := singleBeadJSON(beadID, "Fallback test")
-	env.runner.SetResponse("bd", []string{"ready", "--json"}, beadJSON)
-	env.runner.SetResponse("bd", []string{"show", beadID, "--json"}, []byte(`[{"status":"closed"}]`))
+	env.runner.SetResponse("br", []string{"ready", "--json"}, beadJSON)
+	env.runner.SetResponse("br", []string{"show", beadID, "--json"}, []byte(`[{"status":"closed"}]`))
 
 	wq := workqueue.New(env.cfg, env.runner)
 
@@ -1026,7 +1026,7 @@ func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
 
 	callCount := 0
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "bd" && len(args) >= 1 {
+		if name == "br" && len(args) >= 1 {
 			switch {
 			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
 				callCount++
@@ -1116,7 +1116,7 @@ func TestEpicAutoClosureSingleChild(t *testing.T) {
 
 	callCount := 0
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "bd" && len(args) >= 1 {
+		if name == "br" && len(args) >= 1 {
 			switch {
 			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
 				callCount++
@@ -1182,7 +1182,7 @@ func TestNoEpicClosureWhenNoneEligible(t *testing.T) {
 
 	callCount := 0
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "bd" && len(args) >= 1 {
+		if name == "br" && len(args) >= 1 {
 			switch {
 			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
 				callCount++

@@ -100,7 +100,7 @@ type WrapUpConfig struct {
 const DefaultWrapUpPrompt = `IMPORTANT: Atari is pausing this session. You must save your progress NOW.
 
 Run this command immediately to record your current progress:
-bd update {{.BeadID}} --notes "WRAP-UP: <summarize what you completed and what remains to be done>"
+br update {{.BeadID}} --notes "WRAP-UP: <summarize what you completed and what remains to be done>"
 
 Include in your notes:
 - What tasks you completed
@@ -108,7 +108,7 @@ Include in your notes:
 - Any blockers or issues discovered
 - Suggested next steps
 
-After running bd update, your session will end.`
+After running br update, your session will end.`
 
 // DefaultFollowUpPrompt is the prompt sent to follow-up sessions to verify and close beads.
 const DefaultFollowUpPrompt = `The previous session worked on bead {{.BeadID}} ("{{.BeadTitle}}") but did not close it.
@@ -119,15 +119,15 @@ Verify the work and either close or reset the bead.
 ## Steps
 
 ### 1. Check Current State
-Run "bd show {{.BeadID}} --json" to see the description and what work was done.
+Run "br show {{.BeadID}} --json" to see the description and what work was done.
 Review git status and recent commits to understand what changed.
 
 ### 2. Run Verification
 Execute the verification commands listed in the bead's Verification section.
 
 ### 3. Complete or Reset
-- If verification passes: "bd close {{.BeadID}} --reason 'Work completed and verified: <brief description>'"
-- If verification fails: "bd update {{.BeadID}} --status open --notes 'Needs more work: <describe failures>'"
+- If verification passes: "br close {{.BeadID}} --reason 'Work completed and verified: <brief description>'"
+- If verification fails: "br update {{.BeadID}} --status open --notes 'Needs more work: <describe failures>'"
 
 Either close the bead or reset it to open status. Do not leave it in_progress - this creates ambiguity about whether work is ongoing or abandoned.`
 
@@ -141,7 +141,7 @@ You have been assigned bead {{.BeadID}}: "{{.BeadTitle}}"
 {{.BeadDescription}}
 
 ### Claim
-Run "bd update {{.BeadID}} --status in_progress" to claim this bead before starting work.
+Run "br update {{.BeadID}} --status in_progress" to claim this bead before starting work.
 This prevents duplicate work if other agents are running.
 
 ## 2. Execute the Task
@@ -156,14 +156,14 @@ All checks must pass before closing. If verification fails, fix the issues befor
 
 ## 4. Track Discoveries
 If you find bugs, TODOs, or related work during implementation:
-- Create new issue with /bd-create or "bd create"
-- Link to current work: "bd dep add <new-id> {{.BeadID}} --type discovered-from"
+- Create new issue with /issue-create or "br create"
+- Link to current work: "br dep add <new-id> {{.BeadID}} --type discovered-from"
 - Describe problems for investigation, not implementation instructions
 This maintains context and traceability for future work.
 
 ## 5. Complete the Task
 Close the bead before ending your session:
-- Run "bd close {{.BeadID}} --reason '<what was accomplished>'"
+- Run "br close {{.BeadID}} --reason '<what was accomplished>'"
 - Use /commit for atomic commits
 Closing the bead marks the work as done and releases it from in_progress state.`
 
