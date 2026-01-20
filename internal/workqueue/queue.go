@@ -75,9 +75,9 @@ func (m *Manager) Poll(ctx context.Context) ([]Bead, error) {
 		args = append(args, "--unassigned")
 	}
 
-	output, err := m.runner.Run(ctx, "bd", args...)
+	output, err := m.runner.Run(ctx, "br", args...)
 	if err != nil {
-		return nil, fmt.Errorf("bd ready failed: %w", err)
+		return nil, fmt.Errorf("br ready failed: %w", err)
 	}
 
 	// Empty output means no work available
@@ -87,7 +87,7 @@ func (m *Manager) Poll(ctx context.Context) ([]Bead, error) {
 
 	var beads []Bead
 	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("parse bd ready output: %w", err)
+		return nil, fmt.Errorf("parse br ready output: %w", err)
 	}
 
 	// Empty array also means no work available

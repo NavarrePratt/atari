@@ -37,9 +37,9 @@ func NewBDFetcher(runner testutil.CommandRunner) *BDFetcher {
 // FetchActive retrieves beads with open, in_progress, or blocked status.
 // Agent beads are filtered out as they are internal tracking beads.
 func (f *BDFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json")
+	output, err := f.cmdRunner.Run(ctx, "br", "list", "--json")
 	if err != nil {
-		return nil, fmt.Errorf("bd list active failed: %w", err)
+		return nil, fmt.Errorf("br list active failed: %w", err)
 	}
 
 	beads, err := parseBeads(output)
@@ -60,9 +60,9 @@ func (f *BDFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
 // FetchBacklog retrieves beads with deferred status.
 // Agent beads are filtered out as they are internal tracking beads.
 func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--json")
+	output, err := f.cmdRunner.Run(ctx, "br", "list", "--json")
 	if err != nil {
-		return nil, fmt.Errorf("bd list backlog failed: %w", err)
+		return nil, fmt.Errorf("br list backlog failed: %w", err)
 	}
 
 	beads, err := parseBeads(output)
@@ -82,19 +82,21 @@ func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 
 // FetchClosed retrieves beads closed within the last 7 days.
 // Agent beads are filtered out as they are internal tracking beads.
+// Note: br CLI lacks --closed-after flag, so date filtering is done in Go.
 func (f *BDFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
-	// Calculate date 7 days ago for filtering
-	cutoffDate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
-
-	output, err := f.cmdRunner.Run(ctx, "bd", "list", "--status", "closed", "--closed-after", cutoffDate, "--json")
+	output, err := f.cmdRunner.Run(ctx, "br", "list", "--status", "closed", "--json")
 	if err != nil {
-		return nil, fmt.Errorf("bd list closed failed: %w", err)
+		return nil, fmt.Errorf("br list closed failed: %w", err)
 	}
 
 	beads, err := parseBeads(output)
 	if err != nil {
 		return nil, err
 	}
+
+	// Filter to beads closed within last 7 days (br lacks --closed-after)
+	cutoff := time.Now().AddDate(0, 0, -7)
+	beads = filterClosedAfter(beads, cutoff)
 
 	beads, err = f.enrichBeadsWithDetails(ctx, beads)
 	if err != nil {
@@ -106,9 +108,9 @@ func (f *BDFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
 
 // FetchBead retrieves full details for a single bead by ID.
 func (f *BDFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "bd", "show", id, "--json")
+	output, err := f.cmdRunner.Run(ctx, "br", "show", id, "--json")
 	if err != nil {
-		return nil, fmt.Errorf("bd show %s failed: %w", id, err)
+		return nil, fmt.Errorf("br show %s failed: %w", id, err)
 	}
 
 	bead, err := parseBead(output)
@@ -117,7 +119,7 @@ func (f *BDFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error
 	}
 
 	// Fetch labels separately
-	labelsOutput, err := f.cmdRunner.Run(ctx, "bd", "label", "list", id, "--json")
+	labelsOutput, err := f.cmdRunner.Run(ctx, "br", "label", "list", id, "--json")
 	if err == nil {
 		labels, parseErr := parseLabels(labelsOutput)
 		if parseErr == nil {
@@ -129,7 +131,7 @@ func (f *BDFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error
 	return bead, nil
 }
 
-// maxConcurrentFetches is the maximum number of parallel bd show commands.
+// maxConcurrentFetches is the maximum number of parallel br show commands.
 const maxConcurrentFetches = 5
 
 // enrichBeadsWithDetails fetches full dependency data for each bead in parallel.
@@ -179,21 +181,21 @@ func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBea
 // fetchBeadDetails fetches full bead details without labels.
 // Used by enrichBeadsWithDetails for parallel fetching.
 func (f *BDFetcher) fetchBeadDetails(ctx context.Context, id string) (*GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "bd", "show", id, "--json")
+	output, err := f.cmdRunner.Run(ctx, "br", "show", id, "--json")
 	if err != nil {
-		return nil, fmt.Errorf("bd show %s failed: %w", id, err)
+		return nil, fmt.Errorf("br show %s failed: %w", id, err)
 	}
 
 	return parseBead(output)
 }
 
-// parseBead parses JSON output from bd show into a single GraphBead.
+// parseBead parses JSON output from br show into a single GraphBead.
 func parseBead(data []byte) (*GraphBead, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("empty response")
 	}
 
-	// bd show --json returns an array with one element
+	// br show --json returns an array with one element
 	var beads []GraphBead
 	if err := json.Unmarshal(data, &beads); err != nil {
 		return nil, fmt.Errorf("failed to parse bead data: %w", err)
@@ -206,7 +208,7 @@ func parseBead(data []byte) (*GraphBead, error) {
 	return &beads[0], nil
 }
 
-// parseBeads parses JSON output from bd list into GraphBead slice.
+// parseBeads parses JSON output from br list into GraphBead slice.
 func parseBeads(data []byte) ([]GraphBead, error) {
 	// Handle empty response
 	if len(data) == 0 {
@@ -221,7 +223,7 @@ func parseBeads(data []byte) ([]GraphBead, error) {
 	return beads, nil
 }
 
-// parseLabels parses JSON output from bd label list into a string slice.
+// parseLabels parses JSON output from br label list into a string slice.
 func parseLabels(data []byte) ([]string, error) {
 	// Handle empty response
 	if len(data) == 0 {
@@ -267,6 +269,30 @@ func filterOutAgentBeads(beads []GraphBead) []GraphBead {
 	result := make([]GraphBead, 0, len(beads))
 	for _, b := range beads {
 		if b.IssueType != "agent" {
+			result = append(result, b)
+		}
+	}
+
+	return result
+}
+
+// filterClosedAfter returns beads with ClosedAt after the given cutoff time.
+// Beads without a valid ClosedAt timestamp are excluded.
+func filterClosedAfter(beads []GraphBead, cutoff time.Time) []GraphBead {
+	if len(beads) == 0 {
+		return nil
+	}
+
+	result := make([]GraphBead, 0, len(beads))
+	for _, b := range beads {
+		if b.ClosedAt == "" {
+			continue
+		}
+		closedAt, err := time.Parse(time.RFC3339, b.ClosedAt)
+		if err != nil {
+			continue
+		}
+		if closedAt.After(cutoff) {
 			result = append(result, b)
 		}
 	}

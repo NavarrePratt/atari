@@ -920,7 +920,7 @@ func (c *Controller) reportAgentState(state State) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := c.runner.Run(ctx, "bd", "agent", "state", c.config.AgentID, agentState)
+	_, err := c.runner.Run(ctx, "br", "agent", "state", c.config.AgentID, agentState)
 	if err != nil {
 		c.logger.Warn("failed to report agent state",
 			"state", agentState,
@@ -938,7 +938,7 @@ func (c *Controller) isBeadClosed(beadID string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	output, err := c.runner.Run(ctx, "bd", "show", beadID, "--json")
+	output, err := c.runner.Run(ctx, "br", "show", beadID, "--json")
 	if err != nil {
 		c.logger.Warn("failed to check bead status",
 			"bead_id", beadID,
@@ -947,7 +947,7 @@ func (c *Controller) isBeadClosed(beadID string) bool {
 	}
 
 	// Parse the JSON output to get status
-	// bd show --json returns an array with one element
+	// br show --json returns an array with one element
 	var beads []struct {
 		Status string `json:"status"`
 	}
@@ -1078,7 +1078,7 @@ func (c *Controller) resetBeadToOpen(beadID, notes string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := c.runner.Run(ctx, "bd", "update", beadID, "--status", "open", "--notes", notes)
+	_, err := c.runner.Run(ctx, "br", "update", beadID, "--status", "open", "--notes", notes)
 	if err != nil {
 		return fmt.Errorf("reset bead status: %w", err)
 	}
@@ -1096,7 +1096,7 @@ func (c *Controller) getBeadStatus(beadID string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	output, err := c.runner.Run(ctx, "bd", "show", beadID, "--json")
+	output, err := c.runner.Run(ctx, "br", "show", beadID, "--json")
 	if err != nil {
 		return ""
 	}
@@ -1132,7 +1132,7 @@ func (c *Controller) closeEligibleEpics(triggeringBeadID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	output, err := c.runner.Run(ctx, "bd", "epic", "close-eligible", "--json")
+	output, err := c.runner.Run(ctx, "br", "epic", "close-eligible", "--json")
 	if err != nil {
 		c.logger.Warn("failed to close eligible epics",
 			"triggering_bead_id", triggeringBeadID,
