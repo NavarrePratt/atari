@@ -196,6 +196,16 @@ exit 1
 	return nil
 }
 
+// contains checks if a slice contains a string.
+func contains(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 // singleBeadJSON returns br ready response with a single bead.
 func singleBeadJSON(id, title string) []byte {
 	bead := []map[string]interface{}{
@@ -1000,15 +1010,27 @@ exit 0
 	t.Log("session resume fallback test completed")
 }
 
-// epicCloseEligibleJSON returns a mock response for br epic close-eligible --json.
-func epicCloseEligibleJSON(epicID, title string, totalChildren int, closeReason string) []byte {
+// openEpicsJSON returns a mock response for br list --type epic --status open --json.
+func openEpicsJSON(epicID, title string, dependentCount int) []byte {
 	response := []map[string]any{
 		{
-			"id":             epicID,
-			"title":          title,
-			"total_children": totalChildren,
-			"close_reason":   closeReason,
+			"id":              epicID,
+			"title":           title,
+			"dependent_count": dependentCount,
 		},
+	}
+	data, _ := json.Marshal(response)
+	return data
+}
+
+// epicChildrenJSON returns a mock response for br list --parent <epic-id> --json.
+func epicChildrenJSON(children []struct{ id, status string }) []byte {
+	var response []map[string]any
+	for _, child := range children {
+		response = append(response, map[string]any{
+			"id":     child.id,
+			"status": child.status,
+		})
 	}
 	data, _ := json.Marshal(response)
 	return data
@@ -1022,7 +1044,11 @@ func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
 	childBeadID := "bd-child-001"
 	epicID := "bd-epic-001"
 	beadJSON := singleBeadJSON(childBeadID, "Child bead 1")
-	epicCloseJSON := epicCloseEligibleJSON(epicID, "Test Epic", 2, "All children completed")
+	openEpics := openEpicsJSON(epicID, "Test Epic", 2)
+	epicChildren := epicChildrenJSON([]struct{ id, status string }{
+		{"bd-child-001", "closed"},
+		{"bd-child-002", "closed"},
+	})
 
 	callCount := 0
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
@@ -1038,9 +1064,15 @@ func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
 			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
 				// Return closed status for the bead
 				return []byte(`[{"status":"closed"}]`), nil, true
-			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
-				// Return epic closure response
-				return epicCloseJSON, nil, true
+			case args[0] == "list" && contains(args, "--type") && contains(args, "epic"):
+				// br list --type epic --status open --json
+				return openEpics, nil, true
+			case args[0] == "list" && contains(args, "--parent"):
+				// br list --parent <epic-id> --json
+				return epicChildren, nil, true
+			case args[0] == "close":
+				// br close <epic-id> --reason "..."
+				return []byte(""), nil, true
 			}
 		}
 		return nil, nil, false
@@ -1097,8 +1129,8 @@ func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
 	if epicClosedEvt.TriggeringBeadID != childBeadID {
 		t.Errorf("expected triggering_bead_id %s, got %s", childBeadID, epicClosedEvt.TriggeringBeadID)
 	}
-	if epicClosedEvt.CloseReason != "All children completed" {
-		t.Errorf("expected close_reason 'All children completed', got '%s'", epicClosedEvt.CloseReason)
+	if epicClosedEvt.CloseReason != "All child issues completed" {
+		t.Errorf("expected close_reason 'All child issues completed', got '%s'", epicClosedEvt.CloseReason)
 	}
 
 	t.Logf("epic auto-closure verified: epic_id=%s, triggering_bead_id=%s", epicID, childBeadID)
@@ -1112,7 +1144,10 @@ func TestEpicAutoClosureSingleChild(t *testing.T) {
 	childBeadID := "bd-only-child"
 	epicID := "bd-epic-single"
 	beadJSON := singleBeadJSON(childBeadID, "Only child bead")
-	epicCloseJSON := epicCloseEligibleJSON(epicID, "Single Child Epic", 1, "All children completed")
+	openEpics := openEpicsJSON(epicID, "Single Child Epic", 1)
+	epicChildren := epicChildrenJSON([]struct{ id, status string }{
+		{"bd-only-child", "closed"},
+	})
 
 	callCount := 0
 	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
@@ -1126,8 +1161,12 @@ func TestEpicAutoClosureSingleChild(t *testing.T) {
 				return beadJSON, nil, true
 			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
 				return []byte(`[{"status":"closed"}]`), nil, true
-			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
-				return epicCloseJSON, nil, true
+			case args[0] == "list" && contains(args, "--type") && contains(args, "epic"):
+				return openEpics, nil, true
+			case args[0] == "list" && contains(args, "--parent"):
+				return epicChildren, nil, true
+			case args[0] == "close":
+				return []byte(""), nil, true
 			}
 		}
 		return nil, nil, false
@@ -1192,8 +1231,8 @@ func TestNoEpicClosureWhenNoneEligible(t *testing.T) {
 				return beadJSON, nil, true
 			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
 				return []byte(`[{"status":"closed"}]`), nil, true
-			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
-				// Return empty array - no epics eligible
+			case args[0] == "list" && contains(args, "--type") && contains(args, "epic"):
+				// Return empty array - no open epics
 				return []byte("[]"), nil, true
 			}
 		}
