@@ -34,6 +34,7 @@ type Graph struct {
 	view        GraphView       // Active or Backlog
 	currentBead string          // Currently processing bead (highlighted)
 	listOrder   []ListNode      // Ordered list of nodes for list view
+	epicFilter  string          // Epic ID filter (empty = no filter)
 }
 
 // NewGraph creates a new Graph with the given configuration.
@@ -152,6 +153,16 @@ func (g *Graph) buildFromBeads(beads []GraphBead, outOfViewIDs map[string]bool) 
 		g.edges = append(g.edges, edges...)
 	}
 
+	// Mark nodes as OutOfScope if epic filter is active
+	if g.epicFilter != "" {
+		descendants := g.computeEpicDescendants()
+		for id, node := range g.nodes {
+			if !descendants[id] {
+				node.OutOfScope = true
+			}
+		}
+	}
+
 	// Compute layout (handles both grid and list positioning)
 	g.computeLayout()
 
@@ -160,11 +171,11 @@ func (g *Graph) buildFromBeads(beads []GraphBead, outOfViewIDs map[string]bool) 
 		g.selected = ""
 	}
 
-	// Auto-select first node if none selected (skip out-of-view nodes)
+	// Auto-select first node if none selected (skip out-of-view and out-of-scope nodes)
 	if g.selected == "" && len(g.computed.Layers) > 0 {
 		for _, layer := range g.computed.Layers {
 			for _, nodeID := range layer {
-				if node := g.nodes[nodeID]; node != nil && !node.OutOfView {
+				if node := g.nodes[nodeID]; node != nil && !node.OutOfView && !node.OutOfScope {
 					g.selected = nodeID
 					break
 				}
@@ -1242,7 +1253,7 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 		style = graphStyles.NodeAbandoned
 	} else if node.WQStatus == "failed" && node.InBackoff {
 		style = graphStyles.NodeFailed
-	} else if node.OutOfView {
+	} else if node.OutOfView || node.OutOfScope {
 		style = graphStyles.NodeDimmed
 	}
 
@@ -1322,5 +1333,59 @@ func (g *Graph) isNodeVisible(nodeID string) bool {
 		return false
 	}
 	return g.isNodeVisible(parentID)
+}
+
+// SetEpicFilter sets the epic filter. Nodes outside the epic's subtree will be
+// marked as OutOfScope and rendered with dimmed styling.
+func (g *Graph) SetEpicFilter(epicID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.epicFilter = epicID
+}
+
+// GetEpicFilter returns the current epic filter ID (empty if none).
+func (g *Graph) GetEpicFilter() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.epicFilter
+}
+
+// computeEpicDescendants builds a set of node IDs that are descendants of the
+// epic filter (including the epic itself). Uses iterative expansion: starting with
+// the epic, repeatedly add any node whose parent (via hierarchy edge) is already in the set.
+// Must be called with mu held.
+func (g *Graph) computeEpicDescendants() map[string]bool {
+	if g.epicFilter == "" {
+		return nil
+	}
+
+	// Build parent map from hierarchy edges
+	parentOf := make(map[string]string)
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy {
+			parentOf[edge.To] = edge.From
+		}
+	}
+
+	descendants := map[string]bool{g.epicFilter: true}
+
+	for {
+		added := false
+		for id := range g.nodes {
+			parent := parentOf[id]
+			if parent == "" {
+				continue
+			}
+			if descendants[parent] && !descendants[id] {
+				descendants[id] = true
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+
+	return descendants
 }
 

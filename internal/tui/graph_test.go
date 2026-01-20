@@ -2494,3 +2494,223 @@ func TestCollapse_NavigationSkipsHiddenChildren(t *testing.T) {
 		t.Errorf("SelectPrev should go to epic, got %q, want bd-epic", selected)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Epic Filter Tests
+// -----------------------------------------------------------------------------
+
+// TestSetEpicFilter_MarksOutOfScopeNodes tests that nodes outside the epic
+// subtree are marked as OutOfScope when an epic filter is active.
+func TestSetEpicFilter_MarksOutOfScopeNodes(t *testing.T) {
+	cfg := defaultGraphConfig()
+	beads := []GraphBead{
+		{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+		{
+			ID:        "bd-child-1",
+			Title:     "Child of Epic",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-grandchild",
+			Title:     "Grandchild",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-child-1", DependencyType: "parent-child"},
+			},
+		},
+		{ID: "bd-unrelated", Title: "Unrelated Task", Status: "open", IssueType: "task"},
+	}
+
+	fetcher := &mockFetcher{activeBeads: beads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	// Set epic filter BEFORE refresh
+	g.SetEpicFilter("bd-epic")
+
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	nodes := g.GetNodes()
+
+	// Epic and its descendants should NOT be out of scope
+	if nodes["bd-epic"].OutOfScope {
+		t.Error("bd-epic should not be OutOfScope")
+	}
+	if nodes["bd-child-1"].OutOfScope {
+		t.Error("bd-child-1 should not be OutOfScope (child of epic)")
+	}
+	if nodes["bd-grandchild"].OutOfScope {
+		t.Error("bd-grandchild should not be OutOfScope (grandchild of epic)")
+	}
+
+	// Unrelated node SHOULD be out of scope
+	if !nodes["bd-unrelated"].OutOfScope {
+		t.Error("bd-unrelated should be OutOfScope (not in epic subtree)")
+	}
+}
+
+// TestSetEpicFilter_NoFilter tests that without an epic filter, no nodes
+// are marked as OutOfScope.
+func TestSetEpicFilter_NoFilter(t *testing.T) {
+	cfg := defaultGraphConfig()
+	beads := []GraphBead{
+		{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+		{
+			ID:        "bd-child",
+			Title:     "Child",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic", DependencyType: "parent-child"},
+			},
+		},
+		{ID: "bd-standalone", Title: "Standalone", Status: "open", IssueType: "task"},
+	}
+
+	fetcher := &mockFetcher{activeBeads: beads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	// No epic filter set
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	nodes := g.GetNodes()
+
+	// No nodes should be out of scope
+	for id, node := range nodes {
+		if node.OutOfScope {
+			t.Errorf("%s should not be OutOfScope when no epic filter is set", id)
+		}
+	}
+}
+
+// TestSetEpicFilter_AutoSelectSkipsOutOfScope tests that auto-selection
+// skips out-of-scope nodes.
+func TestSetEpicFilter_AutoSelectSkipsOutOfScope(t *testing.T) {
+	cfg := defaultGraphConfig()
+	beads := []GraphBead{
+		// Unrelated tasks come first alphabetically
+		{ID: "bd-aaa-unrelated", Title: "Unrelated", Status: "open", IssueType: "task"},
+		{ID: "bd-epic", Title: "Epic", Status: "open", IssueType: "epic"},
+		{
+			ID:        "bd-zzz-child",
+			Title:     "Child",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-epic", DependencyType: "parent-child"},
+			},
+		},
+	}
+
+	fetcher := &mockFetcher{activeBeads: beads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	// Set epic filter
+	g.SetEpicFilter("bd-epic")
+
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Auto-selection should skip the out-of-scope "aaa-unrelated"
+	// and select the first in-scope node (epic comes first as it sorts before tasks)
+	selected := g.GetSelectedID()
+	if selected == "bd-aaa-unrelated" {
+		t.Error("auto-select should skip out-of-scope nodes")
+	}
+	if selected != "bd-epic" {
+		t.Errorf("expected auto-select to be bd-epic, got %q", selected)
+	}
+}
+
+// TestGetEpicFilter tests the getter for the epic filter.
+func TestGetEpicFilter(t *testing.T) {
+	cfg := defaultGraphConfig()
+	fetcher := &mockFetcher{}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	// Initially empty
+	if got := g.GetEpicFilter(); got != "" {
+		t.Errorf("GetEpicFilter initially = %q, want empty", got)
+	}
+
+	// After setting
+	g.SetEpicFilter("bd-epic-123")
+	if got := g.GetEpicFilter(); got != "bd-epic-123" {
+		t.Errorf("GetEpicFilter = %q, want bd-epic-123", got)
+	}
+
+	// Clearing
+	g.SetEpicFilter("")
+	if got := g.GetEpicFilter(); got != "" {
+		t.Errorf("GetEpicFilter after clear = %q, want empty", got)
+	}
+}
+
+// TestComputeEpicDescendants tests the descendant computation algorithm.
+func TestComputeEpicDescendants(t *testing.T) {
+	cfg := defaultGraphConfig()
+	beads := []GraphBead{
+		{ID: "bd-root", Title: "Root Epic", Status: "open", IssueType: "epic"},
+		{
+			ID:        "bd-level-1a",
+			Title:     "Level 1A",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-root", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-level-1b",
+			Title:     "Level 1B",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-root", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-level-2",
+			Title:     "Level 2",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-level-1a", DependencyType: "parent-child"},
+			},
+		},
+		{ID: "bd-outside", Title: "Outside", Status: "open", IssueType: "task"},
+	}
+
+	fetcher := &mockFetcher{activeBeads: beads}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	g.SetEpicFilter("bd-root")
+
+	if err := g.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	nodes := g.GetNodes()
+
+	// Verify descendants
+	inScope := []string{"bd-root", "bd-level-1a", "bd-level-1b", "bd-level-2"}
+	for _, id := range inScope {
+		if nodes[id].OutOfScope {
+			t.Errorf("%s should be in scope (descendant of epic)", id)
+		}
+	}
+
+	// Verify outside node
+	if !nodes["bd-outside"].OutOfScope {
+		t.Error("bd-outside should be out of scope")
+	}
+}

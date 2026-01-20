@@ -156,6 +156,9 @@ func newModel(
 	if beadStateGetter != nil {
 		graphPane.SetStateGetter(beadStateGetter)
 	}
+	if epicID != "" {
+		graphPane.SetEpicFilter(epicID)
+	}
 
 	return model{
 		eventChan:    eventChan,

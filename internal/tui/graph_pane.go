@@ -583,6 +583,14 @@ func (p *GraphPane) SetStateGetter(sg BeadStateGetter) {
 	p.stateGetter = sg
 }
 
+// SetEpicFilter sets the epic filter. Nodes outside the epic's subtree will be
+// marked as OutOfScope and rendered with dimmed styling.
+func (p *GraphPane) SetEpicFilter(epicID string) {
+	if p.graph != nil {
+		p.graph.SetEpicFilter(epicID)
+	}
+}
+
 // GetSelectedNode returns the currently selected node, or nil if none.
 func (p GraphPane) GetSelectedNode() *GraphNode {
 	if p.graph != nil {
