@@ -1,5 +1,7 @@
 # Existing Shell Implementation
 
+> **Historical Note**: This document preserves the original shell-based implementation that used the `bd` command. The current beads CLI is `br` (beads_rust). This document is kept for reference to understand the original workflow that atari was designed to replace.
+
 This document contains the user's current shell-based implementation from `~/.zshrc` for reference.
 
 ## claude-stream Function

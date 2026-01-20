@@ -1,5 +1,7 @@
 # BD Activity Watcher
 
+> **Historical Note**: This document describes an older implementation approach. The current implementation watches `.beads/issues.jsonl` directly using fsnotify instead of spawning `bd activity --follow`. See [internal/bdactivity/CLAUDE.md](/internal/bdactivity/CLAUDE.md) for the current implementation details and [BEADS_INTEGRATION.md](../BEADS_INTEGRATION.md) for integration patterns.
+
 Integrates with `bd activity --follow` to provide real-time bead mutation events.
 
 ## Purpose

@@ -1,6 +1,6 @@
 # Atari - Applied Training: Automatic Research & Implementation
 
-A daemon controller that orchestrates Claude Code sessions to automatically work through beads (bd) issues.
+A daemon controller that orchestrates Claude Code sessions to automatically work through beads (br) issues.
 
 ## Project Context
 
@@ -12,17 +12,16 @@ Read these documents in order for full context:
 ## Quick Summary
 
 **What we're building**: A Go daemon that:
-- Polls `bd ready` for available beads
+- Polls `br ready` for available beads
 - Spawns Claude Code sessions (`claude -p --output-format stream-json`)
-- Streams unified events (Claude + bd activity)
+- Streams unified events (Claude + bead activity via file watching)
 - Persists state for pause/resume
 - Provides optional TUI for monitoring
 
 **Key integration points**:
 - Claude Code: `claude -p --output-format stream-json --max-turns N`
-- BD ready: `bd ready --json` for work discovery
-- BD activity: `bd activity --follow --json` for real-time bead events
-- BD agent: `bd agent state atari <state>` for tracking
+- Work discovery: `br ready --json` to find available beads
+- Activity monitoring: File watcher on `.beads/issues.jsonl` for real-time changes
 
 ## Development Commands
 
@@ -64,12 +63,14 @@ See `docs/IMPLEMENTATION.md` for detailed specs.
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 1 | Core Loop (MVP) | Complete - workqueue, session, events, sinks, controller done |
-| 2 | Control & Monitoring | Complete - daemon mode, RPC, pause/resume/stop |
-| 3 | BD Activity | Complete - watcher, parser, event types, controller integration |
-| 4 | Terminal UI | Not started |
-| 5 | Notifications | Not started |
-| 6 | Polish & Init | Partially done (backoff in workqueue) |
+| 1 | Core Loop (MVP) | Complete |
+| 2 | Control & Monitoring | Complete |
+| 3 | Activity Watching | Complete - file watcher on issues.jsonl |
+| 4 | Terminal UI | Complete |
+| 5 | Polish & Init | Complete |
+| 6 | Observer Mode | Complete |
+| 7 | Bead Visualization | Complete |
+| 8 | Notifications | Not started |
 
 ## Code Style
 
@@ -105,8 +106,8 @@ internal/           # Non-exported packages
   integration/      # End-to-end tests (see internal/integration/CLAUDE.md)
   daemon/           # Daemon mode and RPC (see internal/daemon/CLAUDE.md)
   runner/           # ProcessRunner interface for streaming processes
-  bdactivity/       # BD activity stream watcher (see internal/bdactivity/CLAUDE.md)
-  tui/              # [planned] Terminal UI (bubbletea)
+  bdactivity/       # JSONL file watcher for bead changes (see internal/bdactivity/CLAUDE.md)
+  tui/              # Terminal UI (bubbletea)
 docs/               # Design and implementation docs
   components/       # Detailed component specifications
   cli/              # CLI command documentation
@@ -123,7 +124,7 @@ docs/               # Design and implementation docs
 
 ## Bead Creation Boundary
 
-After creating a bead (via /bd-create skill OR manual `bd create`):
+After creating a bead (via /bd-create skill OR manual `br create`):
 - Report the bead ID
 - Return to previous task IMMEDIATELY
 - Do NOT start working on the newly created bead

@@ -5,7 +5,7 @@ Discovers available work and manages bead selection with history tracking and ba
 ## Purpose
 
 The Work Queue Manager is responsible for:
-- Polling `bd ready --json` for available beads
+- Polling `br ready --json` for available beads
 - Tracking bead history (attempts, failures, completions)
 - Implementing exponential backoff for failed beads
 - Selecting the next bead to work on based on priority and history
@@ -62,18 +62,18 @@ func (m *Manager) Stats() QueueStats
 | config.Config | Poll interval, backoff settings, label filters |
 
 External:
-- `bd ready --json` command
+- `br ready --json` command
 
 ## Dependency Handling
 
 **Atari does NOT manage bead dependencies directly.** Dependencies are handled entirely by beads:
 
-1. **bd-sequence skill** (or manual `bd dep add`) sets dependencies between beads
-2. **bd ready** only returns beads with no unsatisfied blocking dependencies
+1. **bd-sequence skill** (or manual `br dep add`) sets dependencies between beads
+2. **br ready** only returns beads with no unsatisfied blocking dependencies
 3. When a blocking bead is closed, blocked beads automatically become "ready"
 
-This means atari simply trusts `bd ready` to return the correct set of workable beads. The work queue's job is to:
-- Poll `bd ready` for available work
+This means atari simply trusts `br ready` to return the correct set of workable beads. The work queue's job is to:
+- Poll `br ready` for available work
 - Apply backoff filtering for previously failed beads
 - Select by priority among eligible beads
 
@@ -81,17 +81,17 @@ Example dependency flow:
 ```
 # bd-sequence sets: bd-001 blocks bd-002 blocks bd-003
 
-bd ready --json
+br ready --json
 # Returns: [bd-001]  (bd-002, bd-003 blocked)
 
 # Atari works on bd-001, closes it
 
-bd ready --json
+br ready --json
 # Returns: [bd-002]  (bd-003 still blocked)
 
 # Atari works on bd-002, closes it
 
-bd ready --json
+br ready --json
 # Returns: [bd-003]  (now unblocked)
 ```
 
@@ -115,18 +115,18 @@ This design keeps atari simple - it doesn't need to understand the dependency gr
 
 3. After `bd-sequence` orders all issues, add the label:
    ```bash
-   bd update bd-001 --labels automated
-   bd update bd-002 --labels automated
+   br update bd-001 --labels automated
+   br update bd-002 --labels automated
    # ... or batch update all sequenced issues
    ```
 
-4. NOW they appear in `bd ready --label automated`
+4. NOW they appear in `br ready --label automated`
 
 ### Why This Works
 
 - **Zero race condition**: Label is only added AFTER all dependencies are set
 - **Explicit opt-in**: Issues must be explicitly marked for automation
-- **Visible state**: `bd list --label automated` shows what atari will process
+- **Visible state**: `br list --label automated` shows what atari will process
 - **Easy debugging**: If issues aren't being processed, check if they have the label
 
 ### Alternative: Status-Based Gating
@@ -135,15 +135,15 @@ You can also use `status: deferred` as a gate:
 
 1. Create issues, immediately update to `deferred`:
    ```bash
-   bd create "Title" --json && bd update <id> --status deferred
+   br create "Title" --json && br update <id> --status deferred
    ```
 
 2. After sequencing, update to `open`:
    ```bash
-   bd update bd-001 --status open
+   br update bd-001 --status open
    ```
 
-3. `bd ready` only returns `open` or `in_progress` issues
+3. `br ready` only returns `open` or `in_progress` issues
 
 **Caveat**: Small race window between create and status update. Label-based is preferred.
 
@@ -161,7 +161,7 @@ For automated atari runs, the full workflow is:
 /bd-sequence
 
 # 4. After sequencing, mark for automation
-bd list --json | jq -r '.[].id' | xargs -I{} bd update {} --labels automated
+br list --json | jq -r '.[].id' | xargs -I{} br update {} --labels automated
 
 # 5. NOW atari will pick them up in dependency order
 ```
@@ -170,7 +170,7 @@ This workflow ensures issues are never processed out of order.
 
 ## Implementation
 
-### Polling bd ready
+### Polling br ready
 
 ```go
 func (m *Manager) poll(ctx context.Context) ([]Bead, error) {
@@ -180,24 +180,24 @@ func (m *Manager) poll(ctx context.Context) ([]Bead, error) {
         args = append(args, "--label", m.config.Label)
     }
 
-    cmd := exec.CommandContext(ctx, "bd", args...)
+    cmd := exec.CommandContext(ctx, "br", args...)
     output, err := cmd.Output()
     if err != nil {
-        return nil, fmt.Errorf("bd ready failed: %w", err)
+        return nil, fmt.Errorf("br ready failed: %w", err)
     }
 
     var beads []Bead
     if err := json.Unmarshal(output, &beads); err != nil {
-        return nil, fmt.Errorf("parse bd ready output: %w", err)
+        return nil, fmt.Errorf("parse br ready output: %w", err)
     }
 
     return beads, nil
 }
 ```
 
-### bd ready JSON Format
+### br ready JSON Format
 
-Expected output from `bd ready --json`:
+Expected output from `br ready --json`:
 
 ```json
 [
@@ -502,7 +502,7 @@ func TestBackoffFiltering(t *testing.T) {
 
 | Error | Action |
 |-------|--------|
-| `bd ready` command fails | Return error, caller retries with backoff |
+| `br ready` command fails | Return error, caller retries with backoff |
 | JSON parse error | Return error with context |
 | Empty result | Return nil bead (not an error) |
 
@@ -512,4 +512,4 @@ func TestBackoffFiltering(t *testing.T) {
 - **Custom priority logic**: Pluggable priority functions
 - **Bead grouping**: Work on related beads together
 
-Note: Dependency handling is NOT a future consideration - it's handled by `bd ready`. See [Dependency Handling](#dependency-handling).
+Note: Dependency handling is NOT a future consideration - it's handled by `br ready`. See [Dependency Handling](#dependency-handling).

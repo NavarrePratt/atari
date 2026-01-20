@@ -2,12 +2,12 @@
 
 **Applied Training: Automatic Research & Implementation**
 
-A daemon controller that orchestrates Claude Code sessions to automatically work through beads (bd) issues until all ready work is complete.
+A daemon controller that orchestrates Claude Code sessions to automatically work through beads (br) issues until all ready work is complete.
 
 ## Problem Statement
 
 When using Claude Code with the beads issue tracker, the ideal workflow is:
-1. Create beads for planned work (via `bd create` or planning sessions)
+1. Create beads for planned work (via `br create` or planning sessions)
 2. Have Claude automatically work through all ready beads without human intervention
 3. Monitor progress in real-time with good observability
 4. Survive interruptions and resume later
@@ -56,7 +56,7 @@ A daemon controller written in Go that:
 │              ▼            ▼            ▼            ▼           │
 │       ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
 │       │WorkQueue │  │ Session  │  │BDActivity│  │  Events  │   │
-│       │(bd ready)│  │ Manager  │  │ (watch)  │  │  Router  │   │
+│       │(br ready)│  │ Manager  │  │ (watch)  │  │  Router  │   │
 │       └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
 │              └────────────┬────────────┬────────────┘           │
 │                           ▼            ▼                        │
@@ -136,7 +136,7 @@ atari stop --force  # Stop immediately
 | `--daemon` | Run as background daemon | false |
 | `--tui` | Enable terminal UI | auto-detect TTY |
 | `--max-turns N` | Limit Claude session turns | 0 (unlimited) |
-| `--label LABEL` | Filter `bd ready` by label | none |
+| `--label LABEL` | Filter `br ready` by label | none |
 | `--prompt FILE` | Custom prompt template file | built-in |
 | `--bd-activity-enabled` | Enable BD activity watcher | true |
 | `--observer-enabled` | Enable observer mode in TUI | true |
@@ -272,7 +272,7 @@ go test ./...
 
 - Go 1.25+
 - Claude Code CLI (`claude` command)
-- beads CLI (`bd` command)
+- beads_rust CLI (`br` command)
 - A project with `.beads/` initialized
 
 ## Documentation

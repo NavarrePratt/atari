@@ -7,7 +7,7 @@ For detailed component documentation, see the [components/](components/) directo
 ## Goals
 
 1. **Autonomous execution**: Run Claude Code sessions to completion without human intervention
-2. **Observability**: Unified real-time stream of Claude and bd events
+2. **Observability**: Unified real-time stream of Claude and bead events
 3. **Resilience**: Survive crashes/interrupts and resume from last known state
 4. **Controllability**: Pause, resume, stop via CLI commands
 5. **Simplicity**: Single daemon, single Claude worker, clear state model
@@ -54,8 +54,8 @@ For detailed component documentation, see the [components/](components/) directo
 ┌─────────────────────────────────────────────────────────────────┐
 │                      External Processes                         │
 │  ┌──────────┐      ┌──────────────┐      ┌──────────┐          │
-│  │  claude  │      │ bd activity  │      │    bd    │          │
-│  │   -p     │      │   --follow   │      │  daemon  │          │
+│  │  claude  │      │ issues.jsonl │      │    br    │          │
+│  │   -p     │      │  (watched)   │      │  ready   │          │
 │  └──────────┘      └──────────────┘      └──────────┘          │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -65,10 +65,10 @@ For detailed component documentation, see the [components/](components/) directo
 | Component | Purpose | Documentation |
 |-----------|---------|---------------|
 | Controller | Main orchestration and state machine | [components/controller.md](components/controller.md) |
-| Work Queue | Polls bd ready, selects beads, tracks history | [components/workqueue.md](components/workqueue.md) |
+| Work Queue | Polls br ready, selects beads, tracks history | [components/workqueue.md](components/workqueue.md) |
 | Session Manager | Spawns Claude, parses stream output | [components/session.md](components/session.md) |
 | Event Router | Merges events from all sources | [components/events.md](components/events.md) |
-| BD Activity | Watches bd activity stream | [components/bdactivity.md](components/bdactivity.md) |
+| BD Activity | Watches .beads/issues.jsonl for changes | [components/bdactivity.md](components/bdactivity.md) |
 | Log Sink | Persists events to JSON file | [components/sinks.md](components/sinks.md) |
 | State Sink | Maintains runtime state | [components/sinks.md](components/sinks.md) |
 | TUI Sink | Terminal UI display | [components/tui.md](components/tui.md) |
@@ -121,15 +121,14 @@ See [components/controller.md](components/controller.md) for full state machine 
 | System | How Atari Integrates |
 |--------|---------------------|
 | Claude Code | `claude -p --output-format stream-json` (uses global Claude config) |
-| bd ready | Poll `bd ready --json` for available work |
-| bd activity | `bd activity --follow --json` for real-time events |
-| bd agent | Track controller state via `bd agent state atari <state>` |
+| br ready | Poll `br ready --json` for available work |
+| issues.jsonl | Watch `.beads/issues.jsonl` for real-time bead changes |
 
 Note: Claude model, max-turns, and other settings come from the user's global Claude config (`~/.claude/settings.json`). Atari only passes minimal required flags.
 
 ### Beads Integration Philosophy
 
-Atari integrates with beads through the **CLI interface** only. We do NOT import beads Go packages directly because:
+Atari integrates with beads through the **CLI interface** for work discovery. We do NOT import beads Go packages directly because:
 
 1. **Stability**: CLI is the public, stable API - internal packages may change
 2. **Decoupling**: No version coupling between atari and beads
@@ -168,7 +167,7 @@ See [config/configuration.md](config/configuration.md) for full configuration re
 | Scenario | Action |
 |----------|--------|
 | Claude session fails | Record failure, apply backoff, continue |
-| bd ready fails | Retry with backoff |
+| br ready fails | Retry with backoff |
 | Session timeout | Kill process, reset bead |
 | State file corrupt | Start fresh with warning |
 

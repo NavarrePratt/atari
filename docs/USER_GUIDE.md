@@ -21,15 +21,15 @@ A guide to using Atari for automated bead processing with Claude Code.
 
 ## What is Atari?
 
-Atari is a daemon controller that orchestrates Claude Code sessions to automatically work through your beads (bd) issues. Instead of manually starting Claude sessions and directing them to work on issues, Atari:
+Atari is a daemon controller that orchestrates Claude Code sessions to automatically work through your beads (br) issues. Instead of manually starting Claude sessions and directing them to work on issues, Atari:
 
-- Polls for available work using `bd ready`
+- Polls for available work using `br ready`
 - Spawns Claude Code sessions to work on issues
 - Tracks progress and costs
 - Handles failures with automatic retry and backoff
 - Notifies you of important events
 
-Think of it as a "CI for your tasks" - you create issues in bd, and Atari works through them autonomously.
+Think of it as a "CI for your tasks" - you create issues in br, and Atari works through them autonomously.
 
 ---
 
@@ -42,16 +42,16 @@ Before using Atari, you need:
    claude --version
    ```
 
-2. **Beads (bd)** installed and configured
+2. **Beads (br)** installed and configured
    ```bash
-   bd --version
-   bd ready  # Should work without errors
+   br --version
+   br ready  # Should work without errors
    ```
 
 3. **A project with beads** - Atari needs issues to work on
    ```bash
    cd your-project
-   bd list  # Should show your issues
+   br list  # Should show your issues
    ```
 
 ---
@@ -80,13 +80,13 @@ atari init --dry-run
 atari init
 ```
 
-This sets up Claude Code with the rules and skills needed for bd integration.
+This sets up Claude Code with the rules and skills needed for br integration.
 
 ### 3. Create Some Beads
 
 ```bash
 # Create a test issue
-bd create --title "Add hello world function" --description "Create a simple hello() function that returns 'Hello, World!'"
+br create --title "Add hello world function" --description "Create a simple hello() function that returns 'Hello, World!'"
 ```
 
 ### 4. Start Atari
@@ -102,7 +102,7 @@ atari start --daemon
 ### 5. Watch It Work
 
 Atari will:
-1. Find the issue via `bd ready`
+1. Find the issue via `br ready`
 2. Spawn a Claude session
 3. Claude implements the feature
 4. Issue gets closed
@@ -166,7 +166,7 @@ atari events --count 50
 ```
 ┌─────────────────────────────────────────┐
 │                                         │
-│  1. Check bd ready for available work   │
+│  1. Check br ready for available work   │
 │              ↓                          │
 │  2. Select highest priority bead        │
 │              ↓                          │
@@ -177,7 +177,7 @@ atari events --count 50
 │     - Makes changes                     │
 │     - Runs tests                        │
 │     - Commits with /commit              │
-│     - Closes bead with bd close         │
+│     - Closes bead with br close         │
 │              ↓                          │
 │  5. Session ends                        │
 │              ↓                          │
@@ -190,12 +190,12 @@ atari events --count 50
 
 Each Claude session receives a prompt instructing it to:
 
-1. Run `bd ready --json` to find work
+1. Run `br ready --json` to find work
 2. Work on the highest-priority issue
 3. Implement the feature or fix completely
 4. Write tests if appropriate
 5. Commit using `/commit`
-6. Close the issue with `bd close`
+6. Close the issue with `br close`
 
 ### State Persistence
 
@@ -236,7 +236,7 @@ Claude: /bd-plan Add user authentication with JWT tokens
 The planning skill will:
 1. **Discover**: Explore your codebase to understand architecture, patterns, and testing setup
 2. **Debate**: Claude and Codex collaboratively critique and refine the plan
-3. **Create Issues**: Generate well-scoped bd issues with clear acceptance criteria
+3. **Create Issues**: Generate well-scoped br issues with clear acceptance criteria
 4. **Add Verification**: Each issue includes exact lint/test/e2e commands for your project
 5. **Create Epic**: Links all issues together for tracking
 
@@ -252,7 +252,7 @@ This skill:
 1. Analyzes which files each issue will modify
 2. Identifies potential merge conflicts and hidden dependencies
 3. Creates an optimal linear execution order
-4. Sets `bd dep add` relationships so issues complete in the right order
+4. Sets `br dep add` relationships so issues complete in the right order
 
 #### 3. Mark for Automation
 
@@ -260,7 +260,7 @@ If using label-based gating (recommended), add the automation label after sequen
 
 ```bash
 # Add the label to all sequenced issues
-bd list --json | jq -r '.[].id' | xargs -I{} bd update {} --labels automated
+br list --json | jq -r '.[].id' | xargs -I{} br update {} --labels automated
 ```
 
 Now Atari will pick them up in the correct dependency order.
@@ -288,10 +288,10 @@ Claude: /bd-sequence
 # Mark for automation (if using label filter)
 User: Mark those for automation
 
-Claude: bd update bd-101 --labels automated
-        bd update bd-102 --labels automated
-        bd update bd-103 --labels automated
-        bd update bd-104 --labels automated
+Claude: br update bd-101 --labels automated
+        br update bd-102 --labels automated
+        br update bd-103 --labels automated
+        br update bd-104 --labels automated
 
 # Now start atari
 $ atari start
@@ -391,7 +391,7 @@ Note: Claude model and settings come from your global Claude config (`~/.claude/
 Create `.atari/prompt.txt` with custom instructions:
 
 ```
-Run "bd ready --json" to find work.
+Run "br ready --json" to find work.
 
 Special instructions for this project:
 - Always run `make lint` before committing
@@ -541,7 +541,7 @@ Observer uses Haiku by default, which is fast and inexpensive for Q&A. The obser
 - Quick clarification during active work
 
 **Better done elsewhere:**
-- Post-hoc investigation (use normal Claude session with `bd show`)
+- Post-hoc investigation (use normal Claude session with `br show`)
 - Deep analysis of past sessions (use log files directly)
 - Complex debugging (pause drain and use normal Claude session)
 
@@ -609,24 +609,23 @@ atari stop
 atari start
 ```
 
-**"bd ready failed"**
+**"br ready failed"**
 ```bash
-# Check bd is working
-bd ready --json
-bd daemon  # May need to start daemon
+# Check br is working
+br ready --json
 ```
 
 ### Beads Not Being Processed
 
 **Check if beads are ready:**
 ```bash
-bd ready --json
+br ready --json
 ```
 
 **Check if beads match your label filter:**
 ```bash
 # If using --label, verify beads have that label
-bd list --label automated
+br list --label automated
 ```
 
 **Check for beads in backoff:**
@@ -707,10 +706,10 @@ atari start
 
 ### Handling Failures
 
-- Check why beads are failing (logs, bd notes)
+- Check why beads are failing (logs, br notes)
 - Update bead descriptions with more context
 - Consider if the task is too complex for automation
-- Use `bd update` to add notes for Claude
+- Use `br update` to add notes for Claude
 
 ---
 
@@ -718,5 +717,5 @@ atari start
 
 - **Documentation**: See the `docs/` directory
 - **Issues**: Report bugs at https://github.com/yourorg/atari/issues
-- **Beads CLI**: Run `bd help` for bd documentation
+- **Beads CLI**: Run `br help` for br documentation
 - **Claude Code**: Run `claude --help` for Claude documentation

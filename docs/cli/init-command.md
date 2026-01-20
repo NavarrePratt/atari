@@ -1,16 +1,16 @@
 # atari init Command
 
-Initialize Claude Code configuration for use with atari and the bd issue tracking system.
+Initialize Claude Code configuration for use with atari and the br issue tracking system.
 
 ## Purpose
 
 The `atari init` command configures Claude Code with the necessary:
-- Rules for bd issue tracking workflow
+- Rules for br issue tracking workflow
 - Skills for common operations
 - Settings for autonomous operation
 - Session protocols for consistent behavior
 
-This makes it easy for users to set up Claude Code to work effectively with the bd system, without manually copying configuration files.
+This makes it easy for users to set up Claude Code to work effectively with the br system, without manually copying configuration files.
 
 ## Usage
 
@@ -53,11 +53,11 @@ When you run `atari init`, it installs:
 ```
 ~/.claude/
 ├── rules/
-│   ├── issue-tracking.md      # BD workflow patterns
+│   ├── issue-tracking.md      # BR workflow patterns
 │   └── session-protocol.md    # Session procedures
 ├── skills/
-│   └── bd-issue-tracking.md   # BD skill definition
-└── CLAUDE.md                  # Updated with bd instructions (appended)
+│   └── br-issue-tracking.md   # BR skill definition
+└── CLAUDE.md                  # Updated with br instructions (appended)
 ```
 
 ### Minimal Installation (--minimal)
@@ -75,24 +75,24 @@ Only installs the essential issue-tracking rule:
 ### rules/issue-tracking.md
 
 ```markdown
-# Issue Tracking with bd
+# Issue Tracking with br
 
-Track work with `bd` for persistent context across sessions.
+Track work with `br` for persistent context across sessions.
 
 ## Quick Commands
 
 | Task | Command |
 |------|---------|
-| Find ready work | `bd ready --json` |
-| Start work | `bd update bd-xxx --status in_progress --json` |
-| Checkpoint | `bd update bd-xxx --notes "COMPLETED: ..." --json` |
-| Complete work | `bd close bd-xxx --reason "..." --json` |
-| View details | `bd show bd-xxx --json` |
+| Find ready work | `br ready --json` |
+| Start work | `br update bd-xxx --status in_progress --json` |
+| Checkpoint | `br update bd-xxx --notes "COMPLETED: ..." --json` |
+| Complete work | `br close bd-xxx --reason "..." --json` |
+| View details | `br show bd-xxx --json` |
 
 ## Create Issue
 
 \`\`\`bash
-bd create --title "Title" --description "$(cat <<'EOF'
+br create --title "Title" --description "$(cat <<'EOF'
 # Description
 What and why.
 
@@ -118,7 +118,7 @@ NEXT: Immediate next step
 - Unresolved errors
 - Integration tests not updated
 
-Instead: `bd update bd-xxx --notes "BLOCKED: ..." --json`
+Instead: `br update bd-xxx --notes "BLOCKED: ..." --json`
 ```
 
 ### rules/session-protocol.md
@@ -128,10 +128,10 @@ Instead: `bd update bd-xxx --notes "BLOCKED: ..." --json`
 
 ## Work on ONE issue at a time
 
-1. Select highest-priority from `bd ready`
+1. Select highest-priority from `br ready`
 2. Implement ONLY that feature
 3. Commit with `/commit`
-4. Close: `bd close <id> --reason "..." --json`
+4. Close: `br close <id> --reason "..." --json`
 5. Verify end-to-end
 6. Move to next issue
 
@@ -144,12 +144,12 @@ Before committing:
 - Changes minimal and focused
 ```
 
-### skills/bd-issue-tracking.md
+### skills/br-issue-tracking.md
 
 ```markdown
-# BD Issue Tracking Skill
+# BR Issue Tracking Skill
 
-Use the bd CLI for issue tracking workflow.
+Use the br CLI for issue tracking workflow.
 
 ## Trigger
 
@@ -161,11 +161,11 @@ Use when:
 
 ## Workflow
 
-1. Check available work: `bd ready --json`
-2. Claim issue: `bd update <id> --status in_progress`
+1. Check available work: `br ready --json`
+2. Claim issue: `br update <id> --status in_progress`
 3. Work on implementation
-4. Checkpoint progress: `bd update <id> --notes "..."`
-5. Complete: `bd close <id> --reason "..."`
+4. Checkpoint progress: `br update <id> --notes "..."`
+5. Complete: `br close <id> --reason "..."`
 ```
 
 ## Interactive Mode
@@ -179,20 +179,20 @@ Atari will install the following Claude Code configuration:
 
 FILES TO CREATE:
   ~/.claude/rules/issue-tracking.md
-    - BD workflow patterns and quick reference
+    - BR workflow patterns and quick reference
     - 45 lines
 
   ~/.claude/rules/session-protocol.md
     - Session procedures and quality gates
     - 32 lines
 
-  ~/.claude/skills/bd-issue-tracking.md
-    - Skill for bd CLI operations
+  ~/.claude/skills/br-issue-tracking.md
+    - Skill for br CLI operations
     - 28 lines
 
 FILES TO MODIFY:
   ~/.claude/CLAUDE.md
-    - Append bd integration instructions
+    - Append br integration instructions
     - +15 lines
 
 Proceed? [Y/n]
@@ -207,7 +207,7 @@ DRY RUN - No changes will be made
 
 Would create: ~/.claude/rules/issue-tracking.md
 --- BEGIN FILE ---
-# Issue Tracking with bd
+# Issue Tracking with br
 ...
 --- END FILE ---
 
@@ -217,15 +217,15 @@ Would create: ~/.claude/rules/session-protocol.md
 ...
 --- END FILE ---
 
-Would create: ~/.claude/skills/bd-issue-tracking.md
+Would create: ~/.claude/skills/br-issue-tracking.md
 --- BEGIN FILE ---
-# BD Issue Tracking Skill
+# BR Issue Tracking Skill
 ...
 --- END FILE ---
 
 Would append to: ~/.claude/CLAUDE.md
 --- BEGIN APPEND ---
-# BD Integration
+# BR Integration
 ...
 --- END APPEND ---
 
@@ -268,7 +268,7 @@ var initCmd = &cobra.Command{
     Use:   "init",
     Short: "Initialize Claude Code configuration for atari",
     Long: `Initialize Claude Code with rules, skills, and settings
-for use with atari and the bd issue tracking system.`,
+for use with atari and the br issue tracking system.`,
     RunE: runInit,
 }
 
@@ -341,8 +341,8 @@ func buildFileList(minimal bool) []installFile {
                 Content: mustReadTemplate("templates/session-protocol.md"),
             },
             installFile{
-                Path:    "skills/bd-issue-tracking.md",
-                Content: mustReadTemplate("templates/bd-issue-tracking.md"),
+                Path:    "skills/br-issue-tracking.md",
+                Content: mustReadTemplate("templates/br-issue-tracking.md"),
             },
             installFile{
                 Path:     "CLAUDE.md",
@@ -425,12 +425,12 @@ Template files are stored in `internal/init/templates/`:
 internal/init/templates/
 ├── issue-tracking.md
 ├── session-protocol.md
-├── bd-issue-tracking.md
+├── br-issue-tracking.md
 └── claude-md-append.md
 ```
 
 These templates are based on the user's existing Claude configuration patterns documented in [EXISTING_IMPLEMENTATION.md](../EXISTING_IMPLEMENTATION.md). The templates reference:
-- Skills: `bd-issue-tracking`, `git-commit`
+- Skills: `br-issue-tracking`, `git-commit`
 - Agents: `Explore`, `Plan`
 - MCPs: `codex` for verification
 - Rules: Issue tracking workflow, session protocol
@@ -444,8 +444,8 @@ After installation, users can verify with:
 ls -la ~/.claude/rules/
 ls -la ~/.claude/skills/
 
-# Test bd integration
-bd ready --json
+# Test br integration
+br ready --json
 ```
 
 ## Uninstallation
@@ -458,9 +458,9 @@ rm ~/.claude/rules/issue-tracking.md
 rm ~/.claude/rules/session-protocol.md
 
 # Remove skills
-rm ~/.claude/skills/bd-issue-tracking.md
+rm ~/.claude/skills/br-issue-tracking.md
 
-# Manually edit CLAUDE.md to remove bd section
+# Manually edit CLAUDE.md to remove br section
 ```
 
 ## Future Considerations

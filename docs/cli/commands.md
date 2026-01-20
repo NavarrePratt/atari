@@ -407,7 +407,7 @@ var rootCmd = &cobra.Command{
     Use:   "atari",
     Short: "Automated bead drain controller for Claude Code",
     Long: `Atari orchestrates Claude Code sessions to automatically
-work through beads (bd) issues.`,
+work through beads (br) issues.`,
 }
 
 func main() {

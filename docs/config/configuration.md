@@ -26,7 +26,7 @@ claude:
 
 # Work queue settings
 workqueue:
-  poll_interval: 5s              # How often to check bd ready
+  poll_interval: 5s              # How often to check br ready
   label: ""                      # Filter beads by label (optional)
 
 # Backoff settings for failed beads
@@ -50,7 +50,7 @@ paths:
 
 # Prompt template (inline or file path)
 prompt: |
-  Run "bd ready --json" to find available work...
+  Run "br ready --json" to find available work...
 
 # Or reference a file
 # prompt_file: .atari/prompt.txt
@@ -184,7 +184,7 @@ workqueue:
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `poll_interval` | duration | 5s | How often to poll `bd ready` |
+| `poll_interval` | duration | 5s | How often to poll `br ready` |
 | `label` | string | "" | Filter beads by label (include only) |
 | `unassigned_only` | bool | false | Only claim beads with no assignee |
 | `exclude_labels` | []string | [] | Beads with any of these labels will be skipped |
@@ -211,16 +211,16 @@ With this configuration:
 Example creating human-only beads:
 ```bash
 # Option 1: Assign to yourself
-bd create "Design decision needed" --assignee npratt
+br create "Design decision needed" --assignee npratt
 
 # Option 2: Add exclusion label
-bd create "Needs human review" --labels human
+br create "Needs human review" --labels human
 ```
 
 #### Workflow with label filtering
 1. Create beads via `/bd-plan` (no label)
 2. Sequence them via `/bd-sequence`
-3. Add the label: `bd update <id> --labels automated`
+3. Add the label: `br update <id> --labels automated`
 4. Atari picks them up in correct dependency order
 
 ### Backoff Settings
@@ -285,7 +285,7 @@ All paths are relative to the project root unless absolute.
 Inline prompt:
 ```yaml
 prompt: |
-  Run "bd ready --json" to find available work.
+  Run "br ready --json" to find available work.
   Work on the highest-priority ready issue.
   ...
 ```
@@ -328,7 +328,7 @@ See [components/observer.md](../components/observer.md) for Observer Mode detail
 The default prompt references the user's Claude configuration including skills, agents, and MCPs. See [EXISTING_IMPLEMENTATION.md](../EXISTING_IMPLEMENTATION.md) for the shell-based implementation this is based on.
 
 ```
-Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.
+Run "br ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new br issues with exact context of what you were doing and what you found. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.
 ```
 
 ## Implementation

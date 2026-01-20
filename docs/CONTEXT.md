@@ -1,6 +1,11 @@
 # Context & Research
 
-This document captures all background research and context needed to understand and implement atari.
+> **Historical Note**: This document captures background research from the initial implementation phase. Some details may be outdated - refer to [BEADS_INTEGRATION.md](BEADS_INTEGRATION.md) for current integration patterns. Key changes since this was written:
+> - Beads CLI changed from `bd` to `br` (beads_rust)
+> - Activity monitoring changed from spawning `bd activity --follow` to watching `.beads/issues.jsonl`
+> - Agent state reporting (`bd agent state`) was replaced with structured logging
+
+This document captures the original background research and context that informed atari's design.
 
 ## Table of Contents
 

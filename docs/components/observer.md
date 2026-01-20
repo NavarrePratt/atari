@@ -232,7 +232,7 @@ To see full event details:
 To see recent events:
   tail -50 .atari/atari.log | jq -s .
 To get bead details:
-  bd show <bead-id>
+  br show <bead-id>
 
 ---
 

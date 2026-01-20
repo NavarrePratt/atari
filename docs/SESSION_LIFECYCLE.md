@@ -13,7 +13,7 @@ Atari follows a simple model:
 
 | Term | Definition |
 |------|------------|
-| **Bead** | A task/issue from the bd system (`bd ready --json`) |
+| **Bead** | A task/issue from the br system (`br ready --json`) |
 | **Session** | A single Claude Code process execution (`claude -p --output-format stream-json`) |
 | **Turn** | A tool-use cycle: Claude calls tools, receives results, continues |
 | **Iteration** | Controller's processing of one bead (includes session + verification) |
@@ -45,7 +45,7 @@ Atari follows a simple model:
             │
             ▼
      ┌─────────────┐              ┌─────────────┐
-     │  bd ready   │              │   claude    │
+     │  br ready   │              │   claude    │
      │   --json    │              │     -p      │
      └─────────────┘              └─────────────┘
 ```
@@ -62,7 +62,7 @@ Atari follows a simple model:
      WORKQUEUE                    CONTROLLER                    SESSION
          │                            │                            │
          │    ◀── poll ───            │                            │
-         │    bd ready --json         │                            │
+         │    br ready --json         │                            │
          │                            │                            │
          ├──── bead found ───────────▶│                            │
          │    {id, title, priority}   │                            │
@@ -110,7 +110,7 @@ Atari follows a simple model:
          │                            │    │                        │
          │                            │    │                ┌───────┴───────┐
          │                            │    │                │  TURN N       │
-         │                            │    │                │  bd close     │
+         │                            │    │                │  br close     │
          │                            │    │                │  (bead done)  │
          │                            │    │                └───────┬───────┘
          │                            │    │                        │
@@ -121,7 +121,7 @@ Atari follows a simple model:
          │                            │◀───┘                        │
          │                            │                             │
          │                            ├──── verify bead closed ─────│
-         │                            │     bd show <id> --json     │
+         │                            │     br show <id> --json     │
          │                            │                             │
          │      ◀── record success ───┤                             │
          │                            │                             │
@@ -178,7 +178,7 @@ A **turn** is defined as a complete tool-use cycle:
                    ▼             ▼             ▼
               ┌──────────────────────────────────────┐
               │         CHECK BEAD STATUS            │
-              │         bd show <id> --json          │
+              │         br show <id> --json          │
               └────────────────┬─────────────────────┘
                                │
               ┌────────────────┼────────────────┐

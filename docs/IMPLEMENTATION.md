@@ -54,7 +54,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 1. [x] Project setup (go mod, cobra structure, mise tasks)
 2. [x] Core types (Event, State, Config, Bead)
-3. [x] Work Queue Manager (bd ready polling, bead selection, backoff)
+3. [x] Work Queue Manager (br ready polling, bead selection, backoff)
 4. [x] Session Manager (spawn claude, parse stream-json, watchdog timeout)
 5. [x] Event Router (channel-based pub/sub with configurable buffer)
 6. [x] Log Sink (JSON lines file with append mode)
@@ -137,7 +137,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ## Phase 3: BD Activity Integration - COMPLETE
 
-**Goal**: Unified event stream with bd activity.
+**Goal**: Unified event stream with bead activity monitoring.
 
 **Status**: Complete as of 2026-01-02
 
@@ -145,34 +145,31 @@ For detailed component specifications, see the [components/](components/) direct
 
 | Component | Documentation | Implementation |
 |-----------|---------------|----------------|
-| BD Activity Watcher | [components/bdactivity.md](components/bdactivity.md) | `internal/bdactivity/watcher.go` |
-| BD Activity Parser | [components/bdactivity.md](components/bdactivity.md) | `internal/bdactivity/parser.go` |
-| ProcessRunner Interface | - | `internal/runner/` |
-| BD Event Types | [components/events.md](components/events.md) | `internal/events/types.go` |
+| File Watcher | [components/bdactivity.md](components/bdactivity.md) | `internal/bdactivity/watcher.go` |
+| JSONL Parser | [components/bdactivity.md](components/bdactivity.md) | `internal/bdactivity/parser.go` |
+| Bead Event Types | [components/events.md](components/events.md) | `internal/events/types.go` |
 
 ### Tasks
 
-1. [x] Spawn `bd activity --follow --json`
-2. [x] Parse mutation events (create, status, update, comment, closed)
-3. [x] Convert to unified event format (BeadCreatedEvent, BeadStatusEvent, etc.)
+1. [x] Watch `.beads/issues.jsonl` with fsnotify
+2. [x] Parse JSONL lines to BeadState
+3. [x] Compare old/new state to emit diff-based events
 4. [x] Merge into event stream via shared Router
-5. [x] Handle reconnection on failure (exponential backoff with reset)
+5. [x] Handle file truncation gracefully (br sync rewrites)
 
 ### Success Criteria
 
 - [x] Bead status changes appear in event stream
-- [x] `atari events` shows unified claude + bd events
-- [x] Reconnects automatically on bd activity failure
+- [x] `atari events` shows unified claude + bead events
+- [x] File watcher handles all edge cases
 
 ### Notes
 
-- ProcessRunner interface abstracts streaming process execution for testability
-- MockProcessRunner enables deterministic testing without real bd process
-- Watcher uses exponential backoff: 5s initial, 5min max, resets after 3 successful events
-- Parse errors are rate-limited (1 warning per 5 seconds) to avoid log spam
-- Controller integration is optional: watcher disabled when processRunner is nil
-- All tests pass: `go test -v ./internal/bdactivity/...` (51 tests)
-- Silently skips unknown mutation types (bonded, squashed, burned, delete)
+- File watcher approach replaced the previous process-spawning design
+- Watches parent directory to detect file creation
+- Debounces rapid file changes (100ms)
+- No dependency on br binary for monitoring
+- All tests pass: `go test -v ./internal/bdactivity/...`
 
 ---
 
@@ -363,7 +360,7 @@ For detailed component specifications, see the [components/](components/) direct
 
 ### Design Decisions
 
-- **Data source**: `bd list --json --status ...` with status filtering
+- **Data source**: `br list --json --status ...` with status filtering
 - **Views**: Active (open/in_progress/blocked) vs Backlog (deferred), toggle with `a`
 - **Panel system**: Three toggleable panels (e/o/g), uppercase for focus mode
 - **Node density**: Compact/Standard/Detailed, cycle with `d`
@@ -376,7 +373,7 @@ For detailed component specifications, see the [components/](components/) direct
 ### Tasks
 
 1. [x] Add GraphConfig to configuration system
-2. [x] Implement BeadFetcher (bd list --json wrapper)
+2. [x] Implement BeadFetcher (br list --json wrapper)
 3. [x] Implement Graph struct with node/edge data structures
 4. [x] Implement layout algorithm (layer assignment, positioning)
 5. [x] Implement node rendering (compact/standard/detailed densities)
@@ -391,7 +388,7 @@ For detailed component specifications, see the [components/](components/) direct
 14. [x] Wire up panel toggle keys (b/B) - changed from g/G
 15. [x] Handle all-panels-disabled expanded stats view
 16. [x] Unit tests for graph logic
-17. [x] Integration tests with mock bd
+17. [x] Integration tests with mock br
 
 ### Keyboard Shortcuts
 
@@ -424,8 +421,8 @@ For detailed component specifications, see the [components/](components/) direct
 
 - Layout direction adapts to TUI split configuration for optimal use of space
 - Detail modal is nearly full-pane size since beads contain detailed descriptions
-- Graph uses `bd list --json` which includes embedded dependency objects
-- No separate graph computation needed - bd provides all relationship data
+- Graph uses `br list --json` which includes embedded dependency objects
+- No separate graph computation needed - br provides all relationship data
 - Panel toggle key changed from 'g' to 'b' (g is used for go-to-top)
 - Phase 7 epic: bd-drain-dvx (closed)
 - All tests pass: `go test -v ./internal/tui/...` (includes graph unit and integration tests)
@@ -534,7 +531,7 @@ atari/
 │   │   ├── observer_fixtures.go  # Observer log event fixtures (Phase 6)
 │   │   └── CLAUDE.md
 │   ├── workqueue/           # Work discovery and selection
-│   │   ├── poll.go          # bd ready polling
+│   │   ├── poll.go          # br ready polling
 │   │   ├── poll_test.go
 │   │   ├── queue.go         # Selection, backoff, history
 │   │   ├── queue_test.go
@@ -554,7 +551,7 @@ atari/
 │   │   ├── mock.go          # MockProcessRunner for testing
 │   │   └── CLAUDE.md
 │   ├── bdactivity/          # BD activity stream watcher (Phase 3)
-│   │   ├── watcher.go       # Spawns bd activity, reconnects on failure
+│   │   ├── watcher.go       # File watcher for issues.jsonl changes
 │   │   ├── watcher_test.go
 │   │   ├── parser.go        # JSON to typed event conversion
 │   │   ├── parser_test.go
@@ -588,7 +585,7 @@ atari/
 │       ├── graph_pane.go    # Graph panel integration (Phase 7)
 │       ├── graph_pane_test.go
 │       ├── graph_types.go   # Graph data structures (Phase 7)
-│       ├── fetcher.go       # BeadFetcher for bd list (Phase 7)
+│       ├── fetcher.go       # BeadFetcher for br list (Phase 7)
 │       ├── fetcher_test.go
 │       ├── modal.go         # Detail modal component (Phase 7)
 │       ├── modal_test.go
@@ -635,14 +632,14 @@ Each component has unit tests covering:
 - [x] limitedWriter output truncation (observer) - Phase 6
 - [x] Graph visualizer and layout (tui/graph) - Phase 7
 - [x] Graph pane panel integration (tui/graph_pane) - Phase 7
-- [x] BeadFetcher bd list wrapper (tui/fetcher) - Phase 7
+- [x] BeadFetcher br list wrapper (tui/fetcher) - Phase 7
 - [x] Detail modal component (tui/modal) - Phase 7
 
 Run with: `mise run test`
 
 ### Integration Tests - IMPLEMENTED
 
-- [x] Full drain cycle with mock claude/bd (`TestFullDrainCycle`)
+- [x] Full drain cycle with mock claude/br (`TestFullDrainCycle`)
 - [x] Multiple bead processing (`TestDrainWithMultipleBeads`)
 - [x] Failed bead handling (`TestDrainWithFailedBead`)
 - [x] Graceful shutdown (`TestGracefulShutdown`)
@@ -701,7 +698,7 @@ Future considerations:
 | Risk | Mitigation |
 |------|------------|
 | Claude output format changes | Version check, graceful degradation |
-| bd activity format changes | Version check, warn on unknown fields |
+| JSONL format changes | Version check, warn on unknown fields |
 | State file corruption | JSON validation, backup before write |
 | Runaway Claude sessions | --max-turns limit, timeout watchdog |
 | Socket permission issues | Clear error message, suggest fix |

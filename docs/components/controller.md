@@ -40,40 +40,6 @@ func (c *Controller) Stats() Stats
 | events.Router | Emit internal events |
 | config.Config | Read configuration values |
 
-## Beads Agent Integration
-
-Atari registers itself as a beads agent and reports state transitions via `bd agent state atari <state>`. This allows the beads system to track atari's status alongside other agents.
-
-### State Mapping
-
-Beads defines standard agent states. Atari maps its internal states to beads states:
-
-| Atari State | Beads Agent State | Description |
-|-------------|-------------------|-------------|
-| idle | `idle` | Polling for work, no active session |
-| (spawning) | `spawning` | Starting Claude session (transient) |
-| working | `running` | Claude session active |
-| paused | `idle` | Paused by user, waiting for resume |
-| stopping | `stopped` | Graceful shutdown in progress |
-| stopped | `stopped` | Fully stopped |
-
-### Reporting State
-
-```go
-func (c *Controller) reportAgentState(state string) error {
-    cmd := exec.Command("bd", "agent", "state", "atari", state)
-    return cmd.Run()
-}
-```
-
-State is reported:
-1. On startup: `idle`
-2. Before spawning session: `spawning`
-3. When session starts: `running`
-4. When session ends: `idle`
-5. On pause: `idle`
-6. On stop: `stopped`
-
 ## State Machine
 
 ```
@@ -143,7 +109,7 @@ State is reported:
 ```go
 func (c *Controller) Run(ctx context.Context) error {
     c.events.Emit(events.DrainStart{})
-    c.reportAgentState("idle")  // Register with beads
+    slog.Info("controller started", "state", "idle")
 
     for {
         select {
@@ -162,7 +128,7 @@ func (c *Controller) Run(ctx context.Context) error {
         case StateStopping:
             c.runStopping(ctx)
         case StateStopped:
-            c.reportAgentState("stopped")
+            slog.Info("controller stopped", "state", "stopped")
             return nil
         }
     }
@@ -188,7 +154,7 @@ func (c *Controller) runIdle(ctx context.Context) {
 
     c.currentBead = bead
     c.state = StateWorking
-    c.reportAgentState("spawning")  // About to start Claude
+    slog.Info("starting session", "bead", bead.ID)
     c.events.Emit(events.IterationStart{Bead: bead})
 }
 ```
@@ -197,7 +163,7 @@ func (c *Controller) runIdle(ctx context.Context) {
 
 ```go
 func (c *Controller) runWorking(ctx context.Context) {
-    c.reportAgentState("running")  // Session now active
+    slog.Info("session active", "bead", c.currentBead.ID)
 
     result, err := c.session.Run(ctx, c.currentBead)
 
@@ -222,13 +188,13 @@ func (c *Controller) runWorking(ctx context.Context) {
     switch {
     case c.pendingStop:
         c.state = StateStopped
-        c.reportAgentState("stopped")
+        slog.Info("controller stopped")
     case c.pendingPause:
         c.state = StatePaused
-        c.reportAgentState("idle")  // Paused maps to idle
+        slog.Info("controller paused")
     default:
         c.state = StateIdle
-        c.reportAgentState("idle")
+        slog.Info("session complete, returning to idle")
     }
 }
 ```
@@ -260,7 +226,7 @@ After each session ends, reset any beads left in `in_progress` status:
 ```go
 func (c *Controller) resetStuckIssues() error {
     // List all in_progress issues
-    cmd := exec.Command("bd", "list", "--status=in_progress", "--json")
+    cmd := exec.Command("br", "list", "--status=in_progress", "--json")
     output, err := cmd.Output()
     if err != nil {
         return err
@@ -272,7 +238,7 @@ func (c *Controller) resetStuckIssues() error {
     }
 
     for _, issue := range issues {
-        resetCmd := exec.Command("bd", "update", issue.ID,
+        resetCmd := exec.Command("br", "update", issue.ID,
             "--status=open",
             "--priority=0",
             "--notes", "RESET: Previous session ended without closing this issue.")

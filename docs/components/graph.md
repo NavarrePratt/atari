@@ -119,24 +119,24 @@ func (g *Graph) SetCurrentBead(beadID string)  // Highlight processing bead
 | Component | Usage |
 |-----------|-------|
 | config.GraphConfig | Density, layout, refresh settings |
-| BeadFetcher | Data retrieval from bd CLI |
+| BeadFetcher | Data retrieval from br CLI |
 | TUI model | Panel integration, keyboard routing |
 
 External:
-- `bd list --json --status ...` for bead data with dependencies
+- `br list --json --status ...` for bead data with dependencies
 
 ## Design Decisions
 
 ### Data Source
 
-Bead data is fetched via `bd list --json` with status filtering:
+Bead data is fetched via `br list --json` with status filtering:
 
 ```bash
 # Active view (default)
-bd list --json --status open --status in_progress --status blocked
+br list --json --status open --status in_progress --status blocked
 
 # Backlog view
-bd list --json --status deferred
+br list --json --status deferred
 ```
 
 Each bead includes:
@@ -146,7 +146,7 @@ Each bead includes:
 
 ### Graph Construction
 
-1. Fetch filtered beads via `bd list --json --status ...`
+1. Fetch filtered beads via `br list --json --status ...`
 2. Build node map from returned beads
 3. Extract hierarchy edges from `parent` field
 4. Extract dependency edges from `dependencies` array (where `dependency_type == "blocks"`)
@@ -288,7 +288,7 @@ Pressing `Enter` on a selected node opens a modal with full bead details:
 Modal behavior:
 - Takes ~90% of the graph pane area
 - `Esc` or `Enter` to close
-- `o` to open `bd show <id>` in external terminal (future)
+- `o` to open `br show <id>` in external terminal (future)
 
 ### Current Bead Highlighting
 
@@ -408,15 +408,15 @@ an expanded stats view:
 ### Fetching Beads
 
 ```go
-type BDFetcher struct {
+type BRFetcher struct {
     cmdRunner CommandRunner
 }
 
-func (f *BDFetcher) FetchActive(ctx context.Context) ([]Bead, error) {
+func (f *BRFetcher) FetchActive(ctx context.Context) ([]Bead, error) {
     args := []string{"list", "--json", "--status", "open", "--status", "in_progress", "--status", "blocked"}
-    output, err := f.cmdRunner.Run(ctx, "bd", args...)
+    output, err := f.cmdRunner.Run(ctx, "br", args...)
     if err != nil {
-        return nil, fmt.Errorf("bd list failed: %w", err)
+        return nil, fmt.Errorf("br list failed: %w", err)
     }
 
     var beads []Bead
@@ -426,7 +426,7 @@ func (f *BDFetcher) FetchActive(ctx context.Context) ([]Bead, error) {
     return beads, nil
 }
 
-func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]Bead, error) {
+func (f *BRFetcher) FetchBacklog(ctx context.Context) ([]Bead, error) {
     args := []string{"list", "--json", "--status", "deferred"}
     // ... same pattern
 }
@@ -618,25 +618,25 @@ func (g *Graph) statusIcon(status string) string {
 
 ### Integration Tests (`internal/integration/graph_test.go`)
 
-- `TestGraphFetchActive`: bd list integration for active beads
-- `TestGraphFetchBacklog`: bd list integration for backlog
+- `TestGraphFetchActive`: br list integration for active beads
+- `TestGraphFetchBacklog`: br list integration for backlog
 - `TestGraphViewToggle`: Active/backlog view switching
 - `TestGraphRefresh`: Manual refresh behavior
-- `TestGraphWithRealBeads`: End-to-end with mock bd
+- `TestGraphWithRealBeads`: End-to-end with mock br
 - `TestGraphPanelToggle`: TUI panel system integration
 - `TestGraphFocusMode`: Fullscreen graph mode
 - `TestGraphDetailModal`: Modal open/close behavior
 
 ### Test Infrastructure
 
-- `internal/testutil/mock_bd.go`: Mock bd CLI for graph tests
+- `internal/testutil/mock_br.go`: Mock br CLI for graph tests
 - `internal/testutil/graph_fixtures.go`: Sample bead data for tests
 
 ## Error Handling
 
 | Error | Action |
 |-------|--------|
-| bd not available | Show error message in graph pane |
+| br not available | Show error message in graph pane |
 | No beads found | Show "No active beads" message |
 | Parse error | Log warning, show partial graph |
 | Layout overflow | Enable scrolling, show viewport indicator |

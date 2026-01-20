@@ -97,11 +97,11 @@ This approach:
 
 The default prompt is based on the shell implementation from [EXISTING_IMPLEMENTATION.md](../EXISTING_IMPLEMENTATION.md). It references the user's Claude configuration at `~/.claude/` which includes:
 - Rules in `~/.claude/rules/` (issue-tracking.md, session-protocol.md)
-- Skills in `~/.claude/skills/` (bd-issue-tracking)
+- Skills in `~/.claude/skills/` (br-issue-tracking)
 - Global instructions in `~/.claude/CLAUDE.md`
 
 ```go
-const defaultPrompt = `Run "bd ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new bd issues with exact context of what you were doing and what you found. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
+const defaultPrompt = `Run "br ready --json" to find available work. Review your skills (br-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new br issues with exact context of what you were doing and what you found. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.`
 
 func (m *Manager) buildPrompt(bead *workqueue.Bead) string {
     if m.config.PromptTemplate != "" {
