@@ -16,6 +16,8 @@ const (
 	FlagEpic              = "epic"
 	FlagUnassignedOnly    = "unassigned-only"
 	FlagExcludeLabels     = "exclude-labels"
+	FlagSelectionMode     = "selection-mode"
+	FlagEagerSwitch       = "eager-switch"
 	FlagPrompt            = "prompt"
 	FlagBDActivityEnabled = "bd-activity-enabled"
 

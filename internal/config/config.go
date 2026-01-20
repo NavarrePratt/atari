@@ -33,6 +33,8 @@ type WorkQueueConfig struct {
 	Epic           string        `yaml:"epic" mapstructure:"epic"`                       // Restrict work to beads under this epic
 	UnassignedOnly bool          `yaml:"unassigned_only" mapstructure:"unassigned_only"` // Only claim unassigned beads
 	ExcludeLabels  []string      `yaml:"exclude_labels" mapstructure:"exclude_labels"`   // Labels to exclude from selection
+	SelectionMode  string        `yaml:"selection_mode" mapstructure:"selection_mode"`   // Selection mode: "top-level" or "global"
+	EagerSwitch    bool          `yaml:"eager_switch" mapstructure:"eager_switch"`       // Switch beads eagerly when higher priority available
 }
 
 // BackoffConfig holds exponential backoff settings for failed beads.
@@ -176,8 +178,10 @@ func Default() *Config {
 			ExtraArgs: []string{},
 		},
 		WorkQueue: WorkQueueConfig{
-			PollInterval: 5 * time.Second,
-			Label:        "",
+			PollInterval:  5 * time.Second,
+			Label:         "",
+			SelectionMode: "top-level",
+			EagerSwitch:   false,
 		},
 		Backoff: BackoffConfig{
 			Initial:     time.Minute,

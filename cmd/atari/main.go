@@ -314,6 +314,12 @@ Use --daemon to run in the background.`,
 			if cmd.Flags().Changed(FlagExcludeLabels) {
 				cfg.WorkQueue.ExcludeLabels = viper.GetStringSlice(FlagExcludeLabels)
 			}
+			if cmd.Flags().Changed(FlagSelectionMode) {
+				cfg.WorkQueue.SelectionMode = viper.GetString(FlagSelectionMode)
+			}
+			if cmd.Flags().Changed(FlagEagerSwitch) {
+				cfg.WorkQueue.EagerSwitch = viper.GetBool(FlagEagerSwitch)
+			}
 			if cmd.Flags().Changed(FlagPrompt) {
 				cfg.PromptFile = viper.GetString(FlagPrompt)
 			}
@@ -579,6 +585,8 @@ Use --daemon to run in the background.`,
 	startCmd.Flags().String(FlagEpic, "", "Restrict work to beads under this epic (e.g., bd-xxx)")
 	startCmd.Flags().Bool(FlagUnassignedOnly, false, "Only claim unassigned beads")
 	startCmd.Flags().StringSlice(FlagExcludeLabels, nil, "Labels to exclude from work selection (comma-separated)")
+	startCmd.Flags().String(FlagSelectionMode, "top-level", "Selection mode: top-level or global")
+	startCmd.Flags().Bool(FlagEagerSwitch, false, "Switch beads eagerly when higher priority available")
 	startCmd.Flags().String(FlagPrompt, "", "Custom prompt template file")
 	startCmd.Flags().Bool(FlagBDActivityEnabled, true, "Enable BD activity watcher")
 

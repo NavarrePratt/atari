@@ -180,6 +180,8 @@ workqueue:
   label: "automated"       # Recommended: filter to explicitly-marked beads
   unassigned_only: false   # Only claim unassigned beads
   exclude_labels: []       # Labels to exclude from selection
+  selection_mode: top-level  # Selection strategy: "top-level" or "global"
+  eager_switch: false      # Switch to higher priority beads mid-session
 ```
 
 | Setting | Type | Default | Description |
@@ -188,6 +190,8 @@ workqueue:
 | `label` | string | "" | Filter beads by label (include only) |
 | `unassigned_only` | bool | false | Only claim beads with no assignee |
 | `exclude_labels` | []string | [] | Beads with any of these labels will be skipped |
+| `selection_mode` | string | "top-level" | Selection strategy: "top-level" (prioritize top-level beads) or "global" (global priority) |
+| `eager_switch` | bool | false | Switch to higher priority bead when one becomes available |
 
 **Important**: Setting `workqueue.label` is recommended for production use to prevent race conditions where new beads are picked up before being properly sequenced. See [workqueue.md](../components/workqueue.md#race-condition-prevention) for details.
 
