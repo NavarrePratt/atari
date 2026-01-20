@@ -1,15 +1,15 @@
 # BD Activity Package
 
-Watches `bd activity --follow --json` and emits events to the unified event stream.
+Watches `.beads/issues.jsonl` for changes and emits events to the unified event stream.
 
 ## Components
 
 ### Watcher
 
-Main component that manages the bd activity process lifecycle.
+Main component that monitors the JSONL file for bead state changes using fsnotify.
 
 ```go
-watcher := bdactivity.New(&cfg.BDActivity, router, runner, logger)
+watcher := bdactivity.New(&cfg.BDActivity, router, nil, logger)
 
 // Start watching (non-blocking)
 if err := watcher.Start(ctx); err != nil {
@@ -29,34 +29,51 @@ if err := watcher.Stop(); err != nil {
 
 **Key behaviors:**
 - Non-blocking Start: launches background goroutine
-- Automatic reconnection with exponential backoff
-- Backoff resets after receiving successful events
-- Rate-limited parse warnings (one per 5 seconds)
-- Drains stderr to prevent process blocking
+- Watches parent directory to detect file creation
+- Debounces rapid file changes (100ms)
+- Compares old and new state to emit diff-based events
+- Handles file truncation gracefully (br sync rewrites)
+- No dependency on bd binary
 
 ### Parser
 
-Converts bd activity JSON lines to typed events.
+Converts JSONL lines to BeadState for diff comparison.
 
 ```go
-// Parse a single line
-event, err := bdactivity.ParseLine(line)
+// Parse a single line from JSONL file
+state, err := bdactivity.ParseJSONLLine(line)
 if err != nil {
     // Invalid JSON
 }
-if event == nil {
-    // Unknown mutation type (silently skipped)
+if state == nil {
+    // Empty line or missing ID
 }
 ```
 
-**Supported mutation types:**
-- `create` -> BeadCreatedEvent
-- `status` -> BeadStatusEvent or BeadClosedEvent (if closed/completed)
-- `update` -> BeadUpdatedEvent
-- `comment` -> BeadCommentEvent
+**Legacy ParseLine** is kept for backward compatibility with bd activity stream format.
 
-**Skipped types** (silently ignored):
-- `bonded`, `squashed`, `burned`, `delete`, and any unknown types
+## Event Types
+
+### BeadChangedEvent (new)
+
+Emitted when a bead's state changes in the JSONL file:
+
+```go
+type BeadChangedEvent struct {
+    BaseEvent
+    BeadID   string     // The bead ID
+    OldState *BeadState // nil if bead was created
+    NewState *BeadState // nil if bead was deleted
+}
+```
+
+### Legacy Events (kept for backward compatibility)
+
+- BeadCreatedEvent
+- BeadStatusEvent
+- BeadClosedEvent
+- BeadUpdatedEvent
+- BeadCommentEvent
 
 ## Configuration
 
@@ -65,51 +82,51 @@ From `config.BDActivityConfig`:
 | Field | Default | Description |
 |-------|---------|-------------|
 | Enabled | true | Whether to run the watcher |
-| ReconnectDelay | 5s | Initial backoff between reconnects |
-| MaxReconnectDelay | 5m | Maximum backoff cap |
+| ReconnectDelay | 5s | (Legacy, unused in file watcher) |
+| MaxReconnectDelay | 5m | (Legacy, unused in file watcher) |
 
 ## Dependencies
 
 | Component | Usage |
 |-----------|-------|
-| runner.ProcessRunner | Subprocess execution abstraction |
+| fsnotify | File system change notifications |
 | events.Router | Event emission target |
 | config.BDActivityConfig | Configuration settings |
 
 ## Event Flow
 
 ```
-bd activity --follow --json
+.beads/issues.jsonl
+    |
+    v (fsnotify)
+[Watcher.runLoop()]
+    |
+    v (debounce)
+[loadAndDiff()]
     |
     v
-[Watcher.watch()]
+[parseJSONLFile()] -> map[id]*BeadState
     |
-    v
-[ParseLine()] -> event or nil
-    |
-    v
-[Router.Emit()] -> Log sink, State sink, etc.
+    v (compare old vs new)
+[Router.Emit(BeadChangedEvent)]
 ```
 
-## Error Handling
+## Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Start failure | Emits warning, continues with backoff |
-| Process exit | Emits warning, reconnects with backoff |
-| Parse error | Emits rate-limited warning, skips line |
-| Unknown mutation | Silently skipped (no event, no error) |
-| Context cancel | Clean shutdown, no reconnect |
+| File doesn't exist | Watches directory, detects file creation |
+| File truncated | Re-reads entire file, emits delete events for removed beads |
+| Rapid changes | Debounced to 100ms before processing |
+| Parse errors | Logs at debug level, skips invalid lines |
+| Context cancel | Clean shutdown |
 
 ## Testing
 
-Use `testutil.MockProcessRunner` for testing:
+Use `NewWithPath` to test with a custom JSONL path:
 
 ```go
-mock := testutil.NewMockProcessRunner()
-mock.SetOutput(`{"type":"create","issue_id":"bd-001",...}\n`)
-
-watcher := bdactivity.New(cfg, router, mock, logger)
+watcher := bdactivity.NewWithPath(cfg, router, logger, "/tmp/test/issues.jsonl")
 err := watcher.Start(ctx)
 ```
 
@@ -117,7 +134,8 @@ err := watcher.Start(ctx)
 
 | File | Description |
 |------|-------------|
-| watcher.go | Main Watcher component with lifecycle management |
-| parser.go | JSON parsing and event type mapping |
+| watcher.go | File watcher with fsnotify, diff-based event emission |
+| parser.go | JSONL parsing and legacy bd activity format support |
+| watcher_test.go | Watcher unit tests with file operations |
 | parser_test.go | Parser unit tests |
 | CLAUDE.md | This documentation |

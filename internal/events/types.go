@@ -44,6 +44,7 @@ const (
 	EventBeadUpdated EventType = "bead.updated"
 	EventBeadComment EventType = "bead.comment"
 	EventBeadClosed  EventType = "bead.closed"
+	EventBeadChanged EventType = "bead.changed" // from JSONL file watcher
 
 	// Error events
 	EventError      EventType = "error"
@@ -236,6 +237,24 @@ type BeadClosedEvent struct {
 	BaseEvent
 	BeadID string `json:"bead_id"`
 	Actor  string `json:"actor"`
+}
+
+// BeadState represents a snapshot of bead state from the JSONL file.
+type BeadState struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	Priority  int    `json:"priority"`
+	IssueType string `json:"issue_type"`
+}
+
+// BeadChangedEvent is emitted when a bead's state changes in the JSONL file.
+// This is used by the file watcher to detect changes without depending on bd binary.
+type BeadChangedEvent struct {
+	BaseEvent
+	BeadID   string     `json:"bead_id"`
+	OldState *BeadState `json:"old_state,omitempty"` // nil if bead was created
+	NewState *BeadState `json:"new_state,omitempty"` // nil if bead was deleted
 }
 
 // Severity constants for error events.

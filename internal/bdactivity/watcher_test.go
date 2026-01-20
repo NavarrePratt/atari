@@ -2,17 +2,17 @@ package bdactivity
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
-	"github.com/npratt/atari/internal/testutil"
 )
 
 func testConfig() *config.BDActivityConfig {
@@ -23,17 +23,67 @@ func testConfig() *config.BDActivityConfig {
 	}
 }
 
+func setupTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	beadsDir := filepath.Join(dir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("failed to create beads directory: %v", err)
+	}
+	return dir
+}
+
+func writeJSONLFile(t *testing.T, path string, beads []map[string]interface{}) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create JSONL file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	for _, bead := range beads {
+		data, err := json.Marshal(bead)
+		if err != nil {
+			t.Fatalf("failed to marshal bead: %v", err)
+		}
+		if _, err := f.Write(data); err != nil {
+			t.Fatalf("failed to write bead: %v", err)
+		}
+		if _, err := f.WriteString("\n"); err != nil {
+			t.Fatalf("failed to write newline: %v", err)
+		}
+	}
+}
+
+func appendJSONLFile(t *testing.T, path string, bead map[string]interface{}) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		t.Fatalf("failed to open JSONL file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := json.Marshal(bead)
+	if err != nil {
+		t.Fatalf("failed to marshal bead: %v", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		t.Fatalf("failed to write bead: %v", err)
+	}
+	if _, err := f.WriteString("\n"); err != nil {
+		t.Fatalf("failed to write newline: %v", err)
+	}
+}
+
 func TestWatcher_StartStop(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
 	router := events.NewRouter(10)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	// Set up mock to return empty output then block
-	mock.SetOutput("")
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
-	watcher := New(testConfig(), router, mock, logger)
-
-	// Start should succeed
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -46,10 +96,8 @@ func TestWatcher_StartStop(t *testing.T) {
 		t.Error("expected Running() to be true after Start")
 	}
 
-	// Give it a moment to start
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
-	// Stop should succeed
 	err = watcher.Stop()
 	if err != nil {
 		t.Errorf("Stop failed: %v", err)
@@ -61,13 +109,13 @@ func TestWatcher_StartStop(t *testing.T) {
 }
 
 func TestWatcher_DoubleStart(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
 	router := events.NewRouter(10)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	mock.SetOutput("")
-
-	watcher := New(testConfig(), router, mock, logger)
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -78,7 +126,6 @@ func TestWatcher_DoubleStart(t *testing.T) {
 	}
 	defer func() { _ = watcher.Stop() }()
 
-	// Second start should fail
 	err = watcher.Start(ctx)
 	if err == nil {
 		t.Error("expected second Start to fail")
@@ -89,13 +136,13 @@ func TestWatcher_DoubleStart(t *testing.T) {
 }
 
 func TestWatcher_StopIdempotent(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
 	router := events.NewRouter(10)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	mock.SetOutput("")
-
-	watcher := New(testConfig(), router, mock, logger)
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -105,9 +152,8 @@ func TestWatcher_StopIdempotent(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
-	// Multiple stops should be safe
 	for i := 0; i < 3; i++ {
 		err = watcher.Stop()
 		if err != nil {
@@ -117,33 +163,34 @@ func TestWatcher_StopIdempotent(t *testing.T) {
 }
 
 func TestWatcher_StopBeforeStart(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
 	router := events.NewRouter(10)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	watcher := New(testConfig(), router, mock, logger)
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
-	// Stop before start should be safe
 	err := watcher.Stop()
 	if err != nil {
 		t.Errorf("Stop before Start should not error: %v", err)
 	}
 }
 
-func TestWatcher_EventFlow(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
-	router := events.NewRouter(10)
+func TestWatcher_InitialLoad(t *testing.T) {
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
+	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
+		{"id": "bd-001", "title": "Test issue 1", "status": "open", "priority": 1, "issue_type": "task"},
+		{"id": "bd-002", "title": "Test issue 2", "status": "in_progress", "priority": 2, "issue_type": "bug"},
+	})
+
+	router := events.NewRouter(20)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	// Set up mock with bd activity output
-	output := `{"timestamp":"2026-01-02T12:00:00-05:00","type":"create","issue_id":"bd-001","symbol":"+","message":"bd-001 created · Test issue"}
-{"timestamp":"2026-01-02T12:01:00-05:00","type":"status","issue_id":"bd-001","symbol":"→","message":"bd-001 status changed","old_status":"open","new_status":"in_progress"}
-`
-	mock.SetOutput(output)
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
-	watcher := New(testConfig(), router, mock, logger)
-
-	// Subscribe to events
 	sub := router.Subscribe()
 	defer router.Unsubscribe(sub)
 
@@ -154,89 +201,51 @@ func TestWatcher_EventFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
+	defer func() { _ = watcher.Stop() }()
 
-	// Collect events with timeout
-	var received []events.Event
+	// Should get 2 BeadChangedEvents for initial load
+	var received []*events.BeadChangedEvent
 	timeout := time.After(500 * time.Millisecond)
 	for len(received) < 2 {
 		select {
 		case e := <-sub:
-			received = append(received, e)
+			if changed, ok := e.(*events.BeadChangedEvent); ok {
+				received = append(received, changed)
+			}
 		case <-timeout:
 			t.Fatalf("timeout waiting for events, got %d", len(received))
 		}
 	}
 
-	_ = watcher.Stop()
-
-	// Verify first event is BeadCreatedEvent
-	if _, ok := received[0].(*events.BeadCreatedEvent); !ok {
-		t.Errorf("expected BeadCreatedEvent, got %T", received[0])
-	}
-
-	// Verify second event is BeadStatusEvent
-	if _, ok := received[1].(*events.BeadStatusEvent); !ok {
-		t.Errorf("expected BeadStatusEvent, got %T", received[1])
-	}
-}
-
-func TestWatcher_StartFailure(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
-	router := events.NewRouter(10)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Configure mock to fail on start
-	mock.SetStartError(errors.New("command not found"))
-
-	watcher := New(testConfig(), router, mock, logger)
-
-	// Subscribe to events
-	sub := router.Subscribe()
-	defer router.Unsubscribe(sub)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	err := watcher.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start failed: %v", err)
-	}
-
-	// Wait for warning event about start failure
-	timeout := time.After(200 * time.Millisecond)
-	var gotWarning bool
-	for !gotWarning {
-		select {
-		case e := <-sub:
-			if errEvent, ok := e.(*events.ErrorEvent); ok {
-				if strings.Contains(errEvent.Message, "bd activity exited") ||
-					strings.Contains(errEvent.Message, "start bd activity") {
-					gotWarning = true
-				}
-			}
-		case <-timeout:
-			// Cancel context to stop watcher
-			cancel()
-			_ = watcher.Stop()
-			t.Fatal("timeout waiting for warning event")
+	// Verify events
+	ids := make(map[string]bool)
+	for _, e := range received {
+		ids[e.BeadID] = true
+		if e.OldState != nil {
+			t.Errorf("expected OldState to be nil for initial load, got %+v", e.OldState)
+		}
+		if e.NewState == nil {
+			t.Error("expected NewState to be non-nil for initial load")
 		}
 	}
-
-	cancel()
-	_ = watcher.Stop()
+	if !ids["bd-001"] || !ids["bd-002"] {
+		t.Errorf("expected events for bd-001 and bd-002, got %v", ids)
+	}
 }
 
-func TestWatcher_ParseErrorWarning(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
-	router := events.NewRouter(10)
+func TestWatcher_FileChange(t *testing.T) {
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
+	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
+		{"id": "bd-001", "title": "Test issue", "status": "open", "priority": 1, "issue_type": "task"},
+	})
+
+	router := events.NewRouter(20)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	// Set up mock with invalid JSON
-	output := "not valid json\n"
-	mock.SetOutput(output)
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
-	watcher := New(testConfig(), router, mock, logger)
-
-	// Subscribe to events
 	sub := router.Subscribe()
 	defer router.Unsubscribe(sub)
 
@@ -247,39 +256,58 @@ func TestWatcher_ParseErrorWarning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
+	defer func() { _ = watcher.Stop() }()
 
-	// Wait for warning event about parse error
-	timeout := time.After(200 * time.Millisecond)
-	var gotWarning bool
-	for !gotWarning {
-		select {
-		case e := <-sub:
-			if errEvent, ok := e.(*events.ErrorEvent); ok {
-				if strings.Contains(errEvent.Message, "parse error") {
-					gotWarning = true
-				}
-			}
-		case <-timeout:
-			_ = watcher.Stop()
-			t.Fatal("timeout waiting for parse warning event")
-		}
+	// Wait for initial load event
+	timeout := time.After(500 * time.Millisecond)
+	select {
+	case <-sub:
+		// Got initial event
+	case <-timeout:
+		t.Fatal("timeout waiting for initial event")
 	}
 
-	_ = watcher.Stop()
+	// Add a new bead
+	time.Sleep(150 * time.Millisecond) // Wait for debounce
+	appendJSONLFile(t, jsonlPath, map[string]interface{}{
+		"id": "bd-002", "title": "New issue", "status": "open", "priority": 2, "issue_type": "task",
+	})
+
+	// Wait for change event
+	timeout = time.After(500 * time.Millisecond)
+	select {
+	case e := <-sub:
+		changed, ok := e.(*events.BeadChangedEvent)
+		if !ok {
+			t.Fatalf("expected BeadChangedEvent, got %T", e)
+		}
+		if changed.BeadID != "bd-002" {
+			t.Errorf("expected bead_id bd-002, got %s", changed.BeadID)
+		}
+		if changed.OldState != nil {
+			t.Error("expected OldState to be nil for new bead")
+		}
+		if changed.NewState == nil || changed.NewState.Title != "New issue" {
+			t.Errorf("unexpected NewState: %+v", changed.NewState)
+		}
+	case <-timeout:
+		t.Fatal("timeout waiting for change event")
+	}
 }
 
-func TestWatcher_ParseWarningRateLimited(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
-	router := events.NewRouter(100)
+func TestWatcher_FileModification(t *testing.T) {
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
+	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
+		{"id": "bd-001", "title": "Test issue", "status": "open", "priority": 1, "issue_type": "task"},
+	})
+
+	router := events.NewRouter(20)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	// Set up mock with multiple invalid JSON lines
-	output := "bad1\nbad2\nbad3\nbad4\nbad5\n"
-	mock.SetOutput(output)
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
-	watcher := New(testConfig(), router, mock, logger)
-
-	// Subscribe to events
 	sub := router.Subscribe()
 	defer router.Unsubscribe(sub)
 
@@ -290,41 +318,134 @@ func TestWatcher_ParseWarningRateLimited(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
+	defer func() { _ = watcher.Stop() }()
 
-	// Collect events for a short time
-	time.Sleep(100 * time.Millisecond)
-	_ = watcher.Stop()
+	// Wait for initial load
+	timeout := time.After(500 * time.Millisecond)
+	select {
+	case <-sub:
+	case <-timeout:
+		t.Fatal("timeout waiting for initial event")
+	}
 
-	// Count parse error events (should be rate-limited to 1)
-	parseErrorCount := 0
+	// Modify the bead status
+	time.Sleep(150 * time.Millisecond)
+	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
+		{"id": "bd-001", "title": "Test issue", "status": "in_progress", "priority": 1, "issue_type": "task"},
+	})
+
+	// Wait for change event
+	timeout = time.After(500 * time.Millisecond)
+	select {
+	case e := <-sub:
+		changed, ok := e.(*events.BeadChangedEvent)
+		if !ok {
+			t.Fatalf("expected BeadChangedEvent, got %T", e)
+		}
+		if changed.BeadID != "bd-001" {
+			t.Errorf("expected bead_id bd-001, got %s", changed.BeadID)
+		}
+		if changed.OldState == nil || changed.OldState.Status != "open" {
+			t.Errorf("expected OldState.Status to be 'open', got %+v", changed.OldState)
+		}
+		if changed.NewState == nil || changed.NewState.Status != "in_progress" {
+			t.Errorf("expected NewState.Status to be 'in_progress', got %+v", changed.NewState)
+		}
+	case <-timeout:
+		t.Fatal("timeout waiting for change event")
+	}
+}
+
+func TestWatcher_FileTruncation(t *testing.T) {
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
+	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
+		{"id": "bd-001", "title": "Issue 1", "status": "open", "priority": 1, "issue_type": "task"},
+		{"id": "bd-002", "title": "Issue 2", "status": "open", "priority": 2, "issue_type": "task"},
+	})
+
+	router := events.NewRouter(20)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
+
+	sub := router.Subscribe()
+	defer router.Unsubscribe(sub)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := watcher.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() { _ = watcher.Stop() }()
+
+	// Drain initial events
+	timeout := time.After(500 * time.Millisecond)
+	drained := 0
 drainLoop:
-	for {
+	for drained < 2 {
 		select {
-		case e := <-sub:
-			if errEvent, ok := e.(*events.ErrorEvent); ok {
-				if strings.Contains(errEvent.Message, "parse error") {
-					parseErrorCount++
-				}
-			}
-		default:
+		case <-sub:
+			drained++
+		case <-timeout:
 			break drainLoop
 		}
 	}
 
-	// Should have at most 1 parse error due to rate limiting (5s interval)
-	if parseErrorCount > 1 {
-		t.Errorf("expected at most 1 parse error event (rate-limited), got %d", parseErrorCount)
+	// Truncate file (simulate br sync)
+	time.Sleep(150 * time.Millisecond)
+	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
+		{"id": "bd-001", "title": "Issue 1", "status": "closed", "priority": 1, "issue_type": "task"},
+	})
+
+	// Should get events for modified bd-001 and deleted bd-002
+	timeout = time.After(500 * time.Millisecond)
+	var changes []*events.BeadChangedEvent
+collectLoop:
+	for len(changes) < 2 {
+		select {
+		case e := <-sub:
+			if changed, ok := e.(*events.BeadChangedEvent); ok {
+				changes = append(changes, changed)
+			}
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	if len(changes) < 2 {
+		t.Fatalf("expected 2 change events, got %d", len(changes))
+	}
+
+	// Check for the modification and deletion
+	var gotModify, gotDelete bool
+	for _, c := range changes {
+		if c.BeadID == "bd-001" && c.NewState != nil && c.NewState.Status == "closed" {
+			gotModify = true
+		}
+		if c.BeadID == "bd-002" && c.NewState == nil {
+			gotDelete = true
+		}
+	}
+	if !gotModify {
+		t.Error("expected modification event for bd-001")
+	}
+	if !gotDelete {
+		t.Error("expected deletion event for bd-002")
 	}
 }
 
 func TestWatcher_ContextCancel(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
 	router := events.NewRouter(10)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	mock.SetOutput("")
-
-	watcher := New(testConfig(), router, mock, logger)
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -333,13 +454,10 @@ func TestWatcher_ContextCancel(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Give it a moment to start
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
-	// Cancel context should stop watcher
 	cancel()
 
-	// Wait for watcher to stop
 	timeout := time.After(200 * time.Millisecond)
 	for watcher.Running() {
 		select {
@@ -352,100 +470,15 @@ func TestWatcher_ContextCancel(t *testing.T) {
 	}
 }
 
-func TestWatcher_BackoffBehavior(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
-	router := events.NewRouter(10)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	cfg := &config.BDActivityConfig{
-		Enabled:           true,
-		ReconnectDelay:    10 * time.Millisecond,
-		MaxReconnectDelay: 40 * time.Millisecond,
-	}
-
-	// Track start attempts
-	var mu sync.Mutex
-	startTimes := []time.Time{}
-
-	mock.OnStart(func(attempt int, name string, args []string) (string, string, error) {
-		mu.Lock()
-		startTimes = append(startTimes, time.Now())
-		mu.Unlock()
-		// Return empty output and then process will "exit"
-		return "", "", nil
-	})
-
-	watcher := New(cfg, router, mock, logger)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	err := watcher.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start failed: %v", err)
-	}
-
-	// Let it reconnect a few times
-	time.Sleep(150 * time.Millisecond)
-
-	cancel()
-	_ = watcher.Stop()
-
-	mu.Lock()
-	attempts := len(startTimes)
-	times := make([]time.Time, len(startTimes))
-	copy(times, startTimes)
-	mu.Unlock()
-
-	if attempts < 2 {
-		t.Skipf("not enough reconnection attempts to test backoff (got %d)", attempts)
-	}
-
-	// Verify delays are increasing (with some tolerance)
-	for i := 1; i < len(times)-1; i++ {
-		delay1 := times[i].Sub(times[i-1])
-		delay2 := times[i+1].Sub(times[i])
-
-		// Second delay should be at least as long as first (exponential backoff)
-		// Allow some tolerance for timing
-		if delay2 < delay1/2 {
-			t.Logf("delay %d: %v, delay %d: %v", i, delay1, i+1, delay2)
-		}
-	}
-}
-
-func TestWatcher_BackoffReset(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
-	router := events.NewRouter(10)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	cfg := testConfig()
-
-	watcher := New(cfg, router, mock, logger)
-
-	// Set initial backoff high
-	watcher.backoff = 100 * time.Millisecond
-
-	// Simulate receiving events
-	for i := 0; i < 5; i++ {
-		watcher.resetBackoff()
-	}
-
-	// Backoff should be reset to initial value
-	if watcher.backoff != cfg.ReconnectDelay {
-		t.Errorf("expected backoff to be reset to %v, got %v", cfg.ReconnectDelay, watcher.backoff)
-	}
-}
-
 func TestWatcher_RunningState(t *testing.T) {
-	mock := testutil.NewMockProcessRunner()
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+
 	router := events.NewRouter(10)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	mock.SetOutput("")
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
 
-	watcher := New(testConfig(), router, mock, logger)
-
-	// Initially not running
 	if watcher.Running() {
 		t.Error("expected Running() to be false before Start")
 	}
@@ -458,16 +491,192 @@ func TestWatcher_RunningState(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Should be running now
 	if !watcher.Running() {
 		t.Error("expected Running() to be true after Start")
 	}
 
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	_ = watcher.Stop()
 
-	// Should not be running after stop
 	if watcher.Running() {
 		t.Error("expected Running() to be false after Stop")
+	}
+}
+
+func TestWatcher_FileNotExist(t *testing.T) {
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+	// Do not create the file
+
+	router := events.NewRouter(10)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start should succeed even if file doesn't exist
+	err := watcher.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() { _ = watcher.Stop() }()
+
+	if !watcher.Running() {
+		t.Error("expected watcher to be running")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Watcher should still be running
+	if !watcher.Running() {
+		t.Error("watcher should still be running even if file doesn't exist")
+	}
+}
+
+func TestWatcher_FileCreatedLater(t *testing.T) {
+	dir := setupTestDir(t)
+	jsonlPath := filepath.Join(dir, ".beads", "issues.jsonl")
+	// Do not create the file yet
+
+	router := events.NewRouter(20)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	watcher := NewWithPath(testConfig(), router, logger, jsonlPath)
+
+	sub := router.Subscribe()
+	defer router.Unsubscribe(sub)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := watcher.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() { _ = watcher.Stop() }()
+
+	// Create file after watcher started
+	time.Sleep(100 * time.Millisecond)
+	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
+		{"id": "bd-001", "title": "New issue", "status": "open", "priority": 1, "issue_type": "task"},
+	})
+
+	// Should detect the file creation
+	timeout := time.After(500 * time.Millisecond)
+	select {
+	case e := <-sub:
+		changed, ok := e.(*events.BeadChangedEvent)
+		if !ok {
+			t.Fatalf("expected BeadChangedEvent, got %T", e)
+		}
+		if changed.BeadID != "bd-001" {
+			t.Errorf("expected bead_id bd-001, got %s", changed.BeadID)
+		}
+	case <-timeout:
+		t.Fatal("timeout waiting for event after file creation")
+	}
+}
+
+func TestParseJSONLLine(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     []byte
+		wantID   string
+		wantErr  bool
+		wantNil  bool
+	}{
+		{
+			name:   "valid bead",
+			line:   []byte(`{"id":"bd-001","title":"Test","status":"open","priority":1,"issue_type":"task"}`),
+			wantID: "bd-001",
+		},
+		{
+			name:    "empty line",
+			line:    []byte{},
+			wantNil: true,
+		},
+		{
+			name:    "invalid json",
+			line:    []byte(`{invalid`),
+			wantErr: true,
+		},
+		{
+			name:    "missing id",
+			line:    []byte(`{"title":"Test","status":"open"}`),
+			wantNil: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bead, err := ParseJSONLLine(tc.line)
+			if tc.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tc.wantNil && bead != nil {
+				t.Errorf("expected nil bead, got %+v", bead)
+			}
+			if tc.wantID != "" {
+				if bead == nil {
+					t.Fatal("expected non-nil bead")
+				}
+				if bead.ID != tc.wantID {
+					t.Errorf("expected ID %s, got %s", tc.wantID, bead.ID)
+				}
+			}
+		})
+	}
+}
+
+func TestBeadStateEqual(t *testing.T) {
+	tests := []struct {
+		name   string
+		a, b   *events.BeadState
+		expect bool
+	}{
+		{
+			name:   "both nil",
+			a:      nil,
+			b:      nil,
+			expect: true,
+		},
+		{
+			name:   "one nil",
+			a:      &events.BeadState{ID: "bd-001"},
+			b:      nil,
+			expect: false,
+		},
+		{
+			name:   "equal",
+			a:      &events.BeadState{ID: "bd-001", Title: "Test", Status: "open", Priority: 1, IssueType: "task"},
+			b:      &events.BeadState{ID: "bd-001", Title: "Test", Status: "open", Priority: 1, IssueType: "task"},
+			expect: true,
+		},
+		{
+			name:   "different status",
+			a:      &events.BeadState{ID: "bd-001", Status: "open"},
+			b:      &events.BeadState{ID: "bd-001", Status: "closed"},
+			expect: false,
+		},
+		{
+			name:   "different title",
+			a:      &events.BeadState{ID: "bd-001", Title: "Old"},
+			b:      &events.BeadState{ID: "bd-001", Title: "New"},
+			expect: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := beadStateEqual(tc.a, tc.b)
+			if result != tc.expect {
+				t.Errorf("beadStateEqual(%+v, %+v) = %v, want %v", tc.a, tc.b, result, tc.expect)
+			}
+		})
 	}
 }

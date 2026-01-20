@@ -1,4 +1,4 @@
-// Package bdactivity provides parsing and streaming of bd activity events.
+// Package bdactivity provides parsing for bd JSONL files.
 package bdactivity
 
 import (
@@ -9,7 +9,8 @@ import (
 	"github.com/npratt/atari/internal/events"
 )
 
-// bdActivity represents a single bd activity JSON event.
+// bdActivity represents a single bd activity JSON event (legacy format).
+// Kept for backward compatibility with any code that may use it.
 type bdActivity struct {
 	Timestamp string `json:"timestamp"`
 	Type      string `json:"type"`
@@ -21,11 +22,11 @@ type bdActivity struct {
 	Actor     string `json:"actor,omitempty"`
 }
 
-// ParseLine parses a single line of bd activity JSON output.
+// ParseLine parses a single line of bd activity JSON output (legacy format).
+// Kept for backward compatibility.
 // Returns nil, nil for empty lines or unknown event types (silently skipped).
 // Returns nil, error for invalid JSON.
 func ParseLine(line []byte) (events.Event, error) {
-	// Skip empty lines
 	if len(line) == 0 || len(strings.TrimSpace(string(line))) == 0 {
 		return nil, nil
 	}
@@ -94,7 +95,6 @@ func mapToEvent(a *bdActivity) events.Event {
 		}
 
 	default:
-		// Unknown types (bonded, squashed, burned, delete, etc.) are silently skipped
 		return nil
 	}
 }
@@ -117,7 +117,6 @@ func parseTimestamp(ts string) time.Time {
 	}
 	t, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
-		// Also try RFC3339Nano for high-precision timestamps
 		t, err = time.Parse(time.RFC3339Nano, ts)
 		if err != nil {
 			return time.Now()
