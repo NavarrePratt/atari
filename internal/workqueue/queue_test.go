@@ -1267,3 +1267,528 @@ func TestNext_WithoutEpicFilter(t *testing.T) {
 		t.Fatal("expected a bead when no epic filter")
 	}
 }
+
+// Tests for top-level selection
+
+func TestIdentifyTopLevelItems_EpicsAndRoots(t *testing.T) {
+	beads := []Bead{
+		{ID: "epic-001", IssueType: "epic", Priority: 2, CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{ID: "task-001", Parent: "epic-001", Priority: 1},                                                           // Not top-level (has parent)
+		{ID: "standalone-001", IssueType: "task", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)}, // Top-level (no parent)
+		{ID: "epic-002", IssueType: "epic", Priority: 3, CreatedAt: time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)},
+	}
+
+	topLevel := identifyTopLevelItems(beads)
+
+	if len(topLevel) != 3 {
+		t.Fatalf("expected 3 top-level items, got %d", len(topLevel))
+	}
+
+	// Should be sorted by priority, then creation time
+	// Priority 1: standalone-001
+	// Priority 2: epic-001
+	// Priority 3: epic-002
+	if topLevel[0].ID != "standalone-001" {
+		t.Errorf("expected standalone-001 first (priority 1), got %s", topLevel[0].ID)
+	}
+	if topLevel[1].ID != "epic-001" {
+		t.Errorf("expected epic-001 second (priority 2), got %s", topLevel[1].ID)
+	}
+	if topLevel[2].ID != "epic-002" {
+		t.Errorf("expected epic-002 third (priority 3), got %s", topLevel[2].ID)
+	}
+}
+
+func TestIdentifyTopLevelItems_SamePrioritySortByTime(t *testing.T) {
+	beads := []Bead{
+		{ID: "epic-002", IssueType: "epic", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)},
+		{ID: "epic-001", IssueType: "epic", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+	}
+
+	topLevel := identifyTopLevelItems(beads)
+
+	if len(topLevel) != 2 {
+		t.Fatalf("expected 2 top-level items, got %d", len(topLevel))
+	}
+
+	// Same priority, should be sorted by creation time (oldest first)
+	if topLevel[0].ID != "epic-001" {
+		t.Errorf("expected epic-001 first (older), got %s", topLevel[0].ID)
+	}
+	if topLevel[1].ID != "epic-002" {
+		t.Errorf("expected epic-002 second (newer), got %s", topLevel[1].ID)
+	}
+}
+
+func TestIdentifyTopLevelItems_Empty(t *testing.T) {
+	topLevel := identifyTopLevelItems(nil)
+
+	if len(topLevel) != 0 {
+		t.Errorf("expected 0 top-level items for nil input, got %d", len(topLevel))
+	}
+}
+
+func TestHasReadyDescendants_DirectChildren(t *testing.T) {
+	readyBeads := []Bead{
+		{ID: "task-001", IssueType: "task"},
+		{ID: "task-002", IssueType: "task"},
+	}
+	allBeads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+		{ID: "task-002", Parent: "epic-001"},
+		{ID: "task-003", Parent: "other-epic"},
+	}
+
+	if !hasReadyDescendants("epic-001", readyBeads, allBeads) {
+		t.Error("expected epic-001 to have ready descendants")
+	}
+}
+
+func TestHasReadyDescendants_NestedChildren(t *testing.T) {
+	readyBeads := []Bead{
+		{ID: "nested-task", IssueType: "task"},
+	}
+	allBeads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "sub-epic", IssueType: "epic", Parent: "epic-001"},
+		{ID: "nested-task", Parent: "sub-epic"},
+	}
+
+	if !hasReadyDescendants("epic-001", readyBeads, allBeads) {
+		t.Error("expected epic-001 to have nested ready descendants")
+	}
+}
+
+func TestHasReadyDescendants_NoReadyWork(t *testing.T) {
+	readyBeads := []Bead{
+		{ID: "task-other", IssueType: "task"},
+	}
+	allBeads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+		{ID: "task-other", Parent: "other-epic"},
+	}
+
+	if hasReadyDescendants("epic-001", readyBeads, allBeads) {
+		t.Error("expected epic-001 to have no ready descendants")
+	}
+}
+
+func TestHasReadyDescendants_SkipsEpics(t *testing.T) {
+	readyBeads := []Bead{
+		{ID: "epic-001", IssueType: "epic"}, // Epic itself is ready but should be skipped
+	}
+	allBeads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+	}
+
+	if hasReadyDescendants("epic-001", readyBeads, allBeads) {
+		t.Error("expected epic-001 to have no ready descendants (epics are skipped)")
+	}
+}
+
+func TestHasReadyDescendants_StandaloneBeadIsOwnDescendant(t *testing.T) {
+	readyBeads := []Bead{
+		{ID: "standalone-001", IssueType: "task"},
+	}
+	allBeads := []Bead{
+		{ID: "standalone-001", IssueType: "task"}, // No parent, not an epic
+	}
+
+	if !hasReadyDescendants("standalone-001", readyBeads, allBeads) {
+		t.Error("expected standalone bead to be considered its own descendant")
+	}
+}
+
+func TestSelectBestTopLevel(t *testing.T) {
+	topLevelItems := []Bead{
+		{ID: "epic-001", Priority: 1},
+		{ID: "epic-002", Priority: 2},
+	}
+	readyBeads := []Bead{
+		{ID: "task-002", IssueType: "task"},
+	}
+	allBeads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "epic-002", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"}, // Not ready
+		{ID: "task-002", Parent: "epic-002"}, // Ready
+	}
+
+	// epic-001 has no ready work, epic-002 does
+	best := selectBestTopLevel(topLevelItems, readyBeads, allBeads)
+	if best != "epic-002" {
+		t.Errorf("expected epic-002 (has ready work), got %s", best)
+	}
+}
+
+func TestSelectBestTopLevel_NoReadyWork(t *testing.T) {
+	topLevelItems := []Bead{
+		{ID: "epic-001", Priority: 1},
+	}
+	readyBeads := []Bead{}
+	allBeads := []Bead{
+		{ID: "epic-001", IssueType: "epic"},
+	}
+
+	best := selectBestTopLevel(topLevelItems, readyBeads, allBeads)
+	if best != "" {
+		t.Errorf("expected empty string when no ready work, got %s", best)
+	}
+}
+
+func TestNextTopLevel_SelectsFromActiveTopLevel(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns tasks from multiple epics
+	readyJSON := `[
+		{"id": "task-epic1", "title": "Task in epic1", "status": "open", "priority": 2, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
+		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list returns hierarchy
+	listJSON := `[
+		{"id": "epic-001", "title": "Epic 1", "status": "open", "issue_type": "epic", "priority": 2},
+		{"id": "epic-002", "title": "Epic 2", "status": "open", "issue_type": "epic", "priority": 1},
+		{"id": "task-epic1", "title": "Task in epic1", "status": "open", "parent": "epic-001"},
+		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "parent": "epic-002"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// Set active top-level to epic-001
+	m.SetActiveTopLevel("epic-001")
+
+	bead, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead")
+	}
+
+	// Should select from epic-001 even though epic-002 has higher priority work
+	if bead.ID != "task-epic1" {
+		t.Errorf("expected task-epic1 (from active top-level), got %s", bead.ID)
+	}
+
+	// Active top-level should remain
+	if m.ActiveTopLevel() != "epic-001" {
+		t.Errorf("expected active top-level to remain epic-001, got %s", m.ActiveTopLevel())
+	}
+}
+
+func TestNextTopLevel_SwitchesWhenExhausted(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns only task from epic-002 (epic-001 is exhausted)
+	readyJSON := `[
+		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list returns hierarchy
+	listJSON := `[
+		{"id": "epic-001", "title": "Epic 1", "status": "open", "issue_type": "epic", "priority": 2},
+		{"id": "epic-002", "title": "Epic 2", "status": "open", "issue_type": "epic", "priority": 1},
+		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "parent": "epic-002"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// Set active top-level to epic-001 (which is exhausted)
+	m.SetActiveTopLevel("epic-001")
+
+	bead, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead")
+	}
+
+	// Should switch to epic-002 and select its task
+	if bead.ID != "task-epic2" {
+		t.Errorf("expected task-epic2, got %s", bead.ID)
+	}
+
+	// Active top-level should switch to epic-002
+	if m.ActiveTopLevel() != "epic-002" {
+		t.Errorf("expected active top-level to switch to epic-002, got %s", m.ActiveTopLevel())
+	}
+}
+
+func TestNextTopLevel_SelectsHighestPriorityTopLevel(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns tasks from multiple epics
+	readyJSON := `[
+		{"id": "task-low", "title": "Task low priority", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
+		{"id": "task-high", "title": "Task high priority", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list returns hierarchy - epic-high has highest priority (lower number)
+	listJSON := `[
+		{"id": "epic-low", "title": "Low Priority Epic", "status": "open", "issue_type": "epic", "priority": 3},
+		{"id": "epic-high", "title": "High Priority Epic", "status": "open", "issue_type": "epic", "priority": 1},
+		{"id": "task-low", "title": "Task low priority", "status": "open", "parent": "epic-low"},
+		{"id": "task-high", "title": "Task high priority", "status": "open", "parent": "epic-high"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	bead, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead")
+	}
+
+	// Should select from highest priority top-level (epic-high with priority 1)
+	if bead.ID != "task-high" {
+		t.Errorf("expected task-high (from highest priority epic), got %s", bead.ID)
+	}
+
+	// Active top-level should be epic-high
+	if m.ActiveTopLevel() != "epic-high" {
+		t.Errorf("expected active top-level to be epic-high, got %s", m.ActiveTopLevel())
+	}
+}
+
+func TestNextTopLevel_StandaloneBeads(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns a standalone bead (no parent)
+	readyJSON := `[
+		{"id": "standalone-001", "title": "Standalone task", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list shows the standalone bead has no parent
+	listJSON := `[
+		{"id": "standalone-001", "title": "Standalone task", "status": "open", "issue_type": "task", "priority": 1}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	bead, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead")
+	}
+
+	if bead.ID != "standalone-001" {
+		t.Errorf("expected standalone-001, got %s", bead.ID)
+	}
+
+	// Standalone bead should be its own top-level
+	if m.ActiveTopLevel() != "standalone-001" {
+		t.Errorf("expected active top-level to be standalone-001, got %s", m.ActiveTopLevel())
+	}
+}
+
+func TestNextTopLevel_NoBeads(t *testing.T) {
+	mock := testutil.NewMockRunner()
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	bead, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead != nil {
+		t.Errorf("expected nil bead when no work available, got %v", bead)
+	}
+}
+
+func TestNextTopLevel_RespectsHistoryFilters(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// br ready returns tasks
+	readyJSON := `[
+		{"id": "task-001", "title": "Task 1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
+		{"id": "task-002", "title": "Task 2", "status": "open", "priority": 2, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// br list
+	listJSON := `[
+		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic", "priority": 1},
+		{"id": "task-001", "title": "Task 1", "status": "open", "parent": "epic-001"},
+		{"id": "task-002", "title": "Task 2", "status": "open", "parent": "epic-001"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// Mark task-001 as completed
+	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistoryCompleted}
+
+	bead, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead")
+	}
+
+	// Should skip task-001 (completed) and select task-002
+	if bead.ID != "task-002" {
+		t.Errorf("expected task-002 (task-001 is completed), got %s", bead.ID)
+	}
+}
+
+func TestNextTopLevel_MultiEpicScenario(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// Multiple tasks across different epics
+	readyJSON := `[
+		{"id": "task-A1", "title": "Task A1", "status": "open", "priority": 2, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
+		{"id": "task-A2", "title": "Task A2", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
+		{"id": "task-B1", "title": "Task B1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
+	]`
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+
+	// Hierarchy with two epics
+	listJSON := `[
+		{"id": "epic-A", "title": "Epic A", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T08:00:00Z"},
+		{"id": "epic-B", "title": "Epic B", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T09:00:00Z"},
+		{"id": "task-A1", "title": "Task A1", "status": "open", "parent": "epic-A", "priority": 2},
+		{"id": "task-A2", "title": "Task A2", "status": "open", "parent": "epic-A", "priority": 1},
+		{"id": "task-B1", "title": "Task B1", "status": "open", "parent": "epic-B", "priority": 1}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// First selection should pick from epic-A (older, same priority)
+	bead1, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead1 == nil {
+		t.Fatal("expected a bead")
+	}
+
+	// Should select task-A2 (highest priority within epic-A)
+	if bead1.ID != "task-A2" {
+		t.Errorf("expected task-A2, got %s", bead1.ID)
+	}
+	if m.ActiveTopLevel() != "epic-A" {
+		t.Errorf("expected active top-level to be epic-A, got %s", m.ActiveTopLevel())
+	}
+}
+
+func TestActiveTopLevel_GetSet(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, testutil.NewMockRunner())
+
+	// Initially empty
+	if m.ActiveTopLevel() != "" {
+		t.Errorf("expected empty active top-level, got %s", m.ActiveTopLevel())
+	}
+
+	// Set and get
+	m.SetActiveTopLevel("epic-001")
+	if m.ActiveTopLevel() != "epic-001" {
+		t.Errorf("expected epic-001, got %s", m.ActiveTopLevel())
+	}
+
+	// Clear
+	m.ClearActiveTopLevel()
+	if m.ActiveTopLevel() != "" {
+		t.Errorf("expected empty after clear, got %s", m.ActiveTopLevel())
+	}
+}
+
+func TestNextTopLevel_ExhaustedClearsActiveTopLevel(t *testing.T) {
+	mock := testutil.NewMockRunner()
+
+	// No ready beads (all exhausted)
+	mock.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// Set an active top-level
+	m.SetActiveTopLevel("epic-001")
+
+	// NextTopLevel with no beads should not crash and return nil
+	bead, err := m.NextTopLevel(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead != nil {
+		t.Errorf("expected nil bead, got %v", bead)
+	}
+}
+
+func TestFetchAllBeads(t *testing.T) {
+	mock := testutil.NewMockRunner()
+	listJSON := `[
+		{"id": "bead-001", "title": "Bead 1", "status": "open"},
+		{"id": "bead-002", "title": "Bead 2", "status": "open"}
+	]`
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	beads, err := m.fetchAllBeads(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(beads) != 2 {
+		t.Fatalf("expected 2 beads, got %d", len(beads))
+	}
+	if beads[0].ID != "bead-001" {
+		t.Errorf("expected bead-001, got %s", beads[0].ID)
+	}
+}
+
+func TestFetchAllBeads_Empty(t *testing.T) {
+	mock := testutil.NewMockRunner()
+	mock.SetResponse("br", []string{"list", "--json"}, []byte(""))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	beads, err := m.fetchAllBeads(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if beads != nil {
+		t.Errorf("expected nil beads for empty output, got %v", beads)
+	}
+}
+
+func TestFetchAllBeads_Error(t *testing.T) {
+	mock := testutil.NewMockRunner()
+	mock.SetError("br", []string{"list", "--json"}, errors.New("command failed"))
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	_, err := m.fetchAllBeads(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

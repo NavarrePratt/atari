@@ -45,10 +45,11 @@ type Bead struct {
 
 // Manager discovers available work by polling br ready.
 type Manager struct {
-	config  *config.Config
-	runner  testutil.CommandRunner
-	history map[string]*BeadHistory
-	mu      sync.RWMutex
+	config         *config.Config
+	runner         testutil.CommandRunner
+	history        map[string]*BeadHistory
+	activeTopLevel string // Runtime state: currently active top-level item ID
+	mu             sync.RWMutex
 }
 
 // New creates a Manager with the given config and command runner.
@@ -286,6 +287,196 @@ func buildDescendantSet(epicID string, beads []Bead) map[string]bool {
 	}
 
 	return descendants
+}
+
+// fetchAllBeads retrieves all beads from br list --json.
+func (m *Manager) fetchAllBeads(ctx context.Context) ([]Bead, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	output, err := m.runner.Run(ctx, "br", "list", "--json")
+	if err != nil {
+		return nil, fmt.Errorf("br list failed: %w", err)
+	}
+
+	if len(output) == 0 {
+		return nil, nil
+	}
+
+	var beads []Bead
+	if err := json.Unmarshal(output, &beads); err != nil {
+		return nil, fmt.Errorf("parse br list output: %w", err)
+	}
+
+	return beads, nil
+}
+
+// identifyTopLevelItems returns beads that are either epics or have no parent.
+// Results are sorted by priority (ascending), then by creation time (oldest first).
+func identifyTopLevelItems(beads []Bead) []Bead {
+	var topLevel []Bead
+	for _, bead := range beads {
+		if bead.IssueType == "epic" || bead.Parent == "" {
+			topLevel = append(topLevel, bead)
+		}
+	}
+
+	sort.Slice(topLevel, func(i, j int) bool {
+		if topLevel[i].Priority != topLevel[j].Priority {
+			return topLevel[i].Priority < topLevel[j].Priority
+		}
+		return topLevel[i].CreatedAt.Before(topLevel[j].CreatedAt)
+	})
+
+	return topLevel
+}
+
+// hasReadyDescendants checks if a top-level item has any ready descendants.
+// It returns true if there are ready beads that are descendants of the given top-level ID.
+func hasReadyDescendants(topLevelID string, readyBeads []Bead, allBeads []Bead) bool {
+	descendants := buildDescendantSet(topLevelID, allBeads)
+
+	for _, bead := range readyBeads {
+		// Skip epics themselves
+		if bead.IssueType == "epic" {
+			continue
+		}
+		// Check if this ready bead is a descendant (or the top-level itself if not an epic)
+		if descendants[bead.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+// selectBestTopLevel finds the highest-priority top-level item that has ready work.
+// Returns empty string if no top-level item has ready descendants.
+func selectBestTopLevel(topLevelItems []Bead, readyBeads []Bead, allBeads []Bead) string {
+	for _, item := range topLevelItems {
+		if hasReadyDescendants(item.ID, readyBeads, allBeads) {
+			return item.ID
+		}
+	}
+	return ""
+}
+
+// NextTopLevel selects the next bead using top-level selection mode.
+// This mode groups work by top-level items (epics + standalone beads) and
+// focuses on one top-level at a time until exhausted.
+//
+// Algorithm:
+// 1. If activeTopLevel is set and has ready descendants, use it
+// 2. Otherwise, identify all top-level items, pick highest priority with ready work
+// 3. Filter beads to descendants of selected top-level item
+// 4. Apply existing filterEligible logic
+// 5. Return highest priority descendant
+func (m *Manager) NextTopLevel(ctx context.Context) (*Bead, error) {
+	// Get ready beads
+	readyBeads, err := m.Poll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(readyBeads) == 0 {
+		return nil, nil
+	}
+
+	// Get all beads for hierarchy traversal
+	allBeads, err := m.fetchAllBeads(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch all beads: %w", err)
+	}
+
+	m.mu.Lock()
+	activeTopLevel := m.activeTopLevel
+	m.mu.Unlock()
+
+	// Check if active top-level is still valid and has work
+	if activeTopLevel != "" {
+		if hasReadyDescendants(activeTopLevel, readyBeads, allBeads) {
+			// Continue with current top-level
+			return m.selectFromTopLevel(activeTopLevel, readyBeads, allBeads)
+		}
+		// Active top-level is exhausted, clear it
+		m.mu.Lock()
+		m.activeTopLevel = ""
+		m.mu.Unlock()
+	}
+
+	// Select new top-level item
+	topLevelItems := identifyTopLevelItems(allBeads)
+	newTopLevel := selectBestTopLevel(topLevelItems, readyBeads, allBeads)
+	if newTopLevel == "" {
+		// No top-level items with ready work; fall back to global selection
+		// This handles orphaned beads that somehow aren't under any top-level
+		return m.selectFromTopLevel("", readyBeads, allBeads)
+	}
+
+	// Set new active top-level
+	m.mu.Lock()
+	m.activeTopLevel = newTopLevel
+	m.mu.Unlock()
+
+	return m.selectFromTopLevel(newTopLevel, readyBeads, allBeads)
+}
+
+// selectFromTopLevel filters ready beads to descendants of the given top-level
+// and returns the highest priority eligible bead.
+func (m *Manager) selectFromTopLevel(topLevelID string, readyBeads []Bead, allBeads []Bead) (*Bead, error) {
+	var epicDescendants map[string]bool
+	if topLevelID != "" {
+		epicDescendants = buildDescendantSet(topLevelID, allBeads)
+	}
+
+	eligible := m.filterEligible(readyBeads, epicDescendants)
+	if len(eligible) == 0 {
+		return nil, nil
+	}
+
+	// Sort by priority (lower = higher priority), then by created_at
+	sort.Slice(eligible, func(i, j int) bool {
+		if eligible[i].Priority != eligible[j].Priority {
+			return eligible[i].Priority < eligible[j].Priority
+		}
+		return eligible[i].CreatedAt.Before(eligible[j].CreatedAt)
+	})
+
+	selected := eligible[0]
+
+	// Mark as working and increment attempts
+	m.mu.Lock()
+	if m.history[selected.ID] == nil {
+		m.history[selected.ID] = &BeadHistory{ID: selected.ID}
+	}
+	m.history[selected.ID].Status = HistoryWorking
+	m.history[selected.ID].Attempts++
+	m.history[selected.ID].LastAttempt = time.Now()
+	m.mu.Unlock()
+
+	return &selected, nil
+}
+
+// ActiveTopLevel returns the currently active top-level item ID.
+// Returns empty string if no top-level is active.
+func (m *Manager) ActiveTopLevel() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.activeTopLevel
+}
+
+// ClearActiveTopLevel clears the active top-level item.
+// This is useful when you want to force selection of a new top-level.
+func (m *Manager) ClearActiveTopLevel() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.activeTopLevel = ""
+}
+
+// SetActiveTopLevel sets the active top-level item ID.
+// This is useful for restoring state or testing.
+func (m *Manager) SetActiveTopLevel(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.activeTopLevel = id
 }
 
 // RecordSuccess marks a bead as completed.
