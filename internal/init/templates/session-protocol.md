@@ -8,8 +8,8 @@ Run this sequence ONLY when the user explicitly requests it (e.g., "start sessio
 
 ```bash
 pwd                    # Confirm working directory
-bd prime               # Recover context
-bd ready --json        # Find available work
+br prime               # Recover context
+br ready --json        # Find available work
 git log --oneline -5   # Review recent state
 git status             # Verify clean state
 ```
@@ -18,10 +18,10 @@ git status             # Verify clean state
 
 Work on ONE issue at a time:
 
-1. Select highest-priority issue from `bd ready`
+1. Select highest-priority issue from `br ready`
 2. Implement ONLY that feature
 3. Commit with `/commit` slash command
-4. Close: `bd close <id> --reason "Completed..." --json`
+4. Close: `br close <id> --reason "Completed..." --json`
 5. Verify feature works end-to-end
 6. Move to next issue
 
@@ -32,17 +32,17 @@ Never batch multiple features into single commits.
 **You MUST close beads before ending your session.** Failure to close beads causes them to get stuck in_progress forever, requiring manual intervention.
 
 Before ending your session:
-1. Run `bd show <id> --json` to verify the bead status
-2. If work is complete: `bd close <id> --reason "Completed: <what was done>"`
-3. If work is NOT complete: `bd update <id> --status open --notes "Needs: <what remains>"`
+1. Run `br show <id> --json` to verify the bead status
+2. If work is complete: `br close <id> --reason "Completed: <what was done>"`
+3. If work is NOT complete: `br update <id> --status open --notes "Needs: <what remains>"`
 
 Never leave a bead in_progress - either close it or reset it to open.
 
 ## Session Completion
 
 ```bash
-bd create "Follow-up: ..." --json    # File remaining work
-bd close <id> --reason "..." --json  # Close completed issues
+br create "Follow-up: ..." --json    # File remaining work
+br close <id> --reason "..." --json  # Close completed issues
 # Run quality validation (lint, test, type-check)
 # Use /commit for atomic commits
 git push                              # MUST succeed

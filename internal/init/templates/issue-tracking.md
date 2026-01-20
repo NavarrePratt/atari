@@ -1,22 +1,22 @@
-# Issue Tracking with bd
+# Issue Tracking with br
 
-Track work with `bd` for persistent context across sessions.
+Track work with `br` for persistent context across sessions.
 
 ## Quick Commands
 
 | Task | Command |
 |------|---------|
-| Find ready work | `bd ready --json` |
-| Start work | `bd update bd-xxx --status in_progress --json` |
-| Checkpoint | `bd update bd-xxx --notes "COMPLETED: ...\nNEXT: ..." --json` |
-| Complete work | `bd close bd-xxx --reason "..." --json` |
-| View details | `bd show bd-xxx --json` |
-| Add dependency | `bd dep add bd-A bd-B --type blocks` |
+| Find ready work | `br ready --json` |
+| Start work | `br update bd-xxx --status in_progress --json` |
+| Checkpoint | `br update bd-xxx --notes "COMPLETED: ...\nNEXT: ..." --json` |
+| Complete work | `br close bd-xxx --reason "..." --json` |
+| View details | `br show bd-xxx --json` |
+| Add dependency | `br dep add bd-A bd-B --type blocks` |
 
 ## Create Issue
 
 ```bash
-bd create --title "Title" --description "$(cat <<'EOF'
+br create --title "Title" --description "$(cat <<'EOF'
 # Description
 What and why (1-4 sentences).
 
@@ -56,7 +56,7 @@ NEXT: Immediate next step
 - Integration tests not updated for API changes
 - New features lack integration test coverage (when applicable)
 
-Instead: `bd update bd-xxx --notes "BLOCKED: ..." --json`
+Instead: `br update bd-xxx --notes "BLOCKED: ..." --json`
 
 ## Integration Test Requirements
 

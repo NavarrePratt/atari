@@ -12,13 +12,13 @@ This command receives context from two sources:
 
 - **AskUserQuestion** - Primary tool for in-depth user interviews
 - **Task (Explore subagent)** - Codebase exploration to inform questions
-- **bd CLI** - Issue creation after planning is complete
+- **br CLI** - Issue creation after planning is complete
 
 ---
 
 ## Overview
 
-This is an interactive planning process where you interview the user to fully flesh out their plan before creating beads. Unlike bd-plan and bd-plan-ultra which use AI-to-AI debate, this command uses direct user dialogue to refine requirements.
+This is an interactive planning process where you interview the user to fully flesh out their plan before creating beads. Unlike issue-plan and issue-plan-ultra which use AI-to-AI debate, this command uses direct user dialogue to refine requirements.
 
 ## Step 1: Understand the Plan
 
@@ -133,14 +133,14 @@ Output format: "CATEGORY: [exact command]"
 
 ## Step 6: Create Beads
 
-Based on the synthesized plan, create bd issues using the bd-issue-tracking skill.
+Based on the synthesized plan, create issues using the issue-tracking skill.
 
 ### Single Bead (Simple Plans)
 
 If the plan is small enough for one session:
 
 ```bash
-bd create "Title here" --description "$(cat <<'EOF'
+br create "Title here" --description "$(cat <<'EOF'
 # Description
 [What and why from synthesis]
 
@@ -163,7 +163,7 @@ bd create "Title here" --description "$(cat <<'EOF'
 - [ ] `[discovered lint command]` passes
 - [ ] `[discovered test command]` passes
 
-If implementation reveals new issues, create separate bd issues for investigation.
+If implementation reveals new issues, create separate issues for investigation.
 EOF
 )" --json
 ```
@@ -174,30 +174,30 @@ If the plan requires multiple sessions, create beads in deferred status, then pu
 
 ```bash
 # Create implementation beads (deferred)
-id1=$(bd create "First task" --description "..." --json | jq -r '.id')
-bd update $id1 --status deferred
+id1=$(br create "First task" --description "..." --json | jq -r '.id')
+br update $id1 --status deferred
 
-id2=$(bd create "Second task" --description "..." --json | jq -r '.id')
-bd update $id2 --status deferred
+id2=$(br create "Second task" --description "..." --json | jq -r '.id')
+br update $id2 --status deferred
 
 # Set up dependencies if needed
-bd dep add $id2 $id1 --type blocks
+br dep add $id2 $id1 --type blocks
 
 # Create final verification bead
-final_id=$(bd create "Run full test suite (final verification)" --description "..." --json | jq -r '.id')
-bd update $final_id --status deferred
-bd dep add $final_id $id1 --type blocks
-bd dep add $final_id $id2 --type blocks
+final_id=$(br create "Run full test suite (final verification)" --description "..." --json | jq -r '.id')
+br update $final_id --status deferred
+br dep add $final_id $id1 --type blocks
+br dep add $final_id $id2 --type blocks
 
 # Create epic
-epic_id=$(bd create "Epic title" --type epic --description "..." --json | jq -r '.id')
-bd dep add $id1 $epic_id --type parent-child
-bd dep add $id2 $epic_id --type parent-child
-bd dep add $final_id $epic_id --type parent-child
+epic_id=$(br create "Epic title" --type epic --description "..." --json | jq -r '.id')
+br dep add $id1 $epic_id --type parent-child
+br dep add $id2 $epic_id --type parent-child
+br dep add $final_id $epic_id --type parent-child
 
 # Publish all beads
 for id in $id1 $id2 $final_id; do
-  bd update $id --status open
+  br update $id --status open
 done
 ```
 
@@ -205,7 +205,7 @@ Each bead must:
 1. Have clear acceptance criteria (what success looks like)
 2. Be scoped to complete in one session
 3. Include verification notes with discovered commands
-4. Include note: "If implementation reveals new issues, create separate bd issues for investigation"
+4. Include note: "If implementation reveals new issues, create separate issues for investigation"
 
 ## Step 7: Output Summary
 

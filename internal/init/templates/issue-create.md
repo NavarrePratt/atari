@@ -1,6 +1,6 @@
 # Quick Bead Creation
 
-Create a single bd issue from the current conversation context. This is a lightweight alternative to bd-plan for when you need to quickly capture one piece of work.
+Create a single issue from the current conversation context. This is a lightweight alternative to issue-plan for when you need to quickly capture one piece of work.
 
 ## Context Sources
 
@@ -12,7 +12,7 @@ This command receives context from two sources:
 
 - **Task (Explore subagent)** - Quick codebase exploration for relevant files and verification commands
 - **AskUserQuestion** - Clarify ambiguities with dropdown options
-- **bd CLI** - Issue creation and management
+- **br CLI** - Issue creation and management
 
 ---
 
@@ -85,7 +85,7 @@ questions:
 
 ## Step 4: Create the Bead
 
-Create the bd issue using the bd-issue-tracking skill. The issue must include:
+Create the issue using the issue-tracking skill. The issue must include:
 
 1. **Clear title** (50 chars max, imperative voice)
 2. **Description** with:
@@ -99,10 +99,10 @@ Create the bd issue using the bd-issue-tracking skill. The issue must include:
    - [ ] `[discovered test command]` passes
    - [ ] `[discovered typecheck command]` passes (if applicable)
    ```
-4. **Note**: "If implementation reveals new issues, create separate bd issues for investigation"
+4. **Note**: "If implementation reveals new issues, create separate issues for investigation"
 
 ```bash
-bd create "Title here" --priority <inferred-priority> --description "$(cat <<'EOF'
+br create "Title here" --priority <inferred-priority> --description "$(cat <<'EOF'
 # Description
 [What and why]
 
@@ -118,7 +118,7 @@ bd create "Title here" --priority <inferred-priority> --description "$(cat <<'EO
 - [ ] `[lint command]` passes
 - [ ] `[test command]` passes
 
-If implementation reveals new issues, create separate bd issues for investigation.
+If implementation reveals new issues, create separate issues for investigation.
 EOF
 )" --json
 ```
@@ -127,7 +127,7 @@ EOF
 
 If the user confirmed epic linkage, add the parent-child relationship:
 ```bash
-bd dep add <new-bead-id> <epic-id> --type parent-child
+br dep add <new-bead-id> <epic-id> --type parent-child
 ```
 
 ## Step 6: Output Summary

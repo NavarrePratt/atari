@@ -58,24 +58,24 @@ func BuildFileList(minimal bool) []InstallFile {
 				Content: MustReadTemplate("session-protocol.md"),
 			},
 			InstallFile{
-				Path:    "skills/bd-issue-tracking.md",
-				Content: MustReadTemplate("bd-issue-tracking.md"),
+				Path:    "skills/issue-tracking.md",
+				Content: MustReadTemplate("issue-tracking-skill.md"),
 			},
 			InstallFile{
-				Path:    "commands/bd-create.md",
-				Content: MustReadTemplate("bd-create.md"),
+				Path:    "commands/issue-create.md",
+				Content: MustReadTemplate("issue-create.md"),
 			},
 			InstallFile{
-				Path:    "commands/bd-plan.md",
-				Content: MustReadTemplate("bd-plan.md"),
+				Path:    "commands/issue-plan.md",
+				Content: MustReadTemplate("issue-plan.md"),
 			},
 			InstallFile{
-				Path:    "commands/bd-plan-ultra.md",
-				Content: MustReadTemplate("bd-plan-ultra.md"),
+				Path:    "commands/issue-plan-ultra.md",
+				Content: MustReadTemplate("issue-plan-ultra.md"),
 			},
 			InstallFile{
-				Path:    "commands/bd-plan-user.md",
-				Content: MustReadTemplate("bd-plan-user.md"),
+				Path:    "commands/issue-plan-user.md",
+				Content: MustReadTemplate("issue-plan-user.md"),
 			},
 			InstallFile{
 				Path:     "CLAUDE.md",

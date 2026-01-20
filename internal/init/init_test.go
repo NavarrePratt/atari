@@ -24,11 +24,11 @@ func TestBuildFileList(t *testing.T) {
 		expectedPaths := []string{
 			"rules/issue-tracking.md",
 			"rules/session-protocol.md",
-			"skills/bd-issue-tracking.md",
-			"commands/bd-create.md",
-			"commands/bd-plan.md",
-			"commands/bd-plan-ultra.md",
-			"commands/bd-plan-user.md",
+			"skills/issue-tracking.md",
+			"commands/issue-create.md",
+			"commands/issue-plan.md",
+			"commands/issue-plan-ultra.md",
+			"commands/issue-plan-user.md",
 			"CLAUDE.md",
 		}
 		for _, p := range expectedPaths {
@@ -61,11 +61,11 @@ func TestMustReadTemplate(t *testing.T) {
 	templates := []string{
 		"issue-tracking.md",
 		"session-protocol.md",
-		"bd-issue-tracking.md",
-		"bd-create.md",
-		"bd-plan.md",
-		"bd-plan-ultra.md",
-		"bd-plan-user.md",
+		"issue-tracking-skill.md",
+		"issue-create.md",
+		"issue-plan.md",
+		"issue-plan-ultra.md",
+		"issue-plan-user.md",
 		"claude-md-append.md",
 	}
 
@@ -140,11 +140,11 @@ func TestRun_Install(t *testing.T) {
 	expectedFiles := []string{
 		".claude/rules/issue-tracking.md",
 		".claude/rules/session-protocol.md",
-		".claude/skills/bd-issue-tracking.md",
-		".claude/commands/bd-create.md",
-		".claude/commands/bd-plan.md",
-		".claude/commands/bd-plan-ultra.md",
-		".claude/commands/bd-plan-user.md",
+		".claude/skills/issue-tracking.md",
+		".claude/commands/issue-create.md",
+		".claude/commands/issue-plan.md",
+		".claude/commands/issue-plan-ultra.md",
+		".claude/commands/issue-plan-user.md",
 		".claude/CLAUDE.md",
 	}
 
@@ -354,7 +354,7 @@ func TestRun_AppendToCLAUDEMd(t *testing.T) {
 		t.Error("existing CLAUDE.md content should be preserved")
 	}
 
-	if !strings.Contains(contentStr, "BD Integration") {
+	if !strings.Contains(contentStr, "BR Integration") {
 		t.Error("new content should be appended")
 	}
 }
@@ -554,7 +554,7 @@ This should also be preserved.
 	if !strings.Contains(contentStr, "<atari-managed>") {
 		t.Error("managed section markers should exist")
 	}
-	if !strings.Contains(contentStr, "BD Integration") {
+	if !strings.Contains(contentStr, "BR Integration") {
 		t.Error("managed section should contain new content")
 	}
 

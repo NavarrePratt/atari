@@ -4,7 +4,7 @@ Implements the `atari init` command that bootstraps Claude Code configuration.
 
 ## Overview
 
-This package provides functionality to install rules, skills, and configuration for using atari with the bd issue tracking system.
+This package provides functionality to install rules, skills, and configuration for using atari with the br issue tracking system.
 
 ## Files
 
@@ -41,12 +41,12 @@ result, err := initcmd.Run(opts)
     issue-tracking.md      # Always installed
     session-protocol.md    # Unless --minimal
   skills/
-    bd-issue-tracking.md   # Unless --minimal
+    issue-tracking.md      # Unless --minimal
   commands/
-    bd-create.md           # Unless --minimal
-    bd-plan.md             # Unless --minimal
-    bd-plan-ultra.md       # Unless --minimal
-    bd-plan-user.md        # Unless --minimal
+    issue-create.md        # Unless --minimal
+    issue-plan.md          # Unless --minimal
+    issue-plan-ultra.md    # Unless --minimal
+    issue-plan-user.md     # Unless --minimal
   CLAUDE.md                # Appended, never overwritten
 ```
 
@@ -64,7 +64,7 @@ result, err := initcmd.Run(opts)
 CLAUDE.md uses a managed section approach with XML-style markers:
 ```markdown
 <atari-managed>
-# BD Integration
+# BR Integration
 ...content...
 </atari-managed>
 ```

@@ -1,6 +1,6 @@
-# BD Issue Tracking Skill
+# Issue Tracking Skill
 
-Track and manage work with bd issue tracker for persistent context across sessions and compaction events. Use for work needing dependencies, recovery after compaction, or multi-session tracking.
+Track and manage work with issue tracker for persistent context across sessions and compaction events. Use for work needing dependencies, recovery after compaction, or multi-session tracking.
 
 ## Trigger
 
@@ -15,17 +15,17 @@ Use when:
 
 | Task | Command |
 |------|---------|
-| Find ready work | `bd ready --json` |
-| Start work | `bd update bd-xxx --status in_progress --json` |
-| Checkpoint | `bd update bd-xxx --notes "COMPLETED: ...\nNEXT: ..." --json` |
-| Complete work | `bd close bd-xxx --reason "..." --json` |
-| View details | `bd show bd-xxx --json` |
-| Add dependency | `bd dep add bd-A bd-B --type blocks` |
+| Find ready work | `br ready --json` |
+| Start work | `br update bd-xxx --status in_progress --json` |
+| Checkpoint | `br update bd-xxx --notes "COMPLETED: ...\nNEXT: ..." --json` |
+| Complete work | `br close bd-xxx --reason "..." --json` |
+| View details | `br show bd-xxx --json` |
+| Add dependency | `br dep add bd-A bd-B --type blocks` |
 
 ## Create Issue
 
 ```bash
-bd create --title "Title" --description "$(cat <<'EOF'
+br create --title "Title" --description "$(cat <<'EOF'
 # Description
 What and why (1-4 sentences).
 
@@ -65,11 +65,11 @@ Do NOT close if:
 - Unresolved errors
 - Integration tests not updated
 
-Instead: `bd update bd-xxx --notes "BLOCKED: ..." --json`
+Instead: `br update bd-xxx --notes "BLOCKED: ..." --json`
 
 ## Session Recovery
 
 After context compaction:
-1. Run `bd prime` to recover context
-2. Check `bd ready --json` for current work
+1. Run `br prime` to recover context
+2. Check `br ready --json` for current work
 3. Resume in_progress issue from notes

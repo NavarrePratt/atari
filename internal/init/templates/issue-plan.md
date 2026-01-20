@@ -1,6 +1,6 @@
-# Planning Bd Issues
+# Planning Issues
 
-Plan and create bd issues for multi-step work requiring discovery and collaborative debate.
+Plan and create issues for multi-step work requiring discovery and collaborative debate.
 
 ## Context Sources
 
@@ -13,7 +13,7 @@ This command receives context from two sources:
 - **Task (Explore subagent)** - Codebase exploration with model: "haiku"
 - **Task (Plan subagent)** - Implementation design with model: "haiku"
 - **mcp__codex__codex** - Cross-reference discovery with model: "gpt-5.1-codex-mini"
-- **bd CLI** - Issue creation, status management, and dependencies
+- **br CLI** - Issue creation, status management, and dependencies
 
 ---
 
@@ -127,12 +127,12 @@ Before creating issues, confirm:
 
 ### Step 3: Create Issues (Deferred)
 
-Create bd issues using the bd-issue-tracking skill. **Immediately set each to deferred status** to prevent atari from picking them up before planning is complete.
+Create issues using the issue-tracking skill. **Immediately set each to deferred status** to prevent atari from picking them up before planning is complete.
 
 For each issue:
 ```bash
-id=$(bd create "Title" --description "..." --json | jq -r '.id')
-bd update $id --status deferred
+id=$(br create "Title" --description "..." --json | jq -r '.id')
+br update $id --status deferred
 # Track the ID for later publishing
 ```
 
@@ -148,33 +148,33 @@ Each issue must:
    - [ ] `[discovered e2e command]` passes (if applicable)
    ```
    Use exact commands from Phase 1 discovery. Omit categories if no command exists.
-4. Include note: "If implementation reveals new issues, create separate bd issues for investigation"
+4. Include note: "If implementation reveals new issues, create separate issues for investigation"
 
 **Track all created issue IDs** for the publish step.
 
 ### Step 4: Final Verification Issue (Deferred)
 
-After creating all implementation issues, create one final bd issue to run the full test suite:
+After creating all implementation issues, create one final issue to run the full test suite:
 
 1. **Create the issue** (also set to deferred):
    ```bash
-   final_id=$(bd create "Run full test suite for [feature] (final verification)" --description "..." --json | jq -r '.id')
-   bd update $final_id --status deferred
+   final_id=$(br create "Run full test suite for [feature] (final verification)" --description "..." --json | jq -r '.id')
+   br update $final_id --status deferred
    ```
    - Description: Verify all changes work together by running the complete test suite
    - Include the discovered e2e/integration command from Phase 1
    - Acceptance criteria: All tests pass, no regressions introduced
 
 2. **Set up dependencies**:
-   Use `bd dep add <final-issue> <implementation-issue> --type blocks` for EACH implementation issue.
+   Use `br dep add <final-issue> <implementation-issue> --type blocks` for EACH implementation issue.
    This ensures the final verification runs only after all implementation work is complete.
 
 ### Step 5: Create Epic
 
-After all issues are created and dependencies set, create a bd epic as a summary of the planned work:
+After all issues are created and dependencies set, create an epic as a summary of the planned work:
 
 ```bash
-bd create "[feature/task name]" --type epic --description "$(cat <<'EOF'
+br create "[feature/task name]" --type epic --description "$(cat <<'EOF'
 # Overview
 [Brief description of the overall work being planned]
 
@@ -203,20 +203,20 @@ EOF
 
 Link all created issues to the epic as children:
 ```bash
-bd dep add bd-xxx <epic-id> --type parent-child
+br dep add bd-xxx <epic-id> --type parent-child
 # ... repeat for each implementation issue
 ```
 
-Check epic progress: `bd epic status`
+Check epic progress: `br epic status`
 
 ### Step 6: Publish All Beads
 
-After the epic is created and all dependencies are set, publish all beads by transitioning them from deferred to open status. This makes them available to `bd ready` and atari.
+After the epic is created and all dependencies are set, publish all beads by transitioning them from deferred to open status. This makes them available to `br ready` and atari.
 
 ```bash
 # Publish all deferred beads created during this planning session
 for id in $all_bead_ids; do
-  bd update $id --status open
+  br update $id --status open
 done
 ```
 
@@ -236,7 +236,7 @@ When discovery or planning reveals blocking issues:
    - What was blocking and why it matters
    - Instruction to use Explore subagent for discovery
    - Instruction to use Plan subagent to design fix
-   - Instruction to create implementation bd issues via bd-issue-tracking skill
+   - Instruction to create implementation issues via issue-tracking skill
 3. Any implementation issues spawned from meta issues are also P0
 
 ---
