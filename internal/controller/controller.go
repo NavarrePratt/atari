@@ -84,6 +84,10 @@ type Controller struct {
 	// Session progress tracking
 	currentTurnCount int
 	currentTurnMu    sync.RWMutex
+
+	// Validated epic info (populated during startup if epic configured)
+	epicID    string
+	epicTitle string
 }
 
 // ControllerOption configures a Controller.
@@ -138,6 +142,11 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	// Record start time for uptime tracking
 	c.startTime = time.Now()
+
+	// Validate epic if configured (fail fast with clear error)
+	if err := c.validateEpic(c.ctx); err != nil {
+		return err
+	}
 
 	// Start BD activity watcher if configured (best-effort, non-fatal)
 	if c.bdWatcher != nil {
@@ -1106,6 +1115,66 @@ func (c *Controller) getStoredSessionID(beadID string) string {
 		return h.LastSessionID
 	}
 	return ""
+}
+
+// ValidatedEpic returns the validated epic info, if any epic was configured and validated.
+// Returns empty strings if no epic was configured.
+func (c *Controller) ValidatedEpic() (id, title string) {
+	return c.epicID, c.epicTitle
+}
+
+// validateEpic checks that the configured epic ID exists and is of type "epic".
+// Returns nil if no epic is configured, or if validation succeeds.
+// Returns an error if the epic doesn't exist or is not of type "epic".
+func (c *Controller) validateEpic(ctx context.Context) error {
+	epicID := c.config.WorkQueue.Epic
+	if epicID == "" {
+		return nil
+	}
+
+	if c.runner == nil {
+		return fmt.Errorf("cannot validate epic: no command runner available")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	output, err := c.runner.Run(ctx, "br", "show", epicID, "--json")
+	if err != nil {
+		return fmt.Errorf("epic not found: %s", epicID)
+	}
+
+	if len(output) == 0 {
+		return fmt.Errorf("epic not found: %s", epicID)
+	}
+
+	var beads []struct {
+		ID        string `json:"id"`
+		Title     string `json:"title"`
+		IssueType string `json:"issue_type"`
+	}
+	if err := json.Unmarshal(output, &beads); err != nil {
+		return fmt.Errorf("epic not found: %s", epicID)
+	}
+
+	if len(beads) == 0 {
+		return fmt.Errorf("epic not found: %s", epicID)
+	}
+
+	bead := beads[0]
+	if bead.IssueType != "epic" {
+		return fmt.Errorf("%s is not an epic (type: %s)", epicID, bead.IssueType)
+	}
+
+	// Store validated epic info
+	c.epicID = bead.ID
+	c.epicTitle = bead.Title
+
+	c.logger.Info("validated epic",
+		"epic_id", c.epicID,
+		"epic_title", c.epicTitle)
+
+	return nil
 }
 
 // closeEligibleEpics checks open epics and closes those with all children completed.

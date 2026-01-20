@@ -869,6 +869,257 @@ func TestControllerSessionResume(t *testing.T) {
 	})
 }
 
+func TestControllerValidateEpic(t *testing.T) {
+	t.Run("no epic configured returns nil", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "" // No epic configured
+
+		runner := testutil.NewMockRunner()
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err != nil {
+			t.Errorf("expected no error when epic not configured, got: %v", err)
+		}
+
+		id, title := c.ValidatedEpic()
+		if id != "" || title != "" {
+			t.Errorf("expected empty epic info, got id=%s title=%s", id, title)
+		}
+	})
+
+	t.Run("valid epic stores info", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-epic-123"
+
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("br", []string{"show", "bd-epic-123", "--json"},
+			[]byte(`[{"id":"bd-epic-123","title":"Test Epic","issue_type":"epic"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err != nil {
+			t.Errorf("expected no error for valid epic, got: %v", err)
+		}
+
+		id, title := c.ValidatedEpic()
+		if id != "bd-epic-123" {
+			t.Errorf("expected epic id 'bd-epic-123', got '%s'", id)
+		}
+		if title != "Test Epic" {
+			t.Errorf("expected epic title 'Test Epic', got '%s'", title)
+		}
+	})
+
+	t.Run("epic not found returns error", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-nonexistent"
+
+		runner := testutil.NewMockRunner()
+		runner.SetError("br", []string{"show", "bd-nonexistent", "--json"},
+			errors.New("issue not found"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err == nil {
+			t.Error("expected error for nonexistent epic")
+		}
+		if err.Error() != "epic not found: bd-nonexistent" {
+			t.Errorf("expected 'epic not found: bd-nonexistent', got: %v", err)
+		}
+	})
+
+	t.Run("empty response returns error", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-empty"
+
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("br", []string{"show", "bd-empty", "--json"}, []byte(""))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err == nil {
+			t.Error("expected error for empty response")
+		}
+		if err.Error() != "epic not found: bd-empty" {
+			t.Errorf("expected 'epic not found: bd-empty', got: %v", err)
+		}
+	})
+
+	t.Run("empty array returns error", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-empty"
+
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("br", []string{"show", "bd-empty", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err == nil {
+			t.Error("expected error for empty array response")
+		}
+		if err.Error() != "epic not found: bd-empty" {
+			t.Errorf("expected 'epic not found: bd-empty', got: %v", err)
+		}
+	})
+
+	t.Run("non-epic type returns error", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-task-456"
+
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("br", []string{"show", "bd-task-456", "--json"},
+			[]byte(`[{"id":"bd-task-456","title":"A Task","issue_type":"task"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err == nil {
+			t.Error("expected error for non-epic type")
+		}
+		if err.Error() != "bd-task-456 is not an epic (type: task)" {
+			t.Errorf("expected 'bd-task-456 is not an epic (type: task)', got: %v", err)
+		}
+	})
+
+	t.Run("no command runner returns error", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-epic-123"
+
+		wq := workqueue.New(cfg, nil)
+		c := New(cfg, wq, nil, nil, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err == nil {
+			t.Error("expected error when command runner is nil")
+		}
+		if err.Error() != "cannot validate epic: no command runner available" {
+			t.Errorf("expected 'cannot validate epic: no command runner available', got: %v", err)
+		}
+	})
+
+	t.Run("invalid json returns error", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-bad-json"
+
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("br", []string{"show", "bd-bad-json", "--json"}, []byte("not json"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+		c.ctx = context.Background()
+
+		err := c.validateEpic(c.ctx)
+		if err == nil {
+			t.Error("expected error for invalid JSON")
+		}
+		if err.Error() != "epic not found: bd-bad-json" {
+			t.Errorf("expected 'epic not found: bd-bad-json', got: %v", err)
+		}
+	})
+}
+
+func TestControllerRunWithInvalidEpic(t *testing.T) {
+	t.Run("run fails with invalid epic", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-nonexistent"
+
+		runner := testutil.NewMockRunner()
+		runner.SetError("br", []string{"show", "bd-nonexistent", "--json"},
+			errors.New("issue not found"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		err := c.Run(ctx)
+		if err == nil {
+			t.Error("expected Run to fail with invalid epic")
+		}
+		if err.Error() != "epic not found: bd-nonexistent" {
+			t.Errorf("expected 'epic not found: bd-nonexistent', got: %v", err)
+		}
+	})
+
+	t.Run("run fails with non-epic type", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-task-456"
+
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("br", []string{"show", "bd-task-456", "--json"},
+			[]byte(`[{"id":"bd-task-456","title":"A Task","issue_type":"task"}]`))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		err := c.Run(ctx)
+		if err == nil {
+			t.Error("expected Run to fail with non-epic type")
+		}
+		if err.Error() != "bd-task-456 is not an epic (type: task)" {
+			t.Errorf("expected 'bd-task-456 is not an epic (type: task)', got: %v", err)
+		}
+	})
+
+	t.Run("run succeeds with valid epic", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.WorkQueue.Epic = "bd-epic-123"
+
+		runner := testutil.NewMockRunner()
+		runner.SetResponse("br", []string{"show", "bd-epic-123", "--json"},
+			[]byte(`[{"id":"bd-epic-123","title":"Test Epic","issue_type":"epic"}]`))
+		runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
+
+		wq := workqueue.New(cfg, runner)
+		c := New(cfg, wq, nil, runner, nil, nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Run(ctx)
+		}()
+
+		// Wait for controller to start and validate
+		time.Sleep(30 * time.Millisecond)
+
+		// Verify epic info was stored
+		id, title := c.ValidatedEpic()
+		if id != "bd-epic-123" {
+			t.Errorf("expected epic id 'bd-epic-123', got '%s'", id)
+		}
+		if title != "Test Epic" {
+			t.Errorf("expected epic title 'Test Epic', got '%s'", title)
+		}
+
+		c.Stop()
+		<-done
+	})
+}
+
 func TestControllerIsBeadClosed(t *testing.T) {
 	t.Run("returns true for closed status", func(t *testing.T) {
 		cfg := testConfig()
