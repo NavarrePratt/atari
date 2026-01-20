@@ -769,6 +769,7 @@ func (m model) renderHeader() string {
 }
 
 // renderStatus renders the status indicator with appropriate styling.
+// If an epic filter is active, appends "(epic: bd-xxx)" suffix.
 func (m model) renderStatus() string {
 	status := strings.ToUpper(m.status)
 	var style lipgloss.Style
@@ -786,7 +787,11 @@ func (m model) renderStatus() string {
 		style = styles.StatusIdle
 	}
 
-	return style.Render(status)
+	result := style.Render(status)
+	if m.epicID != "" {
+		result += styles.Footer.Render(fmt.Sprintf(" (epic: %s)", m.epicID))
+	}
+	return result
 }
 
 // renderDivider renders a horizontal divider line.

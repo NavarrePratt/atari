@@ -94,6 +94,7 @@ type model struct {
 	currentSessionTurns int                        // turns in current session (reset on iteration end)
 	inBackoff           int                        // number of beads currently in backoff period
 	topBlockedBead      *viewmodel.BlockedBeadInfo // bead with shortest remaining backoff
+	epicID              string                     // active epic filter, if any
 
 	// Event log
 	eventLines []eventLine
@@ -142,6 +143,7 @@ func newModel(
 	obs *observer.Observer,
 	graphFetcher BeadFetcher,
 	beadStateGetter BeadStateGetter,
+	epicID string,
 ) model {
 	// Create default graph config for the graph pane
 	graphCfg := &config.GraphConfig{
@@ -169,6 +171,7 @@ func newModel(
 		layout:       LayoutHorizontal,
 		focusMode:    FocusModeNone,
 		detailModal:  NewDetailModal(graphFetcher),
+		epicID:       epicID,
 	}
 }
 

@@ -200,6 +200,7 @@ func TestCallback_NilCallbacks_NoPanic(t *testing.T) {
 		nil, // observer
 		nil, // graph fetcher
 		nil, // bead state getter
+		"",  // epicID
 	)
 	m.width = 100
 	m.height = 30

@@ -487,6 +487,7 @@ Use --daemon to run in the background.`,
 					tui.WithObserver(obs),
 					tui.WithGraphFetcher(graphFetcher),
 					tui.WithBeadStateGetter(ctrl),
+					tui.WithEpicID(cfg.WorkQueue.Epic),
 				)
 
 				// Run controller in background

@@ -123,6 +123,7 @@ func (env *tuiTestEnv) newModel() model {
 		nil, // observer - nil is acceptable for most tests
 		nil, // graph fetcher - nil is acceptable for most tests
 		nil, // bead state getter - nil is acceptable for most tests
+		"",  // epicID - empty for tests
 	)
 }
 

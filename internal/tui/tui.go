@@ -29,6 +29,7 @@ type TUI struct {
 	observer        *observer.Observer
 	graphFetcher    BeadFetcher
 	beadStateGetter BeadStateGetter
+	epicID          string
 }
 
 // Option configures the TUI.
@@ -96,6 +97,13 @@ func WithBeadStateGetter(sg BeadStateGetter) Option {
 	}
 }
 
+// WithEpicID sets the epic filter ID to display in the status.
+func WithEpicID(epicID string) Option {
+	return func(t *TUI) {
+		t.epicID = epicID
+	}
+}
+
 // Run starts the TUI and blocks until it exits.
 // If the environment is non-interactive (no TTY) or the terminal is too small,
 // it falls back to simple line-by-line output.
@@ -111,7 +119,7 @@ func (t *TUI) Run() error {
 	}
 
 	// Run the full bubbletea TUI
-	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher, t.beadStateGetter)
+	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher, t.beadStateGetter, t.epicID)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

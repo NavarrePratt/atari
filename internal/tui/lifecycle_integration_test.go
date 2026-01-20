@@ -39,6 +39,7 @@ func TestTUILifecycleSmoke(t *testing.T) {
 		nil, // observer
 		nil, // graphFetcher
 		nil, // beadStateGetter
+		"",  // epicID
 	)
 
 	// Create headless test model with initial terminal size
@@ -104,6 +105,7 @@ func TestTUILifecycleCtrlCQuit(t *testing.T) {
 		nil, // observer
 		nil, // graphFetcher
 		nil, // beadStateGetter
+		"",  // epicID
 	)
 
 	tm := teatest.NewTestModel(
@@ -146,6 +148,7 @@ func TestTUILifecycleChannelClose(t *testing.T) {
 		nil, // observer
 		nil, // graphFetcher
 		nil, // beadStateGetter
+		"",  // epicID
 	)
 
 	tm := teatest.NewTestModel(
