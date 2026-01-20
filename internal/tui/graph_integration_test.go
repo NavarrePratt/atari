@@ -582,7 +582,7 @@ func TestViewSwitch_CollapsedState(t *testing.T) {
 
 	// Set up mock responses for different views
 	env.setActiveBeads(testutil.GraphEnrichedEpicJSON)
-	env.runner.SetResponse("bd", []string{"list", "--json", "--status", "deferred"},
+	env.runner.SetResponse("br", []string{"list", "--json", "--status", "deferred"},
 		[]byte(testutil.GraphBacklogBeadsJSON))
 
 	pane := env.newPane()
