@@ -24,17 +24,18 @@ type Graph struct {
 	fetcher BeadFetcher
 	layout  string // "horizontal" or "vertical" from TUI config
 
-	mu          sync.RWMutex
-	nodes       map[string]*GraphNode
-	edges       []GraphEdge
-	computed    *Layout
-	selected    string          // Selected node ID
-	viewport    Viewport
-	collapsed   map[string]bool // Collapsed epic IDs
-	view        GraphView       // Active or Backlog
-	currentBead string          // Currently processing bead (highlighted)
-	listOrder   []ListNode      // Ordered list of nodes for list view
-	epicFilter  string          // Epic ID filter (empty = no filter)
+	mu             sync.RWMutex
+	nodes          map[string]*GraphNode
+	edges          []GraphEdge
+	computed       *Layout
+	selected       string          // Selected node ID
+	viewport       Viewport
+	collapsed      map[string]bool // Collapsed epic IDs
+	view           GraphView       // Active or Backlog
+	currentBead    string          // Currently processing bead (highlighted)
+	listOrder      []ListNode      // Ordered list of nodes for list view
+	epicFilter     string          // Epic ID filter (empty = no filter)
+	activeTopLevel string          // Active top-level item for subtree highlighting
 }
 
 // NewGraph creates a new Graph with the given configuration.
@@ -1243,6 +1244,9 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 		line = line[:width]
 	}
 
+	// Check if node is in active top-level subtree
+	inActiveSubtree := g.isInActiveTopLevelSubtree(node.ID)
+
 	// Apply styling (priority: current > selected > abandoned > failed > dimmed > default)
 	style := graphStyles.Node
 	if isCurrent {
@@ -1253,7 +1257,7 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 		style = graphStyles.NodeAbandoned
 	} else if node.WQStatus == "failed" && node.InBackoff {
 		style = graphStyles.NodeFailed
-	} else if node.OutOfView || node.OutOfScope {
+	} else if node.OutOfView || node.OutOfScope || !inActiveSubtree {
 		style = graphStyles.NodeDimmed
 	}
 
@@ -1348,6 +1352,71 @@ func (g *Graph) GetEpicFilter() string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.epicFilter
+}
+
+// SetActiveTopLevel sets the active top-level item for subtree highlighting.
+// Nodes in the active subtree will be rendered normally, while nodes outside
+// will be dimmed (similar to epic filter but for highlighting, not filtering).
+func (g *Graph) SetActiveTopLevel(topLevelID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.activeTopLevel = topLevelID
+}
+
+// GetActiveTopLevel returns the current active top-level ID (empty if none).
+func (g *Graph) GetActiveTopLevel() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.activeTopLevel
+}
+
+// IsInActiveTopLevelSubtree returns true if the given node is part of the
+// active top-level item's subtree. Returns true for all nodes if no active
+// top-level is set. Must be called with mu held.
+func (g *Graph) isInActiveTopLevelSubtree(nodeID string) bool {
+	if g.activeTopLevel == "" {
+		return true // No active top-level, all nodes are considered "in subtree"
+	}
+	descendants := g.computeTopLevelDescendants()
+	return descendants[nodeID]
+}
+
+// computeTopLevelDescendants builds a set of node IDs that are descendants of the
+// active top-level item (including the top-level itself). Uses iterative expansion.
+// Must be called with mu held.
+func (g *Graph) computeTopLevelDescendants() map[string]bool {
+	if g.activeTopLevel == "" {
+		return nil
+	}
+
+	// Build parent map from hierarchy edges
+	parentOf := make(map[string]string)
+	for _, edge := range g.edges {
+		if edge.Type == EdgeHierarchy {
+			parentOf[edge.To] = edge.From
+		}
+	}
+
+	descendants := map[string]bool{g.activeTopLevel: true}
+
+	for {
+		added := false
+		for id := range g.nodes {
+			parent := parentOf[id]
+			if parent == "" {
+				continue
+			}
+			if descendants[parent] && !descendants[id] {
+				descendants[id] = true
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+
+	return descendants
 }
 
 // computeEpicDescendants builds a set of node IDs that are descendants of the

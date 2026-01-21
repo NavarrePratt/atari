@@ -770,6 +770,7 @@ func (m model) renderHeader() string {
 
 // renderStatus renders the status indicator with appropriate styling.
 // If an epic filter is active, appends "(epic: bd-xxx)" suffix.
+// If an active top-level item exists, appends "(top-level: bd-xxx - Title)" suffix.
 func (m model) renderStatus() string {
 	status := strings.ToUpper(m.status)
 	var style lipgloss.Style
@@ -790,6 +791,13 @@ func (m model) renderStatus() string {
 	result := style.Render(status)
 	if m.epicID != "" {
 		result += styles.Footer.Render(fmt.Sprintf(" (epic: %s)", m.epicID))
+	} else if m.activeTopLevelID != "" {
+		// Only show top-level if no epic filter is active
+		topLevelText := m.activeTopLevelID
+		if m.activeTopLevelTitle != "" {
+			topLevelText = fmt.Sprintf("%s - %s", m.activeTopLevelID, m.activeTopLevelTitle)
+		}
+		result += styles.Footer.Render(fmt.Sprintf(" (top-level: %s)", topLevelText))
 	}
 	return result
 }

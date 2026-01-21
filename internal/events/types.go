@@ -155,10 +155,12 @@ type DrainStateChangedEvent struct {
 // IterationStartEvent is emitted when beginning work on a bead.
 type IterationStartEvent struct {
 	BaseEvent
-	BeadID   string `json:"bead_id"`
-	Title    string `json:"title"`
-	Priority int    `json:"priority"`
-	Attempt  int    `json:"attempt"`
+	BeadID        string `json:"bead_id"`
+	Title         string `json:"title"`
+	Priority      int    `json:"priority"`
+	Attempt       int    `json:"attempt"`
+	TopLevelID    string `json:"top_level_id,omitempty"`    // Active top-level item ID (when selection_mode=top-level)
+	TopLevelTitle string `json:"top_level_title,omitempty"` // Active top-level item title
 }
 
 // IterationEndEvent is emitted when bead work completes.

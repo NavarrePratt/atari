@@ -439,12 +439,18 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 		attempt = h.Attempts
 	}
 
+	// Get active top-level context for selection mode
+	topLevelID := c.workQueue.ActiveTopLevel()
+	topLevelTitle := c.getActiveTopLevelTitle(topLevelID)
+
 	c.emit(&events.IterationStartEvent{
-		BaseEvent: events.NewInternalEvent(events.EventIterationStart),
-		BeadID:    bead.ID,
-		Title:     bead.Title,
-		Priority:  bead.Priority,
-		Attempt:   attempt,
+		BaseEvent:     events.NewInternalEvent(events.EventIterationStart),
+		BeadID:        bead.ID,
+		Title:         bead.Title,
+		Priority:      bead.Priority,
+		Attempt:       attempt,
+		TopLevelID:    topLevelID,
+		TopLevelTitle: topLevelTitle,
 	})
 
 	startTime := time.Now()

@@ -400,6 +400,11 @@ func (m *model) handleEvent(event events.Event) {
 		m.stats.CurrentDurationMs = 0
 		// Update graph pane with current bead for highlighting
 		m.graphPane.SetCurrentBead(e.BeadID)
+		// Update active top-level tracking
+		m.activeTopLevelID = e.TopLevelID
+		m.activeTopLevelTitle = e.TopLevelTitle
+		// Update graph pane with active top-level for subtree highlighting
+		m.graphPane.SetActiveTopLevel(e.TopLevelID)
 
 	case *events.IterationEndEvent:
 		m.currentBead = nil
@@ -416,6 +421,9 @@ func (m *model) handleEvent(event events.Event) {
 		m.stats.CurrentDurationMs = 0
 		// Clear current bead highlighting in graph pane
 		m.graphPane.SetCurrentBead("")
+		// Note: We don't clear activeTopLevelID/Title here because the top-level
+		// context persists across iterations within the same top-level item.
+		// It will be updated when a new iteration starts with different top-level.
 
 	case *events.TurnCompleteEvent:
 		m.currentSessionTurns = e.TurnNumber

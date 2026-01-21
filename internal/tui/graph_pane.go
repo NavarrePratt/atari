@@ -591,6 +591,14 @@ func (p *GraphPane) SetEpicFilter(epicID string) {
 	}
 }
 
+// SetActiveTopLevel sets the active top-level item for subtree highlighting.
+// Nodes in the active top-level subtree will be highlighted differently.
+func (p *GraphPane) SetActiveTopLevel(topLevelID string) {
+	if p.graph != nil {
+		p.graph.SetActiveTopLevel(topLevelID)
+	}
+}
+
 // GetSelectedNode returns the currently selected node, or nil if none.
 func (p GraphPane) GetSelectedNode() *GraphNode {
 	if p.graph != nil {

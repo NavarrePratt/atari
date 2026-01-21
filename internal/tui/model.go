@@ -95,6 +95,8 @@ type model struct {
 	inBackoff           int                        // number of beads currently in backoff period
 	topBlockedBead      *viewmodel.BlockedBeadInfo // bead with shortest remaining backoff
 	epicID              string                     // active epic filter, if any
+	activeTopLevelID    string                     // active top-level item ID (when selection_mode=top-level)
+	activeTopLevelTitle string                     // active top-level item title
 
 	// Event log
 	eventLines []eventLine
