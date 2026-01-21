@@ -1024,7 +1024,12 @@ func (g *Graph) renderListMode(width, height int) string {
 	}
 
 	// Apply viewport offset
-	startIdx := g.viewport.OffsetY
+	// OffsetY is in lines, convert to item index based on node height
+	nodeH := g.nodeHeight()
+	startIdx := 0
+	if nodeH > 0 && g.viewport.OffsetY > 0 {
+		startIdx = g.viewport.OffsetY / nodeH
+	}
 	if startIdx < 0 {
 		startIdx = 0
 	}
@@ -1032,7 +1037,15 @@ func (g *Graph) renderListMode(width, height int) string {
 		startIdx = 0
 	}
 
-	endIdx := startIdx + height
+	// height is in screen lines, convert to item count
+	itemsPerScreen := height
+	if nodeH > 1 {
+		itemsPerScreen = height / nodeH
+	}
+	if itemsPerScreen < 1 {
+		itemsPerScreen = 1
+	}
+	endIdx := startIdx + itemsPerScreen
 	if endIdx > len(visibleItems) {
 		endIdx = len(visibleItems)
 	}
