@@ -227,6 +227,32 @@ br create "Needs human review" --labels human
 3. Add the label: `br update <id> --labels automated`
 4. Atari picks them up in correct dependency order
 
+#### Selection Modes
+
+The `selection_mode` setting controls how atari chooses the next bead to work on:
+
+**top-level** (default): Groups work by top-level items (epics and standalone beads). Atari focuses on one epic at a time until all its work is complete, then moves to the next. This prevents context-switching between unrelated work.
+
+- Top-level items are sorted by priority (lower number = higher priority), then creation time
+- **Epic priority matters**: A P1 epic's work completes before a P2 epic begins
+- Standalone beads (no parent) compete with epics at the top level
+
+**global**: Pure priority-based selection across all beads. The highest-priority ready bead is always selected, regardless of epic grouping. This can cause frequent context switches between unrelated work.
+
+**When to set epic priority**:
+- P0-P1: Critical/blocking work that should complete before other epics
+- P2: Normal priority (default), epics processed by creation time
+- P3-P4: Lower priority work, processed after higher-priority epics
+
+Example with two epics:
+```yaml
+# Epic A (P1): Urgent bug fixes
+# Epic B (P2): New feature
+
+# With top-level mode: All of Epic A's beads complete first
+# With global mode: Beads interleave based on individual priorities
+```
+
 ### Backoff Settings
 
 ```yaml

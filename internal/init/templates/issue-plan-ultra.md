@@ -183,10 +183,15 @@ br dep add bd-004 bd-003 --type blocks
 
 ### Step 5: Create Epic
 
-After all issues are created and dependencies set, create an epic as a summary of the planned work:
+After all issues are created and dependencies set, create an epic as a summary of the planned work.
+
+**Epic Priority and Selection Mode**: When atari uses `selection_mode: top-level` (the default), epics compete by priority. The epic with the **lowest priority number** (highest priority) gets all its work done first before moving to the next epic. Set epic priority based on when you want this work completed relative to other epics:
+- P0-P1: Urgent work that should be done before other planned work
+- P2 (default): Normal priority, processed in creation order among equals
+- P3-P4: Lower priority, will be worked after higher-priority epics complete
 
 ```bash
-br create "[feature/task name]" --type epic --description "$(cat <<'EOF'
+br create "[feature/task name]" --type epic --priority <N> --description "$(cat <<'EOF'
 # Overview
 [Brief description of the overall work being planned]
 
