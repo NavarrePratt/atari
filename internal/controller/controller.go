@@ -242,7 +242,8 @@ func (c *Controller) runIdle() {
 	}
 
 	if bead == nil {
-		// No work available
+		// No work available - try to close any eligible epics
+		go c.closeEligibleEpics("")
 		c.sleep(c.config.WorkQueue.PollInterval)
 		return
 	}
@@ -1511,8 +1512,8 @@ func (c *Controller) validateEpic(ctx context.Context) error {
 	return nil
 }
 
-// closeEligibleEpics checks open epics and closes those with all children completed.
-// This is called asynchronously after a successful bead completion.
+// closeEligibleEpics closes epics where all children are completed.
+// This is called asynchronously after a successful bead completion or when idle.
 // Errors are logged but not propagated - this is a best-effort operation.
 func (c *Controller) closeEligibleEpics(triggeringBeadID string) {
 	if c.runner == nil {
@@ -1522,111 +1523,49 @@ func (c *Controller) closeEligibleEpics(triggeringBeadID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get all open epics
-	output, err := c.runner.Run(ctx, "br", "list", "--type", "epic", "--status", "open", "--json")
+	// Use br epic close-eligible which handles all the logic correctly
+	output, err := c.runner.Run(ctx, "br", "epic", "close-eligible", "--json")
 	if err != nil {
-		c.logger.Warn("failed to list open epics",
+		c.logger.Warn("failed to close eligible epics",
 			"triggering_bead_id", triggeringBeadID,
 			"error", err)
 		return
 	}
 
 	if len(output) == 0 {
-		c.logger.Debug("no open epics found", "triggering_bead_id", triggeringBeadID)
+		c.logger.Debug("no epics closed", "triggering_bead_id", triggeringBeadID)
 		return
 	}
 
-	var epics []struct {
+	// Parse the closed epics from the output
+	var closedEpics []struct {
 		ID             string `json:"id"`
 		Title          string `json:"title"`
 		DependentCount int    `json:"dependent_count"`
 	}
 
-	if err := json.Unmarshal(output, &epics); err != nil {
-		c.logger.Warn("failed to parse epic list output",
+	if err := json.Unmarshal(output, &closedEpics); err != nil {
+		c.logger.Warn("failed to parse close-eligible output",
 			"triggering_bead_id", triggeringBeadID,
 			"error", err)
 		return
 	}
 
-	if len(epics) == 0 {
-		c.logger.Debug("no open epics to check", "triggering_bead_id", triggeringBeadID)
-		return
-	}
-
-	// Check each epic to see if all children are closed
-	for _, epic := range epics {
-		// Skip epics with no children
-		if epic.DependentCount == 0 {
-			continue
-		}
-
-		// Get children of this epic
-		childOutput, err := c.runner.Run(ctx, "br", "list", "--parent", epic.ID, "--json")
-		if err != nil {
-			c.logger.Warn("failed to get epic children",
-				"epic_id", epic.ID,
-				"error", err)
-			continue
-		}
-
-		if len(childOutput) == 0 {
-			// No children returned, skip
-			continue
-		}
-
-		var children []struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		}
-
-		if err := json.Unmarshal(childOutput, &children); err != nil {
-			c.logger.Warn("failed to parse epic children",
-				"epic_id", epic.ID,
-				"error", err)
-			continue
-		}
-
-		if len(children) == 0 {
-			continue
-		}
-
-		// Check if all children are closed
-		allClosed := true
-		for _, child := range children {
-			if child.Status != "closed" {
-				allClosed = false
-				break
-			}
-		}
-
-		if !allClosed {
-			continue
-		}
-
-		// All children closed - close the epic
-		closeReason := "All child issues completed"
-		_, err = c.runner.Run(ctx, "br", "close", epic.ID, "--reason", closeReason)
-		if err != nil {
-			c.logger.Warn("failed to close epic",
-				"epic_id", epic.ID,
-				"error", err)
-			continue
-		}
-
+	// Emit events for each closed epic
+	for _, epic := range closedEpics {
 		c.logger.Info("epic auto-closed",
 			"epic_id", epic.ID,
 			"title", epic.Title,
-			"total_children", len(children),
+			"total_children", epic.DependentCount,
 			"triggering_bead_id", triggeringBeadID)
 
 		c.emit(&events.EpicClosedEvent{
 			BaseEvent:        events.NewInternalEvent(events.EventEpicClosed),
 			EpicID:           epic.ID,
 			Title:            epic.Title,
-			TotalChildren:    len(children),
+			TotalChildren:    epic.DependentCount,
 			TriggeringBeadID: triggeringBeadID,
-			CloseReason:      closeReason,
+			CloseReason:      "All child issues completed",
 		})
 	}
 }
