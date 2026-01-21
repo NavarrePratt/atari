@@ -1179,7 +1179,15 @@ func (g *Graph) formatListNode(node *GraphNode, item ListNode, glyphs string, wi
 
 	switch density {
 	case DensityCompact:
-		// Compact: just glyphs + icon + ID + collapsed badge
+		// Compact: glyphs + icon + ID + deps badge + collapsed badge
+		depCount := g.countBlockingDeps(node.ID)
+		if depCount > 0 {
+			if depCount == 1 {
+				content.WriteString(" [1 dep]")
+			} else {
+				content.WriteString(fmt.Sprintf(" [%d deps]", depCount))
+			}
+		}
 		content.WriteString(collapsedBadge)
 
 	case DensityDetailed:
