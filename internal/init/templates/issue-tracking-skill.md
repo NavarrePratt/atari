@@ -43,6 +43,16 @@ EOF
 )" --json
 ```
 
+### Deferred Status for Batch Creation
+
+When creating multiple beads under an epic, use `--status deferred` to prevent them from being picked up before dependencies are set:
+
+```bash
+br create "Task title" --status deferred --description "..." --json
+# ... create more beads, set dependencies ...
+br update bd-xxx --status open  # Publish when ready
+```
+
 ## Notes Format
 
 ```

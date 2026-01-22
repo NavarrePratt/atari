@@ -26,6 +26,25 @@ EOF
 )" --json
 ```
 
+### Deferred Status for Batch Creation
+
+When creating multiple beads under an epic, use `--status deferred` to prevent them from being picked up before dependencies are set:
+
+```bash
+# Create beads in deferred status
+br create "First task" --status deferred --description "..." --json
+br create "Second task" --status deferred --description "..." --json
+
+# Set up dependencies
+br dep add bd-001 bd-002 --type blocks
+
+# Publish all beads when ready
+br update bd-001 --status open
+br update bd-002 --status open
+```
+
+This ensures atari will not pick up any beads until the entire plan is ready and properly sequenced.
+
 **CRITICAL: No ANSI escape codes in issues.** Never copy colored terminal output into titles or descriptions. Write text from scratch - paraphrase rather than copy. ANSI codes (`\x1b[`, `^[[`) stored in issues propagate to commit messages as garbage characters.
 
 ## Notes Format

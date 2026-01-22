@@ -127,13 +127,12 @@ Before creating issues, confirm:
 
 ### Step 3: Create Issues (Deferred)
 
-Create issues using the issue-tracking skill. **Immediately set each to deferred status** to prevent atari from picking them up before planning is complete.
+Create issues using the issue-tracking skill with `--status deferred` to prevent atari from picking them up before planning is complete.
 
 For each issue:
 ```bash
-id=$(br create "Title" --description "..." --json | jq -r '.id')
-br update $id --status deferred
-# Track the ID for later publishing
+br create "Title" --status deferred --description "..." --json
+# Track the IDs for later publishing
 ```
 
 Each issue must:
@@ -156,10 +155,9 @@ Each issue must:
 
 After creating all implementation issues, create one final issue to run the full test suite:
 
-1. **Create the issue** (also set to deferred):
+1. **Create the issue** with deferred status:
    ```bash
-   final_id=$(br create "Run full test suite for [feature] (final verification)" --description "..." --json | jq -r '.id')
-   br update $final_id --status deferred
+   br create "Run full test suite for [feature] (final verification)" --status deferred --description "..." --json
    ```
    - Description: Verify all changes work together by running the complete test suite
    - Include the discovered e2e/integration command from Phase 1
