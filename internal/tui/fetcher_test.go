@@ -648,8 +648,8 @@ func TestBDFetcher_EnrichBeadsWithDetails(t *testing.T) {
 		{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
 	}
 
-	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-epic-001", "dep_type": "parent-child"}]}]`
-	enrichedBead2 := `[{"id": "bd-002", "title": "Task 2", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-001", "dep_type": "blocks"}]}]`
+	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-epic-001", "dependency_type": "parent-child"}]}]`
+	enrichedBead2 := `[{"id": "bd-002", "title": "Task 2", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-001", "dependency_type": "blocks"}]}]`
 
 	runner := testutil.NewMockRunner()
 	runner.SetResponse("br", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
@@ -702,7 +702,7 @@ func TestBDFetcher_EnrichBeadsWithDetails_PartialFailure(t *testing.T) {
 		{ID: "bd-003", Title: "Task 3", Status: "open", IssueType: "task"},
 	}
 
-	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1 enriched", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-epic-001", "dep_type": "parent-child"}]}]`
+	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1 enriched", "status": "open", "issue_type": "task", "dependencies": [{"id": "bd-epic-001", "dependency_type": "parent-child"}]}]`
 	enrichedBead3 := `[{"id": "bd-003", "title": "Task 3 enriched", "status": "open", "issue_type": "task"}]`
 
 	runner := testutil.NewMockRunner()

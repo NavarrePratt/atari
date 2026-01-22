@@ -35,7 +35,7 @@ var GraphActiveBeadsJSON = `[
         "id": "bd-epic-001",
         "title": "Epic: User Authentication",
         "status": "open",
-        "dep_type": "parent-child"
+        "dependency_type": "parent-child"
       }
     ]
   },
@@ -56,13 +56,13 @@ var GraphActiveBeadsJSON = `[
         "id": "bd-epic-001",
         "title": "Epic: User Authentication",
         "status": "open",
-        "dep_type": "parent-child"
+        "dependency_type": "parent-child"
       },
       {
         "id": "bd-task-001",
         "title": "Implement login form",
         "status": "in_progress",
-        "dep_type": "blocks"
+        "dependency_type": "blocks"
       }
     ]
   }
@@ -167,7 +167,7 @@ var GraphComplexHierarchyJSON = `[
     "created_by": "user",
     "updated_at": "2024-01-15T11:00:00Z",
     "dependencies": [
-      {"id": "bd-root", "title": "Root Epic", "status": "open", "dep_type": "parent-child"}
+      {"id": "bd-root", "title": "Root Epic", "status": "open", "dependency_type": "parent-child"}
     ]
   },
   {
@@ -181,7 +181,7 @@ var GraphComplexHierarchyJSON = `[
     "created_by": "user",
     "updated_at": "2024-01-15T11:00:00Z",
     "dependencies": [
-      {"id": "bd-root", "title": "Root Epic", "status": "open", "dep_type": "parent-child"}
+      {"id": "bd-root", "title": "Root Epic", "status": "open", "dependency_type": "parent-child"}
     ]
   },
   {
@@ -195,8 +195,8 @@ var GraphComplexHierarchyJSON = `[
     "created_by": "user",
     "updated_at": "2024-01-15T12:00:00Z",
     "dependencies": [
-      {"id": "bd-child-a", "title": "Child A", "status": "open", "dep_type": "blocks"},
-      {"id": "bd-child-b", "title": "Child B", "status": "open", "dep_type": "blocks"}
+      {"id": "bd-child-a", "title": "Child A", "status": "open", "dependency_type": "blocks"},
+      {"id": "bd-child-b", "title": "Child B", "status": "open", "dependency_type": "blocks"}
     ]
   }
 ]`
@@ -235,7 +235,7 @@ var GraphEnrichedEpicJSON = `[
         "id": "bd-epic-enrich",
         "title": "Epic: Feature Development",
         "status": "open",
-        "dep_type": "parent-child"
+        "dependency_type": "parent-child"
       }
     ]
   },
@@ -256,13 +256,13 @@ var GraphEnrichedEpicJSON = `[
         "id": "bd-epic-enrich",
         "title": "Epic: Feature Development",
         "status": "open",
-        "dep_type": "parent-child"
+        "dependency_type": "parent-child"
       },
       {
         "id": "bd-task-enrich-1",
         "title": "First task",
         "status": "open",
-        "dep_type": "blocks"
+        "dependency_type": "blocks"
       }
     ]
   },
@@ -283,7 +283,7 @@ var GraphEnrichedEpicJSON = `[
         "id": "bd-epic-enrich",
         "title": "Epic: Feature Development",
         "status": "open",
-        "dep_type": "parent-child"
+        "dependency_type": "parent-child"
       }
     ]
   }
