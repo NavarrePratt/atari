@@ -94,10 +94,6 @@ go test ./...
 - Claude Code CLI
 - beads_rust CLI
 
-## License
-
-MIT
-
 ---
 
 [GitHub](https://github.com/navarrepratt/atari)
