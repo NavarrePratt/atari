@@ -1,0 +1,188 @@
+# Getting Started with Atari
+
+A quick guide to installing atari and running your first automated session.
+
+## What is Atari?
+
+Atari is a daemon that runs Claude Code sessions to work through beads (issues) automatically. Instead of manually starting Claude sessions for each task, atari:
+
+- Polls for available beads using `br ready`
+- Spawns Claude Code sessions to implement each bead
+- Tracks progress, costs, and failures
+- Handles retries with exponential backoff
+
+The benefit: hands-off task automation. Create beads for your planned work, start atari, and let it process them autonomously.
+
+## Prerequisites
+
+Before using atari, you need:
+
+**1. Claude Code CLI** - Installed and authenticated
+
+```bash
+claude --version
+```
+
+If not installed, see [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code).
+
+**2. beads_rust (br)** - Issue tracking CLI
+
+```bash
+br --version
+br ready  # Should work without errors
+```
+
+If not installed: `cargo install beads_rust` or see [beads_rust on GitHub](https://github.com/Dicklesworthstone/beads_rust).
+
+**3. A project with beads initialized**
+
+```bash
+cd your-project
+br init   # Creates .beads/ directory
+br list   # Should show (empty) list
+```
+
+## Installation
+
+### From Source (Recommended)
+
+```bash
+go install github.com/navarrepratt/atari/cmd/atari@latest
+```
+
+### Build Locally
+
+```bash
+git clone https://github.com/navarrepratt/atari
+cd atari
+go build -o atari ./cmd/atari
+```
+
+Verify the installation:
+
+```bash
+atari version
+```
+
+## First-time Setup
+
+Run `atari init` to install Claude Code rules and skills for bead integration:
+
+```bash
+# Preview what will be installed
+atari init --dry-run
+
+# Install configuration
+atari init
+```
+
+This creates:
+
+- `.claude/rules/issue-tracking.md` - br CLI patterns
+- `.claude/rules/session-protocol.md` - Session procedures
+- `.claude/skills/bd-issue-tracking.md` - Issue tracking skill
+- `.claude/commands/` - Planning commands (bd-create, bd-plan, etc.)
+- Appends bead integration to `.claude/CLAUDE.md`
+
+### Minimal Setup
+
+For a lighter installation with only essential rules:
+
+```bash
+atari init --minimal
+```
+
+This installs just `issue-tracking.md` - useful if you want to add skills manually later.
+
+### Global Installation
+
+To install rules globally (for all projects):
+
+```bash
+atari init --global
+```
+
+## Your First Run
+
+### 1. Create a Test Bead
+
+Create a simple bead to verify everything works:
+
+```bash
+br create --title "Add hello world function" --description "Create a hello() function that returns 'Hello, World!' in the appropriate location for this project."
+```
+
+### 2. Start Atari
+
+```bash
+atari start
+```
+
+The TUI shows current status, the active bead, and a live event feed.
+
+### 3. Watch It Work
+
+Atari will:
+1. Find the bead via `br ready`
+2. Spawn a Claude Code session
+3. Claude implements the function
+4. Claude commits the change using `/commit`
+5. Claude closes the bead with `br close`
+6. Atari checks for more work (none left, so it idles)
+
+### 4. Verify Completion
+
+Check that the bead was completed:
+
+```bash
+br list --status closed
+```
+
+You should see your "Add hello world function" bead with status `closed`.
+
+## Basic Controls
+
+While atari is running:
+
+| Key | Action |
+|-----|--------|
+| `p` | Pause after current bead |
+| `r` | Resume |
+| `q` | Quit |
+
+Or use CLI commands:
+
+```bash
+atari status   # Check current state
+atari pause    # Pause after current bead
+atari resume   # Resume processing
+atari stop     # Stop immediately
+```
+
+## Running as a Daemon
+
+For long-running sessions:
+
+```bash
+# Start in background
+atari start --daemon
+
+# Check status
+atari status
+
+# View events
+atari events --follow
+
+# Stop when done
+atari stop
+```
+
+## Next Steps
+
+- [User Guide](USER_GUIDE.md) - Full documentation including configuration, monitoring, notifications, and troubleshooting
+- [Configuration Reference](config/configuration.md) - All configuration options
+- [TUI Keybinds](tui/KEYBINDS.md) - Terminal UI controls
+
+### Creating Well-Planned Work
+
+For best results, beads should be well-scoped and properly sequenced. See the "Creating Beads with Planning Skills" section in the [User Guide](USER_GUIDE.md#creating-beads-with-planning-skills) for planning workflows.
