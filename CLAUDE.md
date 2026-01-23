@@ -2,13 +2,6 @@
 
 A daemon controller that orchestrates Claude Code sessions to automatically work through beads (br) issues.
 
-## Project Context
-
-Read these documents in order for full context:
-1. `docs/CONTEXT.md` - Background research on Claude Code and beads capabilities
-2. `docs/DESIGN.md` - Architecture and design decisions
-3. `docs/IMPLEMENTATION.md` - Phased implementation plan
-
 ## Quick Summary
 
 **What we're building**: A Go daemon that:
@@ -57,21 +50,6 @@ go build -o atari ./cmd/atari
 go test ./...
 ```
 
-## Implementation Phases
-
-See `docs/IMPLEMENTATION.md` for detailed specs.
-
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 1 | Core Loop (MVP) | Complete |
-| 2 | Control & Monitoring | Complete |
-| 3 | Activity Watching | Complete - file watcher on issues.jsonl |
-| 4 | Terminal UI | Complete |
-| 5 | Polish & Init | Complete |
-| 6 | Observer Mode | Complete |
-| 7 | Bead Visualization | Complete |
-| 8 | Notifications | Not started |
-
 ## Code Style
 
 - Follow standard Go conventions (Cobra + Viper for CLI)
@@ -108,10 +86,7 @@ internal/           # Non-exported packages
   runner/           # ProcessRunner interface for streaming processes
   bdactivity/       # JSONL file watcher for bead changes (see internal/bdactivity/CLAUDE.md)
   tui/              # Terminal UI (bubbletea)
-docs/               # Design and implementation docs
-  components/       # Detailed component specifications
-  cli/              # CLI command documentation
-  config/           # Configuration file formats
+docs/               # User documentation
 ```
 
 ## Key Design Decisions

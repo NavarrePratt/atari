@@ -326,8 +326,6 @@ If you create new issues while Atari is running, they could be picked up before 
    atari resume
    ```
 
-See [workqueue.md](components/workqueue.md#race-condition-prevention) for details.
-
 ### Tips for Good Planning Sessions
 
 **Do:**

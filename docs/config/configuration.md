@@ -193,7 +193,7 @@ workqueue:
 | `selection_mode` | string | "top-level" | Selection strategy: "top-level" (prioritize top-level beads) or "global" (global priority) |
 | `eager_switch` | bool | false | Switch to higher priority bead when one becomes available |
 
-**Important**: Setting `workqueue.label` is recommended for production use to prevent race conditions where new beads are picked up before being properly sequenced. See [workqueue.md](../components/workqueue.md#race-condition-prevention) for details.
+**Important**: Setting `workqueue.label` is recommended for production use to prevent race conditions where new beads are picked up before being properly sequenced.
 
 #### Human-Only Beads
 
@@ -296,7 +296,7 @@ notifications:
       - error
 ```
 
-See [notifications.md](../components/notifications.md) for detailed configuration.
+Configure notification triggers to match your workflow needs.
 
 ### Path Settings
 
@@ -351,11 +351,11 @@ observer:
 | `show_cost` | bool | true | Display observer session cost in TUI |
 | `layout` | string | "horizontal" | Pane layout: "horizontal" or "vertical" |
 
-See [components/observer.md](../components/observer.md) for Observer Mode details.
+See the User Guide for Observer Mode usage details.
 
 ## Default Prompt
 
-The default prompt references the user's Claude configuration including skills, agents, and MCPs. See [EXISTING_IMPLEMENTATION.md](../EXISTING_IMPLEMENTATION.md) for the shell-based implementation this is based on.
+The default prompt references the user's Claude configuration including skills, agents, and MCPs.
 
 ```
 Run "br ready --json" to find available work. Review your skills (bd-issue-tracking, git-commit), MCPs (codex for verification), and agents (Explore, Plan). Implement the highest-priority ready issue completely, including all tests and linting. When you discover bugs or issues during implementation, create new br issues with exact context of what you were doing and what you found. Use the Explore and Plan subagents to investigate new issues before creating implementation tasks. Use /commit for atomic commits.
