@@ -80,9 +80,12 @@ This creates:
 
 - `.claude/rules/issue-tracking.md` - br CLI patterns
 - `.claude/rules/session-protocol.md` - Session procedures
-- `.claude/skills/bd-issue-tracking.md` - Issue tracking skill
-- `.claude/commands/` - Planning commands (bd-create, bd-plan, etc.)
-- Appends bead integration to `.claude/CLAUDE.md`
+- `.claude/skills/issue-tracking.md` - Issue tracking skill
+- `.claude/commands/issue-create.md` - Quick bead creation
+- `.claude/commands/issue-plan.md` - AI-assisted planning
+- `.claude/commands/issue-plan-ultra.md` - Thorough planning with stronger models
+- `.claude/commands/issue-plan-user.md` - Interactive planning via user interview
+- `.claude/CLAUDE.md` - Bead integration instructions
 
 ### Minimal Setup
 
@@ -106,13 +109,25 @@ atari init --global
 
 ### 1. Create a Test Bead
 
-Create a simple bead to verify everything works:
+Open a Claude Code session in your project and ask it to create a simple bead:
 
-```bash
-br create --title "Add hello world function" --description "Create a hello() function that returns 'Hello, World!' in the appropriate location for this project."
+```
+You: Add a hello world function to this project
+
+Claude: I'll create a bead for this task.
+
+You: /issue-create
 ```
 
-### 2. Start Atari
+The `/issue-create` command (installed by `atari init`) will have Claude create a well-formed bead with a clear description. You'll see output like:
+
+```
+Created bd-xxx: Add hello world function
+```
+
+This is the recommended workflow: describe what you want in a Claude session, then use `/issue-create` to capture it as a bead for atari to process.
+
+### 2. Start Atari (in a separate terminal)
 
 ```bash
 atari start
