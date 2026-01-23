@@ -181,7 +181,7 @@ atari stop
 
 - [User Guide](USER_GUIDE.md) - Full documentation including configuration, monitoring, notifications, and troubleshooting
 - [Configuration Reference](config/configuration.md) - All configuration options
-- [TUI Keybinds](tui/KEYBINDS.md) - Terminal UI controls
+- [TUI Guide](tui.md) - Terminal UI features and keybinds
 
 ### Creating Well-Planned Work
 

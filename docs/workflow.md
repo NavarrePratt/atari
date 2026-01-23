@@ -186,7 +186,7 @@ The TUI shows:
 | `r` | Resume processing |
 | `q` | Quit atari |
 
-See [TUI Keybinds](tui/KEYBINDS.md) for the full list.
+See the [TUI Guide](tui.md) for the full keybind reference.
 
 ### What Happens When a Bead Completes
 
