@@ -58,13 +58,14 @@ Atari uses `.atari/` directory for state and configuration:
 
 Configuration can be set via CLI flags, environment variables (`ATARI_*` prefix), or `.atari/config.yaml`.
 
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for detailed configuration options.
+See [docs/config/configuration.md](docs/config/configuration.md) for detailed configuration options.
 
 ## Documentation
 
-- [User Guide](docs/USER_GUIDE.md) - Complete usage guide with configuration and troubleshooting
-- [TUI Guide](docs/tui/) - Terminal UI documentation
-- [Configuration Reference](docs/config/) - Detailed configuration options
+- [Getting Started](docs/getting-started.md) - Installation and first run
+- [Workflow Guide](docs/workflow.md) - Two-terminal planning workflow
+- [TUI Guide](docs/tui.md) - Terminal UI features and keybinds
+- [Configuration Reference](docs/config/configuration.md) - All configuration options
 
 ## Development
 

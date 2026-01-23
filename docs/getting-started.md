@@ -179,10 +179,10 @@ atari stop
 
 ## Next Steps
 
-- [User Guide](USER_GUIDE.md) - Full documentation including configuration, monitoring, notifications, and troubleshooting
+- [Workflow Guide](workflow.md) - Two-terminal planning workflow
 - [Configuration Reference](config/configuration.md) - All configuration options
 - [TUI Guide](tui.md) - Terminal UI features and keybinds
 
 ### Creating Well-Planned Work
 
-For best results, beads should be well-scoped and properly sequenced. See the "Creating Beads with Planning Skills" section in the [User Guide](USER_GUIDE.md#creating-beads-with-planning-skills) for planning workflows.
+For best results, beads should be well-scoped and properly sequenced. See the [Workflow Guide](workflow.md) for planning workflows using `/issue-plan-user` and related skills.
