@@ -44,18 +44,18 @@ br list   # Should show (empty) list
 
 ## Installation
 
-### From Source (Recommended)
-
-```bash
-go install github.com/navarrepratt/atari/cmd/atari@latest
-```
-
-### Build Locally
+Clone the repository and build with [mise](https://mise.jdx.dev/):
 
 ```bash
 git clone https://github.com/navarrepratt/atari
 cd atari
-go build -o atari ./cmd/atari
+mise run build
+```
+
+To install to your Go bin directory:
+
+```bash
+mise run install
 ```
 
 Verify the installation:
