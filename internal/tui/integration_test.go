@@ -6,17 +6,15 @@ import (
 	"time"
 
 	"github.com/npratt/atari/internal/events"
-	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/viewmodel"
 )
 
 // tuiTestEnv provides an isolated test environment for TUI integration tests.
 // It wires together real components (router, event channel) with mocks where
-// needed (runner, stats, observer) to test TUI behavior in realistic conditions.
+// needed (stats, observer) to test TUI behavior in realistic conditions.
 type tuiTestEnv struct {
 	t       *testing.T
 	tempDir string
-	runner  *testutil.MockRunner
 	router  *events.Router
 
 	// Event channel for TUI consumption
@@ -47,7 +45,6 @@ func newTUITestEnv(t *testing.T) *tuiTestEnv {
 		t.Fatalf("failed to create .atari dir: %v", err)
 	}
 
-	runner := testutil.NewMockRunner()
 	router := events.NewRouter(100)
 
 	// Create buffered event channel for TUI
@@ -56,7 +53,6 @@ func newTUITestEnv(t *testing.T) *tuiTestEnv {
 	env := &tuiTestEnv{
 		t:           t,
 		tempDir:     tempDir,
-		runner:      runner,
 		router:      router,
 		eventChan:   eventChan,
 		statsGetter: newFakeStatsGetter(),
@@ -226,9 +222,6 @@ func TestTUITestEnvSetup(t *testing.T) {
 	}
 
 	// Verify components are initialized
-	if env.runner == nil {
-		t.Error("runner is nil")
-	}
 	if env.router == nil {
 		t.Error("router is nil")
 	}
