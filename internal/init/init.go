@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -43,6 +44,8 @@ type FileStatus struct {
 }
 
 // BuildFileList returns the list of files to install based on options.
+// For skill templates (skill-*.md), it applies marker replacement using
+// content from _shared-patterns.md.
 func BuildFileList(minimal bool) []InstallFile {
 	files := []InstallFile{
 		{
@@ -52,6 +55,22 @@ func BuildFileList(minimal bool) []InstallFile {
 	}
 
 	if !minimal {
+		// Parse shared patterns once for marker replacement
+		patterns, err := parseSharedPatterns()
+		if err != nil {
+			panic("failed to parse shared patterns: " + err.Error())
+		}
+
+		// Helper to process skill templates with marker replacement
+		processSkill := func(templateName, outputPath string) InstallFile {
+			content := MustReadTemplate(templateName)
+			processed, err := replaceMarkers(content, patterns)
+			if err != nil {
+				panic(fmt.Sprintf("failed to process skill %s: %v", templateName, err))
+			}
+			return InstallFile{Path: outputPath, Content: processed}
+		}
+
 		files = append(files,
 			InstallFile{
 				Path:    "rules/session-protocol.md",
@@ -62,21 +81,12 @@ func BuildFileList(minimal bool) []InstallFile {
 				Content: MustReadTemplate("issue-tracking-skill.md"),
 			},
 			InstallFile{
-				Path:    "commands/issue-create.md",
+				Path:    "skills/issue-create/SKILL.md",
 				Content: MustReadTemplate("issue-create.md"),
 			},
-			InstallFile{
-				Path:    "commands/issue-plan.md",
-				Content: MustReadTemplate("issue-plan.md"),
-			},
-			InstallFile{
-				Path:    "commands/issue-plan-ultra.md",
-				Content: MustReadTemplate("issue-plan-ultra.md"),
-			},
-			InstallFile{
-				Path:    "commands/issue-plan-user.md",
-				Content: MustReadTemplate("issue-plan-user.md"),
-			},
+			processSkill("issue-plan.md", "skills/issue-plan/SKILL.md"),
+			processSkill("issue-plan-ultra.md", "skills/issue-plan-ultra/SKILL.md"),
+			processSkill("issue-plan-user.md", "skills/issue-plan-user/SKILL.md"),
 			InstallFile{
 				Path:     "CLAUDE.md",
 				Content:  MustReadTemplate("claude-md-append.md"),
@@ -503,4 +513,69 @@ func handleManagedSection(existingContent, newSection string) string {
 // hasManagedSection checks if the content contains atari managed section markers.
 func hasManagedSection(content string) bool {
 	return strings.Contains(content, managedSectionBegin) && strings.Contains(content, managedSectionEnd)
+}
+
+// parseSharedPatterns reads _shared-patterns.md and extracts sections between
+// <!-- BEGIN X --> and <!-- END X --> markers. Returns a map of marker name to content.
+func parseSharedPatterns() (map[string]string, error) {
+	content := MustReadTemplate("_shared-patterns.md")
+	return parseSharedPatternsFromContent(content)
+}
+
+// parseSharedPatternsFromContent extracts sections from the given content.
+// This is separated for testing.
+func parseSharedPatternsFromContent(content string) (map[string]string, error) {
+	patterns := make(map[string]string)
+
+	// Match <!-- BEGIN NAME --> ... <!-- END NAME -->
+	beginRegex := regexp.MustCompile(`<!--\s*BEGIN\s+(\w+)\s*-->`)
+	matches := beginRegex.FindAllStringSubmatchIndex(content, -1)
+
+	for _, match := range matches {
+		name := content[match[2]:match[3]]
+		beginEnd := match[1]
+
+		endMarker := fmt.Sprintf("<!-- END %s -->", name)
+		endIdx := strings.Index(content[beginEnd:], endMarker)
+		if endIdx == -1 {
+			return nil, fmt.Errorf("missing end marker for section %q", name)
+		}
+
+		sectionContent := content[beginEnd : beginEnd+endIdx]
+		sectionContent = strings.TrimSpace(sectionContent)
+		patterns[name] = sectionContent
+	}
+
+	return patterns, nil
+}
+
+// replaceMarkers replaces {{ MARKER_NAME }} placeholders with content from shared patterns.
+// Returns an error if any marker is not found or if unresolved markers remain.
+func replaceMarkers(content string, patterns map[string]string) (string, error) {
+	markerRegex := regexp.MustCompile(`\{\{\s*(\w+)\s*\}\}`)
+	var missingMarkers []string
+
+	result := markerRegex.ReplaceAllStringFunc(content, func(match string) string {
+		submatch := markerRegex.FindStringSubmatch(match)
+		if len(submatch) < 2 {
+			return match
+		}
+		name := submatch[1]
+		if replacement, ok := patterns[name]; ok {
+			return replacement
+		}
+		missingMarkers = append(missingMarkers, name)
+		return match
+	})
+
+	if len(missingMarkers) > 0 {
+		return "", fmt.Errorf("unresolved markers: %v", missingMarkers)
+	}
+
+	// Validate no unresolved {{ markers remain
+	if strings.Contains(result, "{{") {
+		return "", fmt.Errorf("unresolved {{ markers found in output")
+	}
+
+	return result, nil
 }

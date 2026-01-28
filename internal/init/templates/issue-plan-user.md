@@ -116,20 +116,7 @@ Present this synthesis to the user and confirm it accurately captures the plan.
 
 ## Step 5: Discover Verification Commands
 
-Before creating beads, run a focused Explore query to find exact development commands:
-```
-Find the ACTUAL commands used in this project for verification. Search in order:
-1. mise.toml / .mise.toml (mise task runner)
-2. package.json scripts / pyproject.toml / Makefile / Justfile
-3. .github/workflows (CI jobs are authoritative)
-
-Report the EXACT command string for:
-- Linting: e.g., `mise run lint`, `golangci-lint run`, `ruff check .`
-- Tests: e.g., `mise run test`, `go test ./...`, `pytest`
-- Type checking (if applicable): e.g., `mise run typecheck`, `mypy .`
-
-Output format: "CATEGORY: [exact command]"
-```
+{{ SHARED_VERIFICATION_DISCOVERY }}
 
 ## Step 6: Create Beads
 

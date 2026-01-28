@@ -25,10 +25,10 @@ func TestBuildFileList(t *testing.T) {
 			"rules/issue-tracking.md",
 			"rules/session-protocol.md",
 			"skills/issue-tracking.md",
-			"commands/issue-create.md",
-			"commands/issue-plan.md",
-			"commands/issue-plan-ultra.md",
-			"commands/issue-plan-user.md",
+			"skills/issue-create/SKILL.md",
+			"skills/issue-plan/SKILL.md",
+			"skills/issue-plan-ultra/SKILL.md",
+			"skills/issue-plan-user/SKILL.md",
 			"CLAUDE.md",
 		}
 		for _, p := range expectedPaths {
@@ -141,10 +141,10 @@ func TestRun_Install(t *testing.T) {
 		".claude/rules/issue-tracking.md",
 		".claude/rules/session-protocol.md",
 		".claude/skills/issue-tracking.md",
-		".claude/commands/issue-create.md",
-		".claude/commands/issue-plan.md",
-		".claude/commands/issue-plan-ultra.md",
-		".claude/commands/issue-plan-user.md",
+		".claude/skills/issue-create/SKILL.md",
+		".claude/skills/issue-plan/SKILL.md",
+		".claude/skills/issue-plan-ultra/SKILL.md",
+		".claude/skills/issue-plan-user/SKILL.md",
 		".claude/CLAUDE.md",
 	}
 
@@ -621,5 +621,195 @@ func TestHandleManagedSection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseSharedPatternsFromContent(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		want      map[string]string
+		wantError bool
+	}{
+		{
+			name: "single section",
+			content: `# Header
+<!-- BEGIN SECTION_A -->
+content A
+<!-- END SECTION_A -->
+trailing`,
+			want: map[string]string{
+				"SECTION_A": "content A",
+			},
+		},
+		{
+			name: "multiple sections",
+			content: `
+<!-- BEGIN FIRST -->
+first content
+<!-- END FIRST -->
+
+<!-- BEGIN SECOND -->
+second content
+<!-- END SECOND -->
+`,
+			want: map[string]string{
+				"FIRST":  "first content",
+				"SECOND": "second content",
+			},
+		},
+		{
+			name: "multiline section",
+			content: `<!-- BEGIN MULTI -->
+line 1
+line 2
+line 3
+<!-- END MULTI -->`,
+			want: map[string]string{
+				"MULTI": "line 1\nline 2\nline 3",
+			},
+		},
+		{
+			name: "missing end marker",
+			content: `<!-- BEGIN ORPHAN -->
+content without end`,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseSharedPatternsFromContent(tt.content)
+
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(got) != len(tt.want) {
+				t.Errorf("expected %d patterns, got %d", len(tt.want), len(got))
+			}
+
+			for key, wantVal := range tt.want {
+				gotVal, ok := got[key]
+				if !ok {
+					t.Errorf("missing key %q", key)
+					continue
+				}
+				if gotVal != wantVal {
+					t.Errorf("key %q: expected %q, got %q", key, wantVal, gotVal)
+				}
+			}
+		})
+	}
+}
+
+func TestReplaceMarkers(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		patterns  map[string]string
+		want      string
+		wantError bool
+	}{
+		{
+			name:     "single marker replacement",
+			content:  "before {{ MARKER }} after",
+			patterns: map[string]string{"MARKER": "replaced"},
+			want:     "before replaced after",
+		},
+		{
+			name:     "multiple markers",
+			content:  "{{ A }} and {{ B }}",
+			patterns: map[string]string{"A": "first", "B": "second"},
+			want:     "first and second",
+		},
+		{
+			name:     "marker with extra whitespace",
+			content:  "{{  SPACED  }}",
+			patterns: map[string]string{"SPACED": "content"},
+			want:     "content",
+		},
+		{
+			name:     "no markers",
+			content:  "plain text without markers",
+			patterns: map[string]string{"UNUSED": "value"},
+			want:     "plain text without markers",
+		},
+		{
+			name:      "missing marker in patterns",
+			content:   "{{ MISSING }}",
+			patterns:  map[string]string{"OTHER": "value"},
+			wantError: true,
+		},
+		{
+			name:     "marker on its own line",
+			content:  "header\n\n{{ BLOCK }}\n\nfooter",
+			patterns: map[string]string{"BLOCK": "multiline\ncontent"},
+			want:     "header\n\nmultiline\ncontent\n\nfooter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := replaceMarkers(tt.content, tt.patterns)
+
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if got != tt.want {
+				t.Errorf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestBuildFileList_MarkerReplacement(t *testing.T) {
+	files := BuildFileList(false)
+
+	// Find skill files that should have marker replacement
+	skillPaths := []string{
+		"skills/issue-plan/SKILL.md",
+		"skills/issue-plan-ultra/SKILL.md",
+		"skills/issue-plan-user/SKILL.md",
+	}
+
+	for _, path := range skillPaths {
+		var found *InstallFile
+		for i := range files {
+			if files[i].Path == path {
+				found = &files[i]
+				break
+			}
+		}
+
+		if found == nil {
+			t.Errorf("expected file %s not found", path)
+			continue
+		}
+
+		// Verify no unresolved markers remain
+		if strings.Contains(found.Content, "{{") {
+			t.Errorf("%s contains unresolved {{ marker", path)
+		}
+
+		// Verify shared content was injected (should contain verification commands section)
+		if !strings.Contains(found.Content, "mise.toml") {
+			t.Errorf("%s should contain shared verification discovery content", path)
+		}
 	}
 }
