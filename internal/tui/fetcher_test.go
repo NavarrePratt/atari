@@ -939,3 +939,148 @@ func TestBDFetcher_EnrichBeadsWithDetails_ConcurrencyLimit(t *testing.T) {
 	}
 }
 
+func TestBDFetcher_EnrichBeadsWithDetails_PanicRecovery(t *testing.T) {
+	basicBeads := []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+		{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+		{ID: "bd-003", Title: "Task 3", Status: "open", IssueType: "task"},
+	}
+
+	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1 enriched", "status": "open", "issue_type": "task"}]`
+	enrichedBead3 := `[{"id": "bd-003", "title": "Task 3 enriched", "status": "open", "issue_type": "task"}]`
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("br", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
+	runner.SetResponse("br", []string{"show", "bd-003", "--json"}, []byte(enrichedBead3))
+
+	// Make bd-002 trigger a panic
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 2 && args[0] == "show" && args[1] == "bd-002" {
+			panic("simulated panic for testing")
+		}
+		return nil, nil, false
+	}
+
+	// Capture log output to avoid test noise
+	var logBuf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(oldLogger)
+
+	fetcher := NewBDFetcher(runner)
+	result, err := fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
+
+	// Should return an error indicating panic occurred
+	if err == nil {
+		t.Fatal("expected error for panic, got nil")
+	}
+	if err.Error() != "panic occurred during bead enrichment" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+
+	// Should still have all beads in result (non-panicking ones enriched)
+	if len(result) != 3 {
+		t.Errorf("got %d beads, want 3", len(result))
+	}
+
+	// Verify panic was logged
+	logOutput := logBuf.String()
+	if !containsLogEntry(logOutput, "ERROR", "panic in bead enrichment") {
+		t.Error("expected ERROR log for panic")
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_PanicDoesNotHang(t *testing.T) {
+	basicBeads := []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+	}
+
+	runner := testutil.NewMockRunner()
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 1 && args[0] == "show" {
+			panic("test panic")
+		}
+		return nil, nil, false
+	}
+
+	// Suppress panic log output
+	var logBuf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(oldLogger)
+
+	fetcher := NewBDFetcher(runner)
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Function returned without hanging
+	case <-time.After(2 * time.Second):
+		t.Fatal("enrichBeadsWithDetails hung after panic")
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_WaitsForGoroutinesOnCancel(t *testing.T) {
+	// Create more beads than concurrency limit to ensure some are queued
+	beadCount := 10
+	basicBeads := make([]GraphBead, beadCount)
+	for i := 0; i < beadCount; i++ {
+		basicBeads[i] = GraphBead{
+			ID:        fmt.Sprintf("bd-%03d", i),
+			Title:     fmt.Sprintf("Task %d", i),
+			Status:    "open",
+			IssueType: "task",
+		}
+	}
+
+	var goroutinesStarted int64
+	var goroutinesFinished int64
+
+	runner := testutil.NewMockRunner()
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 1 && args[0] == "show" {
+			atomic.AddInt64(&goroutinesStarted, 1)
+			defer atomic.AddInt64(&goroutinesFinished, 1)
+
+			// Simulate some work
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err(), true
+			case <-time.After(50 * time.Millisecond):
+				id := args[1]
+				return []byte(fmt.Sprintf(`[{"id": "%s", "title": "Enriched", "status": "open"}]`, id)), nil, true
+			}
+		}
+		return nil, nil, false
+	}
+
+	fetcher := NewBDFetcher(runner)
+
+	// Cancel context after a short delay to allow some goroutines to start
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := fetcher.enrichBeadsWithDetails(ctx, basicBeads)
+
+	// Should get a context.Canceled error
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got %v", err)
+	}
+
+	// After function returns, all started goroutines should have finished
+	started := atomic.LoadInt64(&goroutinesStarted)
+	finished := atomic.LoadInt64(&goroutinesFinished)
+
+	if started != finished {
+		t.Errorf("goroutines mismatch: started=%d, finished=%d (function returned before all goroutines completed)", started, finished)
+	}
+}
+

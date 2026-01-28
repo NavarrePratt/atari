@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -138,6 +139,7 @@ const maxConcurrentFetches = 5
 // enrichBeadsWithDetails fetches full dependency data for each bead in parallel.
 // Uses a semaphore to limit concurrency to maxConcurrentFetches.
 // On individual failures, the original bead data is retained.
+// Panics in goroutines are recovered and logged; if any panic occurs, an error is returned.
 func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBead) ([]GraphBead, error) {
 	if len(beads) == 0 {
 		return beads, nil
@@ -150,16 +152,29 @@ func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBea
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var failedIDs []string
+	var panicOccurred bool
 
 	for i := range beads {
 		if err := sem.Acquire(ctx, 1); err != nil {
+			wg.Wait()
 			return result, err
 		}
 
 		wg.Add(1)
 		go func(idx int) {
-			defer wg.Done()
-			defer sem.Release(1)
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("panic in bead enrichment",
+						"bead_id", beads[idx].ID,
+						"panic", r,
+						"stack", string(debug.Stack()))
+					mu.Lock()
+					panicOccurred = true
+					mu.Unlock()
+				}
+				wg.Done()
+				sem.Release(1)
+			}()
 
 			bead := beads[idx]
 			enriched, err := f.fetchBeadDetails(ctx, bead.ID)
@@ -184,6 +199,10 @@ func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBea
 	}
 
 	wg.Wait()
+
+	if panicOccurred {
+		return result, fmt.Errorf("panic occurred during bead enrichment")
+	}
 
 	if len(failedIDs) > 0 {
 		slog.Warn("enrichment partially failed",
