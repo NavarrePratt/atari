@@ -1,9 +1,165 @@
 package testutil
 
 // Graph visualization fixtures for testing the TUI graph components.
+//
+// Fixture naming conventions:
+//   - GraphList*JSON: What "br list --json" returns (dependency_count only, NO dependencies array)
+//   - GraphShowBead*JSON: What "br show <id> --json" returns (full dependencies/dependents arrays)
+//   - Graph*JSON (legacy): Pre-enriched data with dependencies included, for unit tests
+//     that don't need to test the enrichment flow
+//
+// Use GraphList* + GraphShowBead* fixtures when testing enrichment flow.
+// Use legacy Graph*JSON fixtures for unit tests that need pre-enriched data.
 
-// GraphActiveBeadsJSON is a sample bd list --json response for active beads
-// with dependencies and parent-child relationships.
+// GraphListActiveJSON is what "br list --json" actually returns for active beads.
+// Note: br list does NOT include dependencies arrays, only dependency_count and dependent_count.
+// Use this with SetupMockEnrichment to test the real enrichment flow.
+var GraphListActiveJSON = `[
+  {
+    "id": "bd-epic-001",
+    "title": "Epic: User Authentication",
+    "description": "Implement user authentication system",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "epic",
+    "created_at": "2024-01-15T10:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T10:00:00Z",
+    "dependency_count": 0,
+    "dependent_count": 2
+  },
+  {
+    "id": "bd-task-001",
+    "title": "Implement login form",
+    "description": "Create login form component",
+    "status": "in_progress",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T11:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T12:00:00Z",
+    "dependency_count": 1,
+    "dependent_count": 1
+  },
+  {
+    "id": "bd-task-002",
+    "title": "Add session management",
+    "description": "Implement session storage and validation",
+    "status": "blocked",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T11:30:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T12:30:00Z",
+    "dependency_count": 2,
+    "dependent_count": 0
+  }
+]`
+
+// GraphShowBeadEpic001JSON is what "br show bd-epic-001 --json" returns.
+// Includes full dependents array (who depends on this epic).
+var GraphShowBeadEpic001JSON = `[
+  {
+    "id": "bd-epic-001",
+    "title": "Epic: User Authentication",
+    "description": "Implement user authentication system",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "epic",
+    "created_at": "2024-01-15T10:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T10:00:00Z",
+    "dependency_count": 0,
+    "dependent_count": 2,
+    "dependents": [
+      {
+        "id": "bd-task-001",
+        "title": "Implement login form",
+        "status": "in_progress",
+        "dependency_type": "parent-child"
+      },
+      {
+        "id": "bd-task-002",
+        "title": "Add session management",
+        "status": "blocked",
+        "dependency_type": "parent-child"
+      }
+    ]
+  }
+]`
+
+// GraphShowBeadTask001JSON is what "br show bd-task-001 --json" returns.
+// Includes full dependencies array (parent-child to epic).
+var GraphShowBeadTask001JSON = `[
+  {
+    "id": "bd-task-001",
+    "title": "Implement login form",
+    "description": "Create login form component",
+    "status": "in_progress",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T11:00:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T12:00:00Z",
+    "dependency_count": 1,
+    "dependent_count": 1,
+    "parent": "bd-epic-001",
+    "dependencies": [
+      {
+        "id": "bd-epic-001",
+        "title": "Epic: User Authentication",
+        "status": "open",
+        "dependency_type": "parent-child"
+      }
+    ],
+    "dependents": [
+      {
+        "id": "bd-task-002",
+        "title": "Add session management",
+        "status": "blocked",
+        "dependency_type": "blocks"
+      }
+    ]
+  }
+]`
+
+// GraphShowBeadTask002JSON is what "br show bd-task-002 --json" returns.
+// Includes full dependencies array (parent-child + blocks).
+var GraphShowBeadTask002JSON = `[
+  {
+    "id": "bd-task-002",
+    "title": "Add session management",
+    "description": "Implement session storage and validation",
+    "status": "blocked",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2024-01-15T11:30:00Z",
+    "created_by": "user",
+    "updated_at": "2024-01-15T12:30:00Z",
+    "dependency_count": 2,
+    "dependent_count": 0,
+    "parent": "bd-epic-001",
+    "dependencies": [
+      {
+        "id": "bd-epic-001",
+        "title": "Epic: User Authentication",
+        "status": "open",
+        "dependency_type": "parent-child"
+      },
+      {
+        "id": "bd-task-001",
+        "title": "Implement login form",
+        "status": "in_progress",
+        "dependency_type": "blocks"
+      }
+    ]
+  }
+]`
+
+// GraphActiveBeadsJSON is pre-enriched data for unit tests that don't need
+// to test the enrichment flow. This represents what beads look like AFTER
+// enrichment (with dependencies arrays populated).
+// For testing actual enrichment, use GraphListActiveJSON + SetupMockEnrichment.
 var GraphActiveBeadsJSON = `[
   {
     "id": "bd-epic-001",

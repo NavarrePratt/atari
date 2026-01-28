@@ -156,3 +156,29 @@ type realExecCmd struct {
 func (c realExecCmd) Output() ([]byte, error) {
 	return c.cmd.Output()
 }
+
+// SetupMockEnrichment configures the MockRunner to return bead-specific responses
+// for "br show <id> --json" calls. This simulates the enrichment flow where
+// br list returns basic data and br show returns full dependency details.
+//
+// Usage:
+//
+//	runner := testutil.NewMockRunner()
+//	runner.SetResponse("br", []string{"list", "--json"}, []byte(testutil.GraphListActiveJSON))
+//	testutil.SetupMockEnrichment(runner, map[string]string{
+//	    "bd-epic-001": testutil.GraphShowBeadEpic001JSON,
+//	    "bd-task-001": testutil.GraphShowBeadTask001JSON,
+//	    "bd-task-002": testutil.GraphShowBeadTask002JSON,
+//	})
+func SetupMockEnrichment(runner *MockRunner, fixtures map[string]string) {
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
+			beadID := args[1]
+			if fixture, ok := fixtures[beadID]; ok {
+				return []byte(fixture), nil, true
+			}
+			return nil, fmt.Errorf("bead not found: %s", beadID), true
+		}
+		return nil, nil, false
+	}
+}
