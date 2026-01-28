@@ -134,11 +134,16 @@ func (s *StateSink) handleEvent(event Event) {
 
 	case *IterationEndEvent:
 		s.state.CurrentBead = ""
-		// Only add cost if this session hasn't been counted (by SessionEndEvent)
-		if !s.countedSessions[e.BeadID] {
+		// Only add cost if this session hasn't been counted (by SessionEndEvent).
+		// Key by session ID so each attempt is counted even for retried beads.
+		sessionKey := e.SessionID
+		if sessionKey == "" {
+			sessionKey = e.BeadID // fallback for tests without session ID
+		}
+		if !s.countedSessions[sessionKey] {
 			s.state.TotalCost += e.TotalCostUSD
 			s.state.TotalTurns += e.NumTurns
-			s.countedSessions[e.BeadID] = true
+			s.countedSessions[sessionKey] = true
 		}
 		// Update history
 		if h := s.state.History[e.BeadID]; h != nil {
@@ -164,13 +169,12 @@ func (s *StateSink) handleEvent(event Event) {
 
 	case *SessionEndEvent:
 		// Only add cost if this session hasn't been counted via IterationEndEvent.
-		// Use CurrentBead to identify the session (set by IterationStartEvent).
-		// This is a fallback for when IterationEndEvent is missed.
-		beadID := s.state.CurrentBead
-		if beadID != "" && !s.countedSessions[beadID] {
+		// Key by session ID so each attempt is counted even for retried beads.
+		// Only count if we're in an active iteration (CurrentBead set).
+		if s.state.CurrentBead != "" && e.SessionID != "" && !s.countedSessions[e.SessionID] {
 			s.state.TotalCost += e.TotalCostUSD
 			s.state.TotalTurns += e.NumTurns
-			s.countedSessions[beadID] = true
+			s.countedSessions[e.SessionID] = true
 			s.dirty = true
 		}
 	}

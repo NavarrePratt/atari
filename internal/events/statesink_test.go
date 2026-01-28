@@ -557,6 +557,7 @@ func TestStateSinkNoCostDoubleCount(t *testing.T) {
 	events <- &IterationEndEvent{
 		BaseEvent:    NewInternalEvent(EventIterationEnd),
 		BeadID:       "bd-100",
+		SessionID:    "sess-100",
 		Success:      true,
 		NumTurns:     10,
 		DurationMs:   5000,
@@ -617,6 +618,7 @@ func TestStateSinkCostCountedOncePerBead(t *testing.T) {
 	events <- &IterationEndEvent{
 		BaseEvent:    NewInternalEvent(EventIterationEnd),
 		BeadID:       "bd-200",
+		SessionID:    "sess-200",
 		Success:      true,
 		NumTurns:     5,
 		TotalCostUSD: 0.25,
@@ -644,6 +646,7 @@ func TestStateSinkCostCountedOncePerBead(t *testing.T) {
 	events <- &IterationEndEvent{
 		BaseEvent:    NewInternalEvent(EventIterationEnd),
 		BeadID:       "bd-201",
+		SessionID:    "sess-201",
 		Success:      true,
 		NumTurns:     8,
 		TotalCostUSD: 0.40,
@@ -841,4 +844,193 @@ func TestStateSinkCompatibleVersion(t *testing.T) {
 	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
 		t.Error("backup file should not exist for compatible version")
 	}
+}
+
+func TestStateSinkCostCountedForRetries(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	sink := NewStateSink(path)
+	sink.SetMinDelay(0)
+	events := make(chan Event, 20)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Simulate a bead that fails and is retried.
+	// Each attempt should have its cost counted.
+
+	// Attempt 1: fails
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-retry",
+		Title:     "Retry bead",
+		Priority:  1,
+		Attempt:   1,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-retry",
+		SessionID:    "sess-retry-1",
+		Success:      false,
+		NumTurns:     5,
+		DurationMs:   1000,
+		TotalCostUSD: 0.10,
+		Error:        "tests failed",
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	// Attempt 2: also fails
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-retry",
+		Title:     "Retry bead",
+		Priority:  1,
+		Attempt:   2,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-retry",
+		SessionID:    "sess-retry-2",
+		Success:      false,
+		NumTurns:     8,
+		DurationMs:   2000,
+		TotalCostUSD: 0.15,
+		Error:        "still failing",
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	// Attempt 3: succeeds
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-retry",
+		Title:     "Retry bead",
+		Priority:  1,
+		Attempt:   3,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-retry",
+		SessionID:    "sess-retry-3",
+		Success:      true,
+		NumTurns:     10,
+		DurationMs:   3000,
+		TotalCostUSD: 0.20,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	state := sink.State()
+
+	// Total should include all three attempts
+	expectedCost := 0.10 + 0.15 + 0.20
+	if state.TotalCost != expectedCost {
+		t.Errorf("TotalCost = %f, want %f (all attempts should be counted)", state.TotalCost, expectedCost)
+	}
+	expectedTurns := 5 + 8 + 10
+	if state.TotalTurns != expectedTurns {
+		t.Errorf("TotalTurns = %d, want %d (all attempts should be counted)", state.TotalTurns, expectedTurns)
+	}
+
+	cancel()
+	_ = sink.Stop()
+}
+
+func TestStateSinkSessionEndCostCountedForRetries(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	sink := NewStateSink(path)
+	sink.SetMinDelay(0)
+	events := make(chan Event, 30)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Simulate retries where SessionEndEvent fires (normal flow with both events)
+
+	// Attempt 1
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-300",
+		Title:     "Retry test",
+		Priority:  1,
+		Attempt:   1,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &SessionEndEvent{
+		BaseEvent:    NewInternalEvent(EventSessionEnd),
+		SessionID:    "sess-300-1",
+		NumTurns:     5,
+		TotalCostUSD: 0.10,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-300",
+		SessionID:    "sess-300-1",
+		Success:      false,
+		NumTurns:     5,
+		TotalCostUSD: 0.10,
+		Error:        "failed",
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	// Attempt 2
+	events <- &IterationStartEvent{
+		BaseEvent: NewInternalEvent(EventIterationStart),
+		BeadID:    "bd-300",
+		Title:     "Retry test",
+		Priority:  1,
+		Attempt:   2,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &SessionEndEvent{
+		BaseEvent:    NewInternalEvent(EventSessionEnd),
+		SessionID:    "sess-300-2",
+		NumTurns:     7,
+		TotalCostUSD: 0.15,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	events <- &IterationEndEvent{
+		BaseEvent:    NewInternalEvent(EventIterationEnd),
+		BeadID:       "bd-300",
+		SessionID:    "sess-300-2",
+		Success:      true,
+		NumTurns:     7,
+		TotalCostUSD: 0.15,
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	state := sink.State()
+
+	// Both attempts should be counted (total = 0.10 + 0.15)
+	expectedCost := 0.10 + 0.15
+	if state.TotalCost != expectedCost {
+		t.Errorf("TotalCost = %f, want %f", state.TotalCost, expectedCost)
+	}
+	expectedTurns := 5 + 7
+	if state.TotalTurns != expectedTurns {
+		t.Errorf("TotalTurns = %d, want %d", state.TotalTurns, expectedTurns)
+	}
+
+	cancel()
+	_ = sink.Stop()
 }
