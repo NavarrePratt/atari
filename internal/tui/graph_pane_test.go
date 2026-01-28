@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/npratt/atari/internal/config"
 )
 
@@ -960,5 +961,152 @@ func TestGraphPane_InitNoAutoRefreshWhenDisabled(t *testing.T) {
 	// Should still return the initial refresh command
 	if cmd == nil {
 		t.Error("expected Init to return initial refresh command")
+	}
+}
+
+func TestGraphPane_ViewRenderedHeight(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "standard terminal", width: 80, height: 24},
+		{name: "small height", width: 80, height: 10},
+		{name: "minimum viable height", width: 80, height: 3},
+		{name: "tall terminal", width: 80, height: 50},
+		{name: "narrow terminal", width: 40, height: 24},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.GraphConfig{Density: "standard"}
+			fetcher := &mockFetcher{
+				activeBeads: []GraphBead{
+					{ID: "bd-test-1", Title: "Test bead 1", Status: "open", IssueType: "task"},
+					{ID: "bd-test-2", Title: "Test bead 2", Status: "open", IssueType: "task"},
+				},
+			}
+			pane := NewGraphPane(cfg, fetcher, "horizontal")
+			pane.SetSize(tt.width, tt.height)
+			pane.rebuildGraph(fetcher.activeBeads)
+
+			view := pane.View()
+			renderedHeight := lipgloss.Height(view)
+
+			if renderedHeight != tt.height {
+				t.Errorf("rendered height=%d, expected=%d\nview:\n%s", renderedHeight, tt.height, view)
+			}
+		})
+	}
+}
+
+func TestGraphPane_ViewRenderedHeightEmptyGraph(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "standard terminal empty", width: 80, height: 24},
+		{name: "small height empty", width: 80, height: 10},
+		{name: "minimum viable height empty", width: 80, height: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.GraphConfig{Density: "standard"}
+			pane := NewGraphPane(cfg, nil, "horizontal")
+			pane.SetSize(tt.width, tt.height)
+
+			view := pane.View()
+			renderedHeight := lipgloss.Height(view)
+
+			if renderedHeight != tt.height {
+				t.Errorf("rendered height=%d, expected=%d\nview:\n%s", renderedHeight, tt.height, view)
+			}
+		})
+	}
+}
+
+func TestGraphPane_SetSizeViewConsistency(t *testing.T) {
+	tests := []struct {
+		name    string
+		sizes   [][2]int // sequence of [width, height] to apply
+		withData bool
+	}{
+		{
+			name:    "resize larger then smaller",
+			sizes:   [][2]int{{80, 24}, {100, 30}, {60, 15}},
+			withData: true,
+		},
+		{
+			name:    "resize smaller then larger",
+			sizes:   [][2]int{{80, 24}, {40, 10}, {120, 50}},
+			withData: true,
+		},
+		{
+			name:    "same size multiple times",
+			sizes:   [][2]int{{80, 24}, {80, 24}, {80, 24}},
+			withData: true,
+		},
+		{
+			name:    "resize empty graph",
+			sizes:   [][2]int{{80, 24}, {100, 30}, {60, 15}},
+			withData: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.GraphConfig{Density: "standard"}
+			var fetcher *mockFetcher
+			if tt.withData {
+				fetcher = &mockFetcher{
+					activeBeads: []GraphBead{
+						{ID: "bd-test-1", Title: "Test bead", Status: "open", IssueType: "task"},
+					},
+				}
+			}
+			pane := NewGraphPane(cfg, fetcher, "horizontal")
+			if tt.withData && fetcher != nil {
+				pane.rebuildGraph(fetcher.activeBeads)
+			}
+
+			for i, size := range tt.sizes {
+				width, height := size[0], size[1]
+				pane.SetSize(width, height)
+
+				view := pane.View()
+				renderedHeight := lipgloss.Height(view)
+
+				if renderedHeight != height {
+					t.Errorf("iteration %d: after SetSize(%d, %d), rendered height=%d, expected=%d",
+						i, width, height, renderedHeight, height)
+				}
+			}
+		})
+	}
+}
+
+func TestGraphPane_ViewRenderedHeightMinimum(t *testing.T) {
+	cfg := &config.GraphConfig{Density: "standard"}
+	fetcher := &mockFetcher{
+		activeBeads: []GraphBead{
+			{ID: "bd-test-1", Title: "Test bead", Status: "open", IssueType: "task"},
+		},
+	}
+	pane := NewGraphPane(cfg, fetcher, "horizontal")
+	pane.rebuildGraph(fetcher.activeBeads)
+
+	// GraphPane minimum structure: status bar (1) + graph area (at least 1) = 2 minimum
+	// Test heights at and above this minimum
+	testHeights := []int{2, 3, 4, 5}
+	for _, h := range testHeights {
+		pane.SetSize(80, h)
+		view := pane.View()
+		renderedHeight := lipgloss.Height(view)
+
+		if renderedHeight != h {
+			t.Errorf("height=%d: rendered height=%d, expected=%d", h, renderedHeight, h)
+		}
 	}
 }

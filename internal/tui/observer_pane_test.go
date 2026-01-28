@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestNewObserverPane(t *testing.T) {
@@ -477,4 +478,143 @@ type testError struct {
 
 func (e *testError) Error() string {
 	return e.msg
+}
+
+func TestObserverPane_ViewRenderedHeight(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "standard terminal", width: 80, height: 24},
+		{name: "small height", width: 80, height: 10},
+		{name: "tall terminal", width: 80, height: 50},
+		{name: "wide terminal", width: 120, height: 30},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pane := NewObserverPane(nil)
+			pane.SetSize(tt.width, tt.height)
+			pane.SetFocused(true)
+
+			view := pane.View()
+			renderedHeight := lipgloss.Height(view)
+
+			if renderedHeight != tt.height {
+				t.Errorf("rendered height=%d, expected=%d\nview:\n%s", renderedHeight, tt.height, view)
+			}
+		})
+	}
+}
+
+func TestObserverPane_ViewRenderedHeightWithHistory(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "standard terminal with history", width: 80, height: 24},
+		{name: "small height with history", width: 80, height: 10},
+		{name: "tall terminal with history", width: 80, height: 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pane := NewObserverPane(nil)
+			pane.SetSize(tt.width, tt.height)
+			pane.SetFocused(true)
+
+			// Add some history
+			pane.history = []chatMessage{
+				{role: roleUser, content: "What is happening?", time: time.Now()},
+				{role: roleAssistant, content: "This is a test response with some content.", time: time.Now()},
+			}
+			pane.updateViewportContent()
+
+			view := pane.View()
+			renderedHeight := lipgloss.Height(view)
+
+			if renderedHeight != tt.height {
+				t.Errorf("rendered height=%d, expected=%d\nview:\n%s", renderedHeight, tt.height, view)
+			}
+		})
+	}
+}
+
+func TestObserverPane_SetSizeViewConsistency(t *testing.T) {
+	tests := []struct {
+		name    string
+		sizes   [][2]int // sequence of [width, height] to apply
+		withHistory bool
+	}{
+		{
+			name:    "resize larger then smaller",
+			sizes:   [][2]int{{80, 24}, {100, 30}, {80, 20}},
+			withHistory: false,
+		},
+		{
+			name:    "resize height only",
+			sizes:   [][2]int{{80, 24}, {80, 30}, {80, 15}},
+			withHistory: false,
+		},
+		{
+			name:    "same size multiple times",
+			sizes:   [][2]int{{80, 24}, {80, 24}, {80, 24}},
+			withHistory: false,
+		},
+		{
+			name:    "resize with history",
+			sizes:   [][2]int{{80, 24}, {100, 30}, {80, 20}},
+			withHistory: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pane := NewObserverPane(nil)
+			pane.SetFocused(true)
+
+			if tt.withHistory {
+				pane.history = []chatMessage{
+					{role: roleUser, content: "Test question", time: time.Now()},
+					{role: roleAssistant, content: "Test response", time: time.Now()},
+				}
+			}
+
+			for i, size := range tt.sizes {
+				width, height := size[0], size[1]
+				pane.SetSize(width, height)
+				if tt.withHistory {
+					pane.updateViewportContent()
+				}
+
+				view := pane.View()
+				renderedHeight := lipgloss.Height(view)
+
+				if renderedHeight != height {
+					t.Errorf("iteration %d: after SetSize(%d, %d), rendered height=%d, expected=%d",
+						i, width, height, renderedHeight, height)
+				}
+			}
+		})
+	}
+}
+
+func TestObserverPane_ViewRenderedHeightMinimum(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetFocused(true)
+
+	// ObserverPane structure: history area (1+) + status bar (1) + input area (3) = 5 minimum
+	// Test heights starting at 6 to ensure stable behavior
+	testHeights := []int{6, 7, 8, 10}
+	for _, h := range testHeights {
+		pane.SetSize(80, h)
+		view := pane.View()
+		renderedHeight := lipgloss.Height(view)
+
+		if renderedHeight != h {
+			t.Errorf("height=%d: rendered height=%d, expected=%d", h, renderedHeight, h)
+		}
+	}
 }
