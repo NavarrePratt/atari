@@ -109,7 +109,8 @@ type model struct {
 	focusedPane FocusedPane
 
 	// Events state
-	eventsOpen bool
+	eventsOpen             bool
+	lastEventsVisibleLines int // cached from last render for scroll bounds
 
 	// Observer state
 	observerPane ObserverPane
@@ -250,6 +251,9 @@ func (m *model) updatePaneSizes() {
 		numPanes++
 	}
 
+	// Update cached events visible lines based on layout
+	m.updateEventsVisibleLines(numPanes)
+
 	if numPanes == 1 {
 		// Only events pane - gets full size
 		return
@@ -339,6 +343,39 @@ func (m *model) updateVerticalPaneSizes(numPanes int) {
 	}
 }
 
+// updateEventsVisibleLines computes and caches the number of visible event lines
+// based on the current layout. This is used for scroll bounds calculations.
+func (m *model) updateEventsVisibleLines(numPanes int) {
+	if !m.eventsOpen {
+		// Keep last cached value when events not visible (minimum 1)
+		if m.lastEventsVisibleLines < 1 {
+			m.lastEventsVisibleLines = 1
+		}
+		return
+	}
+
+	if numPanes == 1 {
+		// Events-only view: height - border(2) - header(3) - dividers(2) - footer(1) = 8
+		m.lastEventsVisibleLines = max(1, m.height-8)
+		return
+	}
+
+	// Split layout
+	if m.layout == LayoutHorizontal {
+		// Horizontal split: shared header/footer, events pane gets full height minus chrome
+		// headerHeight(4) + footerHeight(1) + padding(2) = 7, then border(2)
+		paneHeight := m.height - 4 - 1 - 2
+		innerHeight := paneHeight - 2
+		m.lastEventsVisibleLines = max(1, innerHeight)
+	} else {
+		// Vertical split: events pane gets percentage of height
+		eventsHeight := max(m.height*eventsHeightPercent/100, minEventsRows)
+		// innerHeight - header(3) - dividers(2) - footer(1) = 6
+		innerHeight := eventsHeight - 2
+		m.lastEventsVisibleLines = max(1, innerHeight-6)
+	}
+}
+
 // canShowSplitLayout returns true if terminal is large enough for split view.
 func (m model) canShowSplitLayout() bool {
 	// Calculate minimum required size based on which panes are open
@@ -379,7 +416,12 @@ func (m model) Init() tea.Cmd {
 // View is implemented in view.go
 
 // visibleLines returns the number of event lines that fit in the viewport.
+// Uses the cached value from updatePaneSizes() when available.
 func (m model) visibleLines() int {
+	if m.lastEventsVisibleLines > 0 {
+		return m.lastEventsVisibleLines
+	}
+	// Fallback for initial state before first layout update
 	// Height minus: border (2), header (3), dividers (2), footer (1) = 8
 	return max(1, m.height-8)
 }
