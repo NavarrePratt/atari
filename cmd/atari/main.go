@@ -164,6 +164,24 @@ func printEventLine(line string) {
 	fmt.Println(events.FormatWithTimestamp(ev))
 }
 
+// normalizeHistoryForRecovery converts HistoryWorking entries to HistoryFailed.
+// When atari crashes while working on a bead, that bead's history entry will be
+// in the "working" state. On restart, we normalize these to "failed" so the
+// backoff logic treats them correctly (retry with exponential backoff).
+// Attempt counts are preserved for backoff calculation.
+func normalizeHistoryForRecovery(history map[string]*events.BeadHistory) map[string]*events.BeadHistory {
+	normalized := make(map[string]*events.BeadHistory, len(history))
+	for k, v := range history {
+		entry := *v
+		if entry.Status == events.HistoryWorking {
+			entry.Status = events.HistoryFailed
+			entry.LastError = "session interrupted (atari restart)"
+		}
+		normalized[k] = &entry
+	}
+	return normalized
+}
+
 // checkBrInstalled verifies that the br (beads_rust) binary is available in PATH.
 func checkBrInstalled() error {
 	if _, err := exec.LookPath("br"); err != nil {
@@ -409,6 +427,20 @@ Use --daemon to run in the background.`,
 
 			// Create work queue
 			wq := workqueue.New(cfg, brClient)
+
+			// Wire crash recovery state into workqueue
+			// StateSink loaded state from disk during Start(). Now we need to:
+			// 1. Get the loaded history
+			// 2. Normalize HistoryWorking entries to HistoryFailed (crash during work)
+			// 3. Pass to workqueue for backoff calculation
+			loadedState := stateSink.State()
+			if len(loadedState.History) > 0 {
+				normalizedHistory := normalizeHistoryForRecovery(loadedState.History)
+				wq.SetHistory(normalizedHistory)
+				logger.Info("restored history from state file",
+					"entries", len(normalizedHistory),
+					"state_file", cfg.Paths.State)
+			}
 
 			// TUI mode: redirect logger to file before creating controller
 			ctrlLogger := logger
