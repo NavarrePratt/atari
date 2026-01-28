@@ -51,6 +51,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -554,5 +557,107 @@ func (m model) handleQuitConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Ignore other keys while dialog is open
+	return m, nil
+}
+
+// handleMouse processes mouse input for scrolling and focus changes.
+func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Ignore mouse when modal or quit confirmation is open
+	if m.quitConfirmOpen {
+		return m, nil
+	}
+	if m.detailModal != nil && m.detailModal.IsOpen() {
+		return m, nil
+	}
+
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		return m.handleMouseScroll(msg, -3)
+
+	case tea.MouseButtonWheelDown:
+		return m.handleMouseScroll(msg, 3)
+
+	case tea.MouseButtonLeft:
+		if msg.Action == tea.MouseActionPress {
+			return m.handleMouseClick(msg.X, msg.Y)
+		}
+	}
+
+	return m, nil
+}
+
+// handleMouseScroll handles mouse wheel scrolling in the pane at the given position.
+func (m model) handleMouseScroll(msg tea.MouseMsg, delta int) (tea.Model, tea.Cmd) {
+	pane := m.paneAt(msg.X, msg.Y)
+
+	switch pane {
+	case FocusEvents:
+		if !m.eventsOpen {
+			return m, nil
+		}
+		oldPos := m.scrollPos
+		if delta < 0 {
+			// Scroll up
+			m.scrollPos = max(0, m.scrollPos+delta)
+		} else {
+			// Scroll down
+			maxScroll := len(m.eventLines) - m.visibleLines()
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.scrollPos = min(maxScroll, m.scrollPos+delta)
+			// Re-enable autoScroll if scrolled to bottom
+			if m.scrollPos >= maxScroll {
+				m.autoScroll = true
+			}
+		}
+		// Only disable autoScroll if position actually changed
+		if m.scrollPos != oldPos && delta < 0 {
+			m.autoScroll = false
+		}
+
+	case FocusObserver:
+		// Forward mouse scroll to observer pane
+		if m.observerOpen {
+			var cmd tea.Cmd
+			m.observerPane, cmd = m.observerPane.Update(msg)
+			return m, cmd
+		}
+
+	case FocusGraph:
+		// Forward mouse scroll to graph pane
+		if m.graphOpen {
+			var cmd tea.Cmd
+			m.graphPane, cmd = m.graphPane.Update(msg)
+			return m, cmd
+		}
+	}
+
+	return m, nil
+}
+
+// handleMouseClick handles mouse clicks for focus changes.
+func (m model) handleMouseClick(x, y int) (tea.Model, tea.Cmd) {
+	pane := m.paneAt(x, y)
+
+	// Ignore clicks outside panes (header/footer areas)
+	if pane == FocusModeNone {
+		return m, nil
+	}
+
+	// Update focus if clicking a different pane
+	if pane != m.focusedPane {
+		m.observerPane.SetFocused(false)
+		m.graphPane.SetFocused(false)
+		m.focusedPane = pane
+
+		switch pane {
+		case FocusObserver:
+			m.observerPane.SetFocused(true)
+		case FocusGraph:
+			m.graphPane.SetFocused(true)
+		}
+	}
+
 	return m, nil
 }

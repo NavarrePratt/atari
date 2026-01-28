@@ -55,6 +55,21 @@ type eventLine struct {
 // LayoutMode represents the split layout orientation.
 type LayoutMode string
 
+// PaneRect represents a rectangular region on screen for mouse hit testing.
+type PaneRect struct {
+	X, Y, Width, Height int
+}
+
+// Contains returns true if the point (x, y) is within the rectangle.
+func (r PaneRect) Contains(x, y int) bool {
+	return x >= r.X && x < r.X+r.Width && y >= r.Y && y < r.Y+r.Height
+}
+
+// IsEmpty returns true if the rectangle has zero area (pane not visible).
+func (r PaneRect) IsEmpty() bool {
+	return r.Width <= 0 || r.Height <= 0
+}
+
 const (
 	// LayoutHorizontal shows events left, observer right.
 	LayoutHorizontal LayoutMode = "horizontal"
@@ -64,8 +79,6 @@ const (
 
 // Layout size constants.
 const (
-	// eventsWidthPercent is the percentage of width for events pane in horizontal layout.
-	eventsWidthPercent = 60
 	// eventsHeightPercent is the percentage of height for events pane in vertical layout.
 	eventsHeightPercent = 60
 	// minEventsCols is the minimum width for events pane.
@@ -121,6 +134,11 @@ type model struct {
 	graphPane GraphPane
 	graphOpen bool
 	focusMode FocusedPane // FocusModeNone for normal, or pane index for fullscreen
+
+	// Pane rectangles for mouse hit testing (computed in updatePaneSizes)
+	eventsRect   PaneRect
+	observerRect PaneRect
+	graphRect    PaneRect
 
 	// Modal state
 	detailModal      *DetailModal
@@ -242,8 +260,16 @@ func (m *model) toggleGraph() {
 
 // updatePaneSizes recalculates pane dimensions based on current layout.
 func (m *model) updatePaneSizes() {
+	// Reset all rectangles
+	m.eventsRect = PaneRect{}
+	m.observerRect = PaneRect{}
+	m.graphRect = PaneRect{}
+
 	// Count visible panes (at least one pane is always open)
-	numPanes := 1
+	numPanes := 0
+	if m.eventsOpen {
+		numPanes++
+	}
 	if m.observerOpen {
 		numPanes++
 	}
@@ -251,11 +277,24 @@ func (m *model) updatePaneSizes() {
 		numPanes++
 	}
 
+	// Handle fullscreen mode
+	if m.focusMode != FocusModeNone {
+		m.updateFullscreenRects()
+		m.updateEventsVisibleLines(1) // Fullscreen is effectively single pane
+		return
+	}
+
 	// Update cached events visible lines based on layout
 	m.updateEventsVisibleLines(numPanes)
 
+	if numPanes == 0 {
+		// All panes closed (header-only view)
+		return
+	}
+
 	if numPanes == 1 {
-		// Only events pane - gets full size
+		// Single pane gets full size
+		m.updateSinglePaneRects()
 		return
 	}
 
@@ -269,47 +308,68 @@ func (m *model) updatePaneSizes() {
 
 // updateHorizontalPaneSizes calculates pane sizes for horizontal layout.
 func (m *model) updateHorizontalPaneSizes(numPanes int) {
-	// Events always takes eventsWidthPercent
-	eventsWidth := m.width * eventsWidthPercent / 100
-	remainingWidth := m.width - eventsWidth
+	// In horizontal split layout:
+	// - Shared header at top (4 lines content + 2 borders = 6 rows)
+	// - Panes side by side below header
+	// - Shared footer at bottom (1 row)
+	headerRows := 6
+	footerRows := 1
+	paneY := headerRows
+	paneHeight := m.height - headerRows - footerRows
 
-	if numPanes == 2 {
-		// Two panes: events + (observer OR graph)
-		paneWidth := remainingWidth
-		if m.observerOpen {
-			if paneWidth < minObserverCols {
-				paneWidth = minObserverCols
-			}
-			m.observerPane.SetSize(paneWidth-2, m.height-2)
-		} else {
-			if paneWidth < minGraphCols {
-				paneWidth = minGraphCols
-			}
-			m.graphPane.SetSize(paneWidth-2, m.height-2)
-		}
-	} else {
-		// Three panes: split remaining width between observer and graph
-		halfWidth := remainingWidth / 2
-		observerWidth := halfWidth
-		graphWidth := remainingWidth - halfWidth
+	// Calculate equal widths for all panes
+	paneWidth := m.width / numPanes
+	currentX := 0
+	panesRendered := 0
 
-		if observerWidth < minObserverCols {
-			observerWidth = minObserverCols
+	// Events pane rectangle
+	if m.eventsOpen {
+		panesRendered++
+		eventsW := paneWidth
+		if panesRendered == numPanes {
+			eventsW = m.width - currentX
 		}
-		if graphWidth < minGraphCols {
-			graphWidth = minGraphCols
-		}
+		m.eventsRect = PaneRect{X: currentX, Y: paneY, Width: eventsW, Height: paneHeight}
+		currentX += eventsW
+	}
 
-		m.observerPane.SetSize(observerWidth-2, m.height-2)
-		m.graphPane.SetSize(graphWidth-2, m.height-2)
+	// Observer pane
+	if m.observerOpen {
+		panesRendered++
+		obsW := paneWidth
+		if panesRendered == numPanes {
+			obsW = m.width - currentX
+		}
+		m.observerRect = PaneRect{X: currentX, Y: paneY, Width: obsW, Height: paneHeight}
+		m.observerPane.SetSize(obsW-2, paneHeight-2)
+		currentX += obsW
+	}
+
+	// Graph pane (gets remaining width)
+	if m.graphOpen {
+		graphW := m.width - currentX
+		m.graphRect = PaneRect{X: currentX, Y: paneY, Width: graphW, Height: paneHeight}
+		m.graphPane.SetSize(graphW-2, paneHeight-2)
 	}
 }
 
 // updateVerticalPaneSizes calculates pane sizes for vertical layout.
 func (m *model) updateVerticalPaneSizes(numPanes int) {
-	// Events always takes eventsHeightPercent
+	// In vertical split layout:
+	// - Events pane at top (eventsHeightPercent of height)
+	// - Secondary panes stacked below
 	eventsHeight := m.height * eventsHeightPercent / 100
+	if eventsHeight < minEventsRows {
+		eventsHeight = minEventsRows
+	}
 	remainingHeight := m.height - eventsHeight
+	currentY := 0
+
+	// Events pane rectangle
+	if m.eventsOpen {
+		m.eventsRect = PaneRect{X: 0, Y: currentY, Width: m.width, Height: eventsHeight}
+		currentY += eventsHeight
+	}
 
 	if numPanes == 2 {
 		// Two panes: events + (observer OR graph)
@@ -318,11 +378,13 @@ func (m *model) updateVerticalPaneSizes(numPanes int) {
 			if paneHeight < minObserverRows {
 				paneHeight = minObserverRows
 			}
+			m.observerRect = PaneRect{X: 0, Y: currentY, Width: m.width, Height: paneHeight}
 			m.observerPane.SetSize(m.width-2, paneHeight-2)
-		} else {
+		} else if m.graphOpen {
 			if paneHeight < minGraphRows {
 				paneHeight = minGraphRows
 			}
+			m.graphRect = PaneRect{X: 0, Y: currentY, Width: m.width, Height: paneHeight}
 			m.graphPane.SetSize(m.width-2, paneHeight-2)
 		}
 	} else {
@@ -338,8 +400,40 @@ func (m *model) updateVerticalPaneSizes(numPanes int) {
 			graphHeight = minGraphRows
 		}
 
-		m.observerPane.SetSize(m.width-2, observerHeight-2)
-		m.graphPane.SetSize(m.width-2, graphHeight-2)
+		if m.observerOpen {
+			m.observerRect = PaneRect{X: 0, Y: currentY, Width: m.width, Height: observerHeight}
+			m.observerPane.SetSize(m.width-2, observerHeight-2)
+			currentY += observerHeight
+		}
+		if m.graphOpen {
+			m.graphRect = PaneRect{X: 0, Y: currentY, Width: m.width, Height: graphHeight}
+			m.graphPane.SetSize(m.width-2, graphHeight-2)
+		}
+	}
+}
+
+// updateFullscreenRects sets the rectangle for the fullscreen pane.
+func (m *model) updateFullscreenRects() {
+	fullRect := PaneRect{X: 0, Y: 0, Width: m.width, Height: m.height}
+	switch m.focusMode {
+	case FocusEvents:
+		m.eventsRect = fullRect
+	case FocusObserver:
+		m.observerRect = fullRect
+	case FocusGraph:
+		m.graphRect = fullRect
+	}
+}
+
+// updateSinglePaneRects sets the rectangle for the only open pane.
+func (m *model) updateSinglePaneRects() {
+	fullRect := PaneRect{X: 0, Y: 0, Width: m.width, Height: m.height}
+	if m.eventsOpen {
+		m.eventsRect = fullRect
+	} else if m.observerOpen {
+		m.observerRect = fullRect
+	} else if m.graphOpen {
+		m.graphRect = fullRect
 	}
 }
 
@@ -486,4 +580,20 @@ func (m model) anyPaneOpen() bool {
 // allPanesClosed returns true if events, observer, and graph panes are all closed.
 func (m model) allPanesClosed() bool {
 	return !m.eventsOpen && !m.observerOpen && !m.graphOpen
+}
+
+// paneAt returns which pane contains the given screen coordinates.
+// Returns FocusModeNone if no pane contains the point (e.g., header/footer area).
+func (m model) paneAt(x, y int) FocusedPane {
+	// Check in focus order: events first, then observer, then graph
+	if m.eventsOpen && m.eventsRect.Contains(x, y) {
+		return FocusEvents
+	}
+	if m.observerOpen && m.observerRect.Contains(x, y) {
+		return FocusObserver
+	}
+	if m.graphOpen && m.graphRect.Contains(x, y) {
+		return FocusGraph
+	}
+	return FocusModeNone
 }
