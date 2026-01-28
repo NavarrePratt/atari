@@ -302,9 +302,6 @@ func TestFormatEvent_ClaudeText(t *testing.T) {
 	if !strings.Contains(result, "[14:02:13]") {
 		t.Error("missing timestamp")
 	}
-	if !strings.Contains(result, "Claude:") {
-		t.Error("missing Claude prefix")
-	}
 	if !strings.Contains(result, "Working on the implementation") {
 		t.Error("missing text content")
 	}
@@ -330,14 +327,11 @@ func TestFormatEvent_ClaudeToolUse(t *testing.T) {
 	if !strings.Contains(result, "[14:02:15]") {
 		t.Error("missing timestamp")
 	}
-	if !strings.Contains(result, "Tool: Bash") {
+	if !strings.Contains(result, "tool: Bash") {
 		t.Error("missing tool name")
 	}
-	if !strings.Contains(result, "Run all tests") {
-		t.Error("missing description")
-	}
-	if !strings.Contains(result, "toolu_01ABCdefg...") {
-		t.Error("missing truncated tool ID")
+	if !strings.Contains(result, "go test") {
+		t.Error("missing command")
 	}
 }
 
@@ -355,8 +349,8 @@ func TestFormatEvent_ClaudeToolResult(t *testing.T) {
 
 	result := FormatEvent(ev)
 
-	if !strings.Contains(result, "Result:") {
-		t.Error("missing Result prefix")
+	if !strings.Contains(result, "tool result: ok") {
+		t.Errorf("missing tool result ok prefix, got: %s", result)
 	}
 	if strings.Contains(result, "ERROR") {
 		t.Error("should not contain ERROR for non-error result")
@@ -367,8 +361,8 @@ func TestFormatEvent_ClaudeToolResult(t *testing.T) {
 	ev.Content = "exit status 1"
 	result = FormatEvent(ev)
 
-	if !strings.Contains(result, "Result ERROR:") {
-		t.Error("missing ERROR prefix for error result")
+	if !strings.Contains(result, "tool result: ERROR") {
+		t.Errorf("missing ERROR prefix for error result, got: %s", result)
 	}
 }
 
@@ -387,11 +381,14 @@ func TestFormatEvent_IterationEvents(t *testing.T) {
 	}
 
 	result := FormatEvent(startEv)
-	if !strings.Contains(result, "Started bead bd-test-001") {
-		t.Error("missing bead ID in start event")
+	if !strings.Contains(result, "bd-test-001") {
+		t.Errorf("missing bead ID in start event, got: %s", result)
 	}
 	if !strings.Contains(result, "Fix authentication bug") {
 		t.Error("missing title in start event")
+	}
+	if !strings.Contains(result, "P1") {
+		t.Error("missing priority in start event")
 	}
 
 	// Test iteration end
@@ -409,8 +406,11 @@ func TestFormatEvent_IterationEvents(t *testing.T) {
 	}
 
 	result = FormatEvent(endEv)
-	if !strings.Contains(result, "Bead bd-test-001 completed") {
-		t.Error("missing completion message")
+	if !strings.Contains(result, "bd-test-001") {
+		t.Errorf("missing bead ID in end event, got: %s", result)
+	}
+	if !strings.Contains(result, "completed") {
+		t.Errorf("missing completion message, got: %s", result)
 	}
 	if !strings.Contains(result, "$0.45") {
 		t.Error("missing cost")
@@ -441,101 +441,6 @@ func TestFormatEvent_ErrorEvent(t *testing.T) {
 	}
 	if !strings.Contains(result, "Session timeout") {
 		t.Error("missing error message")
-	}
-}
-
-func TestFormatToolSummary(t *testing.T) {
-	tests := []struct {
-		name     string
-		toolName string
-		input    map[string]any
-		want     string
-	}{
-		{
-			name:     "Bash with description",
-			toolName: "Bash",
-			input:    map[string]any{"description": "Run tests", "command": "go test ./..."},
-			want:     `"Run tests"`,
-		},
-		{
-			name:     "Bash with command only",
-			toolName: "Bash",
-			input:    map[string]any{"command": "ls -la"},
-			want:     `"ls -la"`,
-		},
-		{
-			name:     "Read with file_path",
-			toolName: "Read",
-			input:    map[string]any{"file_path": "/path/to/file.go"},
-			want:     "file.go",
-		},
-		{
-			name:     "Grep with pattern",
-			toolName: "Grep",
-			input:    map[string]any{"pattern": "func TestFoo"},
-			want:     `"func TestFoo"`,
-		},
-		{
-			name:     "Task with description",
-			toolName: "Task",
-			input:    map[string]any{"description": "Search for errors"},
-			want:     `"Search for errors"`,
-		},
-		{
-			name:     "Unknown tool",
-			toolName: "Unknown",
-			input:    map[string]any{"foo": "bar"},
-			want:     "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := formatToolSummary(tt.toolName, tt.input)
-			if got != tt.want {
-				t.Errorf("formatToolSummary(%s) = %q, want %q", tt.toolName, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		input  string
-		maxLen int
-		want   string
-	}{
-		{"short", 10, "short"},
-		{"exactly10!", 10, "exactly10!"},
-		{"this is a long string", 10, "this is..."},
-		{"abc", 3, "abc"},
-		{"abcd", 3, "abc"},
-		{"", 10, ""},
-	}
-
-	for _, tt := range tests {
-		got := truncate(tt.input, tt.maxLen)
-		if got != tt.want {
-			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
-		}
-	}
-}
-
-func TestShortID(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"toolu_01ABCdefghijklmnopqrs", "toolu_01ABCdefg..."},
-		{"short", "short"},
-		{"exactly15chars!", "exactly15chars!"},
-	}
-
-	for _, tt := range tests {
-		got := shortID(tt.input)
-		if got != tt.want {
-			t.Errorf("shortID(%q) = %q, want %q", tt.input, got, tt.want)
-		}
 	}
 }
 

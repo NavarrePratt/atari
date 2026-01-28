@@ -2,7 +2,6 @@ package observer
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -75,7 +74,7 @@ func (r *LogReader) ReadByBeadID(beadID string) ([]events.Event, error) {
 
 	var filtered []events.Event
 	for _, ev := range allEvents {
-		if getBeadID(ev) == beadID {
+		if events.GetBeadID(ev) == beadID {
 			filtered = append(filtered, ev)
 		}
 	}
@@ -147,7 +146,7 @@ func (r *LogReader) readAllEvents() ([]events.Event, error) {
 			continue
 		}
 
-		ev, err := parseEvent(line)
+		ev, err := events.ParseEvent(line)
 		if err != nil {
 			slog.Warn("failed to parse event line",
 				"error", err,
@@ -229,162 +228,6 @@ func (r *LogReader) checkRotation(file *os.File) {
 		// Reset tracking state
 		r.lastInode = stat.Ino
 		r.lastSize = 0
-	}
-}
-
-// eventEnvelope is used for initial JSON parsing to determine event type.
-type eventEnvelope struct {
-	Type      events.EventType `json:"type"`
-	Timestamp time.Time        `json:"timestamp"`
-	Source    string           `json:"source"`
-}
-
-// parseEvent parses a JSON line into a typed Event.
-func parseEvent(line []byte) (events.Event, error) {
-	// First pass: determine event type
-	var envelope eventEnvelope
-	if err := json.Unmarshal(line, &envelope); err != nil {
-		return nil, err
-	}
-
-	// Second pass: unmarshal into the correct type
-	var ev events.Event
-	var err error
-
-	switch envelope.Type {
-	case events.EventSessionStart:
-		var e events.SessionStartEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventSessionEnd:
-		var e events.SessionEndEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventSessionTimeout:
-		var e events.SessionTimeoutEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventClaudeText:
-		var e events.ClaudeTextEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventClaudeToolUse:
-		var e events.ClaudeToolUseEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventClaudeToolResult:
-		var e events.ClaudeToolResultEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventDrainStart:
-		var e events.DrainStartEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventDrainStop:
-		var e events.DrainStopEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventDrainStateChanged:
-		var e events.DrainStateChangedEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventIterationStart:
-		var e events.IterationStartEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventIterationEnd:
-		var e events.IterationEndEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventBeadAbandoned:
-		var e events.BeadAbandonedEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventBeadCreated:
-		var e events.BeadCreatedEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventBeadStatus:
-		var e events.BeadStatusEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventBeadUpdated:
-		var e events.BeadUpdatedEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventBeadComment:
-		var e events.BeadCommentEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventBeadClosed:
-		var e events.BeadClosedEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventError:
-		var e events.ErrorEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	case events.EventParseError:
-		var e events.ParseErrorEvent
-		err = json.Unmarshal(line, &e)
-		ev = &e
-
-	default:
-		// Unknown event type - skip it
-		slog.Debug("unknown event type", "type", envelope.Type)
-		return nil, nil
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return ev, nil
-}
-
-// getBeadID extracts the bead ID from an event, if present.
-func getBeadID(ev events.Event) string {
-	switch e := ev.(type) {
-	case *events.SessionStartEvent:
-		return e.BeadID
-	case *events.IterationStartEvent:
-		return e.BeadID
-	case *events.IterationEndEvent:
-		return e.BeadID
-	case *events.BeadAbandonedEvent:
-		return e.BeadID
-	case *events.BeadCreatedEvent:
-		return e.BeadID
-	case *events.BeadStatusEvent:
-		return e.BeadID
-	case *events.BeadUpdatedEvent:
-		return e.BeadID
-	case *events.BeadCommentEvent:
-		return e.BeadID
-	case *events.BeadClosedEvent:
-		return e.BeadID
-	case *events.ErrorEvent:
-		return e.BeadID
-	default:
-		return ""
 	}
 }
 

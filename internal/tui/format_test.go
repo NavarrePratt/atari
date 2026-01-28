@@ -82,19 +82,19 @@ func TestFormat_ClaudeToolUseEvent(t *testing.T) {
 			name:     "Read with file path",
 			toolName: "Read",
 			input:    map[string]any{"file_path": "/path/to/file.go"},
-			wantSub:  "tool: Read /path/to/file.go",
+			wantSub:  "tool: Read file.go",
 		},
 		{
 			name:     "Write with file path",
 			toolName: "Write",
 			input:    map[string]any{"file_path": "/path/to/file.go"},
-			wantSub:  "tool: Write /path/to/file.go",
+			wantSub:  "tool: Write file.go",
 		},
 		{
 			name:     "Edit with file path",
 			toolName: "Edit",
 			input:    map[string]any{"file_path": "/path/to/file.go"},
-			wantSub:  "tool: Edit /path/to/file.go",
+			wantSub:  "tool: Edit file.go",
 		},
 		{
 			name:     "Glob with pattern",

@@ -290,7 +290,7 @@ func TestParseEvent_AllTypes(t *testing.T) {
 				t.Fatalf("failed to marshal: %v", err)
 			}
 
-			parsed, err := parseEvent(data)
+			parsed, err := events.ParseEvent(data)
 			if err != nil {
 				t.Fatalf("failed to parse: %v", err)
 			}
@@ -303,7 +303,7 @@ func TestParseEvent_AllTypes(t *testing.T) {
 }
 
 func TestParseEvent_InvalidJSON(t *testing.T) {
-	_, err := parseEvent([]byte("not valid json"))
+	_, err := events.ParseEvent([]byte("not valid json"))
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
@@ -311,7 +311,7 @@ func TestParseEvent_InvalidJSON(t *testing.T) {
 
 func TestParseEvent_UnknownType(t *testing.T) {
 	data := []byte(`{"type":"unknown.event","timestamp":"2024-01-01T00:00:00Z","source":"test"}`)
-	ev, err := parseEvent(data)
+	ev, err := events.ParseEvent(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestGetBeadID(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := getBeadID(tc.event)
+			result := events.GetBeadID(tc.event)
 			if result != tc.expected {
 				t.Errorf("expected bead ID %q, got %q", tc.expected, result)
 			}

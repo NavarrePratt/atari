@@ -18,15 +18,16 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/controller"
 	"github.com/npratt/atari/internal/daemon"
 	"github.com/npratt/atari/internal/events"
+	cmdexec "github.com/npratt/atari/internal/exec"
 	initcmd "github.com/npratt/atari/internal/init"
 	"github.com/npratt/atari/internal/observer"
 	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/shutdown"
-	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/tui"
 	"github.com/npratt/atari/internal/workqueue"
 )
@@ -145,57 +146,22 @@ func tailFollow(ctx context.Context, path string) error {
 
 // printEventLine prints a single event line in a human-readable format.
 func printEventLine(line string) {
-	// Try to parse as JSON and format nicely
-	var event map[string]interface{}
-	if err := json.Unmarshal([]byte(line), &event); err != nil {
-		// Not JSON, print as-is
+	// Use centralized parsing
+	ev, err := events.ParseEvent([]byte(line))
+	if err != nil {
+		// Not valid JSON, print as-is
 		fmt.Println(line)
 		return
 	}
 
-	// Format: [timestamp] type: message/data
-	timestamp := ""
-	if ts, ok := event["timestamp"].(string); ok {
-		// Parse and format timestamp for readability
-		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-			timestamp = t.Format("15:04:05")
-		} else {
-			timestamp = ts
-		}
+	if ev == nil {
+		// Unknown event type, print raw line
+		fmt.Println(line)
+		return
 	}
 
-	eventType := ""
-	if t, ok := event["type"].(string); ok {
-		eventType = t
-	}
-
-	// Build output based on event type
-	var detail string
-	switch eventType {
-	case "session.start", "session.end":
-		if id, ok := event["bead_id"].(string); ok {
-			detail = fmt.Sprintf("bead=%s", id)
-		}
-	case "iteration.start", "iteration.end":
-		if num, ok := event["iteration"].(float64); ok {
-			detail = fmt.Sprintf("iteration=%d", int(num))
-		}
-	case "error":
-		if msg, ok := event["message"].(string); ok {
-			detail = msg
-		}
-	default:
-		// Generic handling
-		if msg, ok := event["message"].(string); ok {
-			detail = msg
-		}
-	}
-
-	if detail != "" {
-		fmt.Printf("[%s] %s: %s\n", timestamp, eventType, detail)
-	} else {
-		fmt.Printf("[%s] %s\n", timestamp, eventType)
-	}
+	// Use centralized formatting with timestamp
+	fmt.Println(events.FormatWithTimestamp(ev))
 }
 
 // checkBrInstalled verifies that the br (beads_rust) binary is available in PATH.
@@ -433,13 +399,16 @@ Use --daemon to run in the background.`,
 			}
 
 			// Create command runner for real commands
-			cmdRunner := testutil.NewExecRunner()
+			cmdRunner := cmdexec.NewExecRunner()
+
+			// Create br client for bead operations
+			brClient := brclient.NewCLIClient(cmdRunner)
 
 			// Create process runner for bd activity watcher
 			processRunner := runner.NewExecProcessRunner()
 
 			// Create work queue
-			wq := workqueue.New(cfg, cmdRunner)
+			wq := workqueue.New(cfg, brClient)
 
 			// TUI mode: redirect logger to file before creating controller
 			ctrlLogger := logger
@@ -462,7 +431,7 @@ Use --daemon to run in the background.`,
 			broker := observer.NewSessionBroker()
 
 			// Create controller with appropriate logger, broker, and state sink
-			ctrl := controller.New(cfg, wq, router, cmdRunner, processRunner, ctrlLogger,
+			ctrl := controller.New(cfg, wq, router, brClient, processRunner, ctrlLogger,
 				controller.WithBroker(broker),
 				controller.WithStateSink(stateSink))
 
@@ -490,7 +459,7 @@ Use --daemon to run in the background.`,
 				}
 
 				// Create graph fetcher for bead visualization
-				graphFetcher := tui.NewBDFetcher(cmdRunner)
+				graphFetcher := tui.NewBDFetcher(brClient)
 
 				// Create TUI with callbacks and observer
 				tuiApp := tui.New(tuiEvents,

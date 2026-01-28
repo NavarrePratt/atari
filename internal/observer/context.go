@@ -2,7 +2,6 @@ package observer
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,12 +16,8 @@ const (
 	// maxSessionHistory is the maximum number of completed beads to show.
 	maxSessionHistory = 5
 
-	// Text truncation limits.
-	truncateText        = 200
-	truncateToolSummary = 40
-	truncateToolResult  = 100
-	truncateTitle       = 30
-	truncateToolID      = 15
+	// truncateTitle is used for title display in session history.
+	truncateTitle = 30
 )
 
 // DrainState holds the current state of the drain for context building.
@@ -145,7 +140,7 @@ func (b *ContextBuilder) buildSessionHistorySection(history []SessionHistory) st
 	sb.WriteString("|------|-------|---------|------|-------|\n")
 	for _, h := range history {
 		sb.WriteString(fmt.Sprintf("| %s | %s | %s | $%.2f | %d |\n",
-			h.BeadID, truncate(h.Title, truncateTitle), h.Outcome, h.Cost, h.Turns))
+			h.BeadID, events.Truncate(h.Title, truncateTitle), h.Outcome, h.Cost, h.Turns))
 	}
 	return sb.String()
 }
@@ -262,127 +257,9 @@ func (b *ContextBuilder) recentEventsLimit() int {
 }
 
 // FormatEvent formats a single event for display in the context.
+// Delegates to events.FormatWithTimestamp for consistent formatting.
 func FormatEvent(e events.Event) string {
-	ts := e.Timestamp().Format("15:04:05")
-
-	switch ev := e.(type) {
-	case *events.ClaudeTextEvent:
-		return fmt.Sprintf("[%s] Claude: %s", ts, truncate(ev.Text, truncateText))
-
-	case *events.ClaudeToolUseEvent:
-		summary := formatToolSummary(ev.ToolName, ev.Input)
-		return fmt.Sprintf("[%s] Tool: %s %s (%s)", ts, ev.ToolName, summary, shortID(ev.ToolID))
-
-	case *events.ClaudeToolResultEvent:
-		content := truncate(ev.Content, truncateToolResult)
-		if ev.IsError {
-			return fmt.Sprintf("[%s] Result ERROR: %s (%s)", ts, content, shortID(ev.ToolID))
-		}
-		return fmt.Sprintf("[%s] Result: %s (%s)", ts, content, shortID(ev.ToolID))
-
-	case *events.SessionStartEvent:
-		return fmt.Sprintf("[%s] Session started for %s", ts, ev.BeadID)
-
-	case *events.SessionEndEvent:
-		return fmt.Sprintf("[%s] Session ended (turns: %d, cost: $%.2f)", ts, ev.NumTurns, ev.TotalCostUSD)
-
-	case *events.SessionTimeoutEvent:
-		return fmt.Sprintf("[%s] Session timed out after %s", ts, ev.Duration)
-
-	case *events.TurnCompleteEvent:
-		return fmt.Sprintf("[%s] Turn %d complete (%d tools, %dms)", ts, ev.TurnNumber, ev.ToolCount, ev.ToolElapsedMs)
-
-	case *events.IterationStartEvent:
-		return fmt.Sprintf("[%s] Started bead %s: %s", ts, ev.BeadID, truncate(ev.Title, truncateToolSummary))
-
-	case *events.IterationEndEvent:
-		outcome := "completed"
-		if !ev.Success {
-			outcome = "failed"
-		}
-		return fmt.Sprintf("[%s] Bead %s %s ($%.2f)", ts, ev.BeadID, outcome, ev.TotalCostUSD)
-
-	case *events.BeadAbandonedEvent:
-		return fmt.Sprintf("[%s] Bead %s abandoned after %d attempts", ts, ev.BeadID, ev.Attempts)
-
-	case *events.BeadCreatedEvent:
-		return fmt.Sprintf("[%s] Bead created: %s - %s", ts, ev.BeadID, truncate(ev.Title, truncateToolSummary))
-
-	case *events.BeadStatusEvent:
-		return fmt.Sprintf("[%s] Bead %s: %s -> %s", ts, ev.BeadID, ev.OldStatus, ev.NewStatus)
-
-	case *events.BeadUpdatedEvent:
-		return fmt.Sprintf("[%s] Bead %s updated", ts, ev.BeadID)
-
-	case *events.BeadCommentEvent:
-		return fmt.Sprintf("[%s] Comment on bead %s", ts, ev.BeadID)
-
-	case *events.BeadClosedEvent:
-		return fmt.Sprintf("[%s] Bead %s closed", ts, ev.BeadID)
-
-	case *events.DrainStartEvent:
-		return fmt.Sprintf("[%s] Drain started in %s", ts, ev.WorkDir)
-
-	case *events.DrainStopEvent:
-		return fmt.Sprintf("[%s] Drain stopped: %s", ts, ev.Reason)
-
-	case *events.DrainStateChangedEvent:
-		return fmt.Sprintf("[%s] Drain state: %s -> %s", ts, ev.From, ev.To)
-
-	case *events.ErrorEvent:
-		return fmt.Sprintf("[%s] ERROR: %s", ts, ev.Message)
-
-	case *events.ParseErrorEvent:
-		return fmt.Sprintf("[%s] Parse error: %s", ts, ev.Error)
-
-	default:
-		return fmt.Sprintf("[%s] %s", ts, e.Type())
-	}
-}
-
-// formatToolSummary extracts a summary from tool input based on tool type.
-func formatToolSummary(toolName string, input map[string]any) string {
-	switch toolName {
-	case "Bash":
-		if desc, ok := input["description"].(string); ok {
-			return fmt.Sprintf("%q", truncate(desc, truncateToolSummary))
-		}
-		if cmd, ok := input["command"].(string); ok {
-			return fmt.Sprintf("%q", truncate(cmd, truncateToolSummary))
-		}
-	case "Read", "Write", "Edit":
-		if path, ok := input["file_path"].(string); ok {
-			return filepath.Base(path)
-		}
-	case "Glob", "Grep":
-		if pattern, ok := input["pattern"].(string); ok {
-			return fmt.Sprintf("%q", pattern)
-		}
-	case "Task":
-		if desc, ok := input["description"].(string); ok {
-			return fmt.Sprintf("%q", truncate(desc, truncateToolSummary))
-		}
-	}
-	return ""
-}
-
-// shortID truncates a tool ID for display.
-func shortID(toolID string) string {
-	if len(toolID) > truncateToolID {
-		return toolID[:truncateToolID] + "..."
-	}
-	return toolID
-}
-
-// truncate truncates a string to the given length with ellipsis.
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
+	return events.FormatWithTimestamp(e)
 }
 
 // formatDuration formats a duration in a human-readable way.
