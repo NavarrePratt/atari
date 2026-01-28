@@ -2955,10 +2955,6 @@ func TestGraph_RenderHierarchy_CollapsedEpic(t *testing.T) {
 // TestGraph_CyclicData_Terminates validates that DFS in assignLayers terminates
 // correctly when nodes form cycles in hierarchy edges. This tests the visited
 // protection in assignLayers.
-//
-// Note: Mutual parent-child cycles (A is parent of B AND B is parent of A) cause
-// infinite recursion in isNodeVisible - that's a known limitation. This test uses
-// a simpler cycle scenario that's correctly handled by assignLayers.
 func TestGraph_CyclicData_Terminates(t *testing.T) {
 	// Test the existing cycle protection in TestComputeListOrder_CycleProtection
 	// which already covers this case. Here we verify that the graph correctly
@@ -3041,6 +3037,64 @@ func TestGraph_CyclicData_Terminates(t *testing.T) {
 		if item.Depth != 0 {
 			t.Errorf("node %s depth = %d, want 0 (no hierarchy edges)", item.ID, item.Depth)
 		}
+	}
+}
+
+// TestGraph_MutualParentChild_Terminates validates that isNodeVisible handles
+// cyclic parent-child relationships without infinite recursion. This tests the
+// visited protection added to isNodeVisible.
+func TestGraph_MutualParentChild_Terminates(t *testing.T) {
+	cfg := defaultGraphConfig()
+	// Create a mutual parent-child cycle: A declares B as parent, B declares A as parent
+	beads := []GraphBead{
+		{
+			ID:        "bd-a",
+			Title:     "Node A",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-b", DependencyType: "parent-child"},
+			},
+		},
+		{
+			ID:        "bd-b",
+			Title:     "Node B",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-a", DependencyType: "parent-child"},
+			},
+		},
+	}
+
+	g := NewGraph(cfg, nil, "horizontal")
+
+	// Should not hang or panic during graph building
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		g.RebuildFromBeads(beads)
+	}()
+
+	select {
+	case <-done:
+		// Good - completed without hanging
+	case <-time.After(2 * time.Second):
+		t.Fatal("RebuildFromBeads did not terminate - isNodeVisible likely hit infinite recursion")
+	}
+
+	// Verify both nodes were processed
+	if g.NodeCount() != 2 {
+		t.Errorf("NodeCount = %d, want 2", g.NodeCount())
+	}
+
+	// Verify list order computed without hanging
+	layout := g.GetLayout()
+	if layout == nil {
+		t.Fatal("layout is nil")
+	}
+	if len(layout.ListOrder) != 2 {
+		t.Errorf("ListOrder has %d items, want 2", len(layout.ListOrder))
 	}
 }
 

@@ -1355,6 +1355,17 @@ func (g *Graph) allNodeIDs() []string {
 // isNodeVisible returns true if the node should be rendered.
 // Returns false if any ancestor is collapsed.
 func (g *Graph) isNodeVisible(nodeID string) bool {
+	return g.isNodeVisibleWithVisited(nodeID, make(map[string]bool))
+}
+
+// isNodeVisibleWithVisited checks visibility while tracking visited nodes to prevent
+// infinite recursion with cyclic parent-child data.
+func (g *Graph) isNodeVisibleWithVisited(nodeID string, visited map[string]bool) bool {
+	if visited[nodeID] {
+		return true // Cycle detected, treat as visible to avoid infinite recursion
+	}
+	visited[nodeID] = true
+
 	parentID := g.getParent(nodeID)
 	if parentID == "" {
 		return true // Root nodes are always visible
@@ -1362,7 +1373,7 @@ func (g *Graph) isNodeVisible(nodeID string) bool {
 	if g.collapsed[parentID] {
 		return false
 	}
-	return g.isNodeVisible(parentID)
+	return g.isNodeVisibleWithVisited(parentID, visited)
 }
 
 // SetEpicFilter sets the epic filter. Nodes outside the epic's subtree will be
