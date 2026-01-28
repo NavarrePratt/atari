@@ -45,7 +45,7 @@ result, err := initcmd.Run(opts)
   commands/
     issue-create.md        # Unless --minimal
     issue-plan.md          # Unless --minimal
-    issue-plan-ultra.md    # Unless --minimal
+    issue-plan-codex.md    # Unless --minimal
     issue-plan-user.md     # Unless --minimal
   CLAUDE.md                # Appended, never overwritten
 ```

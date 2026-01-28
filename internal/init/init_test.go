@@ -27,7 +27,7 @@ func TestBuildFileList(t *testing.T) {
 			"skills/issue-tracking.md",
 			"skills/issue-create/SKILL.md",
 			"skills/issue-plan/SKILL.md",
-			"skills/issue-plan-ultra/SKILL.md",
+			"skills/issue-plan-codex/SKILL.md",
 			"skills/issue-plan-user/SKILL.md",
 			"CLAUDE.md",
 		}
@@ -64,7 +64,7 @@ func TestMustReadTemplate(t *testing.T) {
 		"issue-tracking-skill.md",
 		"issue-create.md",
 		"skill-issue-plan.md",
-		"issue-plan-ultra.md",
+		"skill-issue-plan-codex.md",
 		"issue-plan-user.md",
 		"claude-md-append.md",
 	}
@@ -143,7 +143,7 @@ func TestRun_Install(t *testing.T) {
 		".claude/skills/issue-tracking.md",
 		".claude/skills/issue-create/SKILL.md",
 		".claude/skills/issue-plan/SKILL.md",
-		".claude/skills/issue-plan-ultra/SKILL.md",
+		".claude/skills/issue-plan-codex/SKILL.md",
 		".claude/skills/issue-plan-user/SKILL.md",
 		".claude/CLAUDE.md",
 	}
@@ -784,7 +784,7 @@ func TestBuildFileList_MarkerReplacement(t *testing.T) {
 	// Find skill files that should have marker replacement
 	skillPaths := []string{
 		"skills/issue-plan/SKILL.md",
-		"skills/issue-plan-ultra/SKILL.md",
+		"skills/issue-plan-codex/SKILL.md",
 		"skills/issue-plan-user/SKILL.md",
 	}
 

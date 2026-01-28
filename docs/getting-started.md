@@ -83,7 +83,7 @@ This creates:
 - `.claude/skills/issue-tracking.md` - Issue tracking skill
 - `.claude/commands/issue-create.md` - Quick bead creation
 - `.claude/commands/issue-plan.md` - AI-assisted planning
-- `.claude/commands/issue-plan-ultra.md` - Thorough planning with stronger models
+- `.claude/commands/issue-plan-codex.md` - Thorough planning with stronger models
 - `.claude/commands/issue-plan-user.md` - Interactive planning via user interview
 - `.claude/CLAUDE.md` - Bead integration instructions
 

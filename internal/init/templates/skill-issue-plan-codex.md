@@ -1,4 +1,4 @@
-# Planning Issues (Ultra)
+# Planning Issues (Codex)
 
 Plan and create issues for complex work requiring thorough discovery and multi-round collaborative debate.
 

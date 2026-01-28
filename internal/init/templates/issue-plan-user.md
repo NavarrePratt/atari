@@ -18,7 +18,7 @@ This command receives context from two sources:
 
 ## Overview
 
-This is an interactive planning process where you interview the user to fully flesh out their plan before creating beads. Unlike issue-plan and issue-plan-ultra which use AI-to-AI debate, this command uses direct user dialogue to refine requirements.
+This is an interactive planning process where you interview the user to fully flesh out their plan before creating beads. Unlike issue-plan and issue-plan-codex which use AI-to-AI debate, this command uses direct user dialogue to refine requirements.
 
 ## Step 1: Understand the Plan
 

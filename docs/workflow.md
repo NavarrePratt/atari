@@ -95,7 +95,7 @@ Claude: Created 5 beads with dependencies:
 |-------|----------|
 | `/issue-plan-user` | Interview-driven planning (recommended) |
 | `/issue-plan` | Quick planning without interview |
-| `/issue-plan-ultra` | Complex features needing deep analysis |
+| `/issue-plan-codex` | Complex features needing deep analysis |
 | `/issue-create` | Create a single bead directly |
 
 For most planning work, start with `/issue-plan-user`. It catches requirements gaps early.
