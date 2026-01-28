@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -148,6 +149,7 @@ func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBea
 	sem := semaphore.NewWeighted(maxConcurrentFetches)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var failedIDs []string
 
 	for i := range beads {
 		if err := sem.Acquire(ctx, 1); err != nil {
@@ -162,9 +164,16 @@ func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBea
 			bead := beads[idx]
 			enriched, err := f.fetchBeadDetails(ctx, bead.ID)
 			if err != nil {
-				slog.Debug("failed to enrich bead, using basic data",
-					"bead_id", bead.ID,
-					"error", err)
+				if errors.Is(err, context.Canceled) {
+					slog.Debug("bead enrichment cancelled", "bead_id", bead.ID)
+				} else {
+					slog.Warn("failed to enrich bead, using basic data",
+						"bead_id", bead.ID,
+						"error", err)
+					mu.Lock()
+					failedIDs = append(failedIDs, bead.ID)
+					mu.Unlock()
+				}
 				return
 			}
 
@@ -175,6 +184,14 @@ func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBea
 	}
 
 	wg.Wait()
+
+	if len(failedIDs) > 0 {
+		slog.Warn("enrichment partially failed",
+			"total", len(beads),
+			"failed", len(failedIDs),
+			"failed_ids", failedIDs)
+	}
+
 	return result, nil
 }
 

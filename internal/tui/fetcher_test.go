@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -768,6 +771,114 @@ func TestBDFetcher_EnrichBeadsWithDetails_ContextCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled error, got %v", err)
 	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_LogsWarnOnFailure(t *testing.T) {
+	basicBeads := []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+		{ID: "bd-002", Title: "Task 2", Status: "open", IssueType: "task"},
+	}
+
+	enrichedBead1 := `[{"id": "bd-001", "title": "Task 1 enriched", "status": "open", "issue_type": "task"}]`
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("br", []string{"show", "bd-001", "--json"}, []byte(enrichedBead1))
+	runner.SetError("br", []string{"show", "bd-002", "--json"}, errors.New("bead not found"))
+
+	// Capture log output
+	var logBuf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(oldLogger)
+
+	fetcher := NewBDFetcher(runner)
+	_, err := fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logOutput := logBuf.String()
+
+	// Verify WARN level for non-cancellation errors
+	if !containsLogEntry(logOutput, "WARN", "failed to enrich bead") {
+		t.Error("expected WARN log for failed enrichment")
+	}
+
+	// Verify aggregate warning
+	if !containsLogEntry(logOutput, "WARN", "enrichment partially failed") {
+		t.Error("expected WARN log for partial failure summary")
+	}
+}
+
+func TestBDFetcher_EnrichBeadsWithDetails_LogsDebugOnCancel(t *testing.T) {
+	basicBeads := []GraphBead{
+		{ID: "bd-001", Title: "Task 1", Status: "open", IssueType: "task"},
+	}
+
+	runner := testutil.NewMockRunner()
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 1 && args[0] == "show" {
+			return nil, context.Canceled, true
+		}
+		return nil, nil, false
+	}
+
+	// Capture log output
+	var logBuf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(oldLogger)
+
+	fetcher := NewBDFetcher(runner)
+	// Note: This won't return error because individual bead failures are handled gracefully
+	_, _ = fetcher.enrichBeadsWithDetails(context.Background(), basicBeads)
+
+	logOutput := logBuf.String()
+
+	// Verify DEBUG level for cancellation
+	if !containsLogEntry(logOutput, "DEBUG", "bead enrichment cancelled") {
+		t.Error("expected DEBUG log for cancelled enrichment")
+	}
+
+	// Verify no WARN for cancellation
+	if containsLogEntry(logOutput, "WARN", "failed to enrich bead") {
+		t.Error("should not log WARN for cancelled enrichment")
+	}
+}
+
+// containsLogEntry checks if log output contains an entry with given level and message substring
+func containsLogEntry(logOutput, level, msgSubstring string) bool {
+	lines := bytes.Split([]byte(logOutput), []byte("\n"))
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		entryLevel, _ := entry["level"].(string)
+		entryMsg, _ := entry["msg"].(string)
+		if entryLevel == level && contains(entryMsg, msgSubstring) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBDFetcher_EnrichBeadsWithDetails_ConcurrencyLimit(t *testing.T) {
