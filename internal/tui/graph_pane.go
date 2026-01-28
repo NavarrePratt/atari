@@ -457,8 +457,8 @@ func (p GraphPane) View() string {
 		return ""
 	}
 
-	contentWidth := safeWidth(p.width - 4)    // Account for padding
-	contentHeight := safeHeight(p.height - 3) // Account for status bar and padding
+	contentWidth := safeWidth(p.width - 4)   // Account for padding
+	contentHeight := safeHeight(p.height - 1) // Account for status bar
 
 	// If showing inline detail view, render that instead of the graph
 	if p.showingDetail {
@@ -543,11 +543,12 @@ func (p GraphPane) renderGraph(width, height int) string {
 }
 
 // SetSize updates the pane dimensions.
+// Note: The viewport set here may be overwritten by renderGraph() during View().
 func (p *GraphPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
 	if p.graph != nil {
-		p.graph.SetViewport(safeWidth(width-4), safeHeight(height-3))
+		p.graph.SetViewport(safeWidth(width-4), safeHeight(height-1))
 	}
 }
 
