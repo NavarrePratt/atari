@@ -120,6 +120,11 @@ func (g *Graph) fetchOutOfViewDeps(ctx context.Context, beads []GraphBead) ([]Gr
 	// Fetch out-of-view beads
 	outOfViewIDs := make(map[string]bool, len(missingIDs))
 	for id := range missingIDs {
+		select {
+		case <-ctx.Done():
+			return beads, outOfViewIDs
+		default:
+		}
 		bead, err := g.fetcher.FetchBead(ctx, id)
 		if err != nil || bead == nil {
 			beads = append(beads, GraphBead{ID: id, Title: "?", Status: "?"})

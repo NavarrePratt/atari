@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -3133,5 +3134,109 @@ func TestGraph_RenderHierarchy_NestedDepth(t *testing.T) {
 	output := g.Render(80, 30)
 	if !strings.Contains(output, "├") && !strings.Contains(output, "└") {
 		t.Error("nested hierarchy should have tree glyphs in render output")
+	}
+}
+
+// blockingMockFetcher blocks FetchBead until signaled, for testing cancellation.
+type blockingMockFetcher struct {
+	activeBeads []GraphBead
+	fetchCh     chan struct{} // Send to unblock a fetch
+	fetchCount  int           // Number of FetchBead calls made
+	mu          sync.Mutex
+}
+
+func (m *blockingMockFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
+	return m.activeBeads, nil
+}
+
+func (m *blockingMockFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
+	return nil, nil
+}
+
+func (m *blockingMockFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
+	return nil, nil
+}
+
+func (m *blockingMockFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
+	m.mu.Lock()
+	m.fetchCount++
+	m.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-m.fetchCh:
+		return &GraphBead{ID: id, Title: "Fetched", Status: "closed"}, nil
+	}
+}
+
+func (m *blockingMockFetcher) getFetchCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.fetchCount
+}
+
+// TestFetchOutOfViewDeps_ContextCancellation verifies that fetchOutOfViewDeps
+// checks context cancellation between fetch iterations and returns promptly.
+func TestFetchOutOfViewDeps_ContextCancellation(t *testing.T) {
+	cfg := defaultGraphConfig()
+
+	// Set up beads with dependencies pointing to out-of-view IDs
+	activeBeads := []GraphBead{
+		{
+			ID:        "bd-001",
+			Title:     "Task 1",
+			Status:    "open",
+			IssueType: "task",
+			Dependencies: []BeadReference{
+				{ID: "bd-dep-1", DependencyType: "blocks"},
+				{ID: "bd-dep-2", DependencyType: "blocks"},
+				{ID: "bd-dep-3", DependencyType: "blocks"},
+			},
+		},
+	}
+
+	fetcher := &blockingMockFetcher{
+		activeBeads: activeBeads,
+		fetchCh:     make(chan struct{}),
+	}
+	g := NewGraph(cfg, fetcher, "horizontal")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+
+	go func() {
+		done <- g.Refresh(ctx)
+	}()
+
+	// Wait for at least one fetch to start
+	time.Sleep(20 * time.Millisecond)
+
+	// Complete the first fetch
+	fetcher.fetchCh <- struct{}{}
+
+	// Wait a bit for the loop to potentially start the next iteration
+	time.Sleep(10 * time.Millisecond)
+
+	// Cancel the context
+	cancel()
+
+	// Wait for Refresh to complete (should be prompt due to cancellation check)
+	select {
+	case err := <-done:
+		// Refresh may return nil (partial results) or context error
+		// Either is acceptable as long as it returns promptly
+		_ = err
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Refresh did not return promptly after context cancellation")
+	}
+
+	// Verify not all fetches were made (we cancelled after 1)
+	fetchCount := fetcher.getFetchCount()
+	if fetchCount == 0 {
+		t.Error("expected at least one FetchBead call")
+	}
+	if fetchCount >= 3 {
+		t.Errorf("expected fewer than 3 fetches due to cancellation, got %d", fetchCount)
 	}
 }
