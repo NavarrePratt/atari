@@ -47,9 +47,9 @@ Use `/issue-plan-user` when you have a feature or task in mind but haven't fully
 - "We need better error handling"
 - "The dashboard should show usage metrics"
 
-**Not needed for:**
-- Simple, well-defined tasks: "Fix the typo in README.md"
-- Tasks you've already planned: Use `br create` directly
+**For simpler tasks:**
+- Use `/issue-create` for single, well-defined tasks: "Fix the typo in README.md"
+- Always use a planning skill rather than `br create` directly - skills ensure beads have proper verification instructions that atari needs
 
 ### Example Session
 
@@ -93,18 +93,27 @@ Claude: Created 5 beads with dependencies:
 
 | Skill | Use Case |
 |-------|----------|
-| `/issue-plan-user` | Interview-driven planning (recommended) |
-| `/issue-plan` | Quick planning without interview |
-| `/issue-plan-codex` | Complex features needing deep analysis |
-| `/issue-create` | Create a single bead directly |
+| `/issue-plan-user` | Interview-driven planning: asks probing questions directly |
+| `/issue-plan` | AI debate: Claude (haiku) + Codex (mini) refine the plan |
+| `/issue-plan-codex` | AI debate: Claude (opus) + Codex (gpt-5.2) for complex work |
+| `/issue-plan-hybrid` | User interview + Codex review iterates until consensus |
+| `/issue-create` | Quick single-bead creation with proper verification setup |
 
-For most planning work, start with `/issue-plan-user`. It catches requirements gaps early.
+For most planning work, start with `/issue-plan-user` or `/issue-plan-hybrid`. They catch requirements gaps early through direct user input.
 
-## Creating Beads
+## How Planning Skills Create Beads
 
-### How /issue-plan-user Creates Beads
+**Always use a planning skill** (`/issue-plan-user`, `/issue-plan`, `/issue-plan-hybrid`, `/issue-plan-codex`, or `/issue-create`) rather than running `br create` directly. Planning skills ensure beads include:
 
-The planning skill uses `br create` to create beads with:
+- **Verification commands**: Specific lint/test commands that atari uses to validate completion
+- **Structured descriptions**: Context and acceptance criteria in a format atari understands
+- **Proper sequencing**: Dependencies set correctly for execution order
+
+Without these, atari cannot properly verify that work is complete before closing beads.
+
+### What Planning Skills Generate
+
+The planning skills use `br create` internally to create beads with:
 
 - **Clear titles**: Imperative voice, 50 chars max
 - **Detailed descriptions**: Context, relevant files, acceptance criteria

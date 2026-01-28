@@ -46,6 +46,7 @@ result, err := initcmd.Run(opts)
     issue-plan/SKILL.md             # Unless --minimal
     issue-plan-codex/SKILL.md       # Unless --minimal
     issue-plan-user/SKILL.md        # Unless --minimal
+    issue-plan-hybrid/SKILL.md      # Unless --minimal
   CLAUDE.md                         # Appended, never overwritten
 ```
 

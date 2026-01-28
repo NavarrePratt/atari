@@ -81,10 +81,11 @@ This creates:
 - `.claude/rules/issue-tracking.md` - br CLI patterns
 - `.claude/rules/session-protocol.md` - Session procedures
 - `.claude/skills/issue-tracking.md` - Issue tracking skill
-- `.claude/commands/issue-create.md` - Quick bead creation
-- `.claude/commands/issue-plan.md` - AI-assisted planning
-- `.claude/commands/issue-plan-codex.md` - Thorough planning with stronger models
-- `.claude/commands/issue-plan-user.md` - Interactive planning via user interview
+- `.claude/skills/issue-create/SKILL.md` - Quick bead creation
+- `.claude/skills/issue-plan/SKILL.md` - AI debate planning (Claude haiku + Codex mini)
+- `.claude/skills/issue-plan-codex/SKILL.md` - Thorough planning (Claude opus + Codex gpt-5.2)
+- `.claude/skills/issue-plan-user/SKILL.md` - Interactive planning via user interview
+- `.claude/skills/issue-plan-hybrid/SKILL.md` - User interview + Codex review
 - `.claude/CLAUDE.md` - Bead integration instructions
 
 ### Minimal Setup
