@@ -11,8 +11,8 @@ import (
 func TestBuildFileList(t *testing.T) {
 	t.Run("full install", func(t *testing.T) {
 		files := BuildFileList(false)
-		if len(files) != 8 {
-			t.Errorf("expected 8 files, got %d", len(files))
+		if len(files) != 9 {
+			t.Errorf("expected 9 files, got %d", len(files))
 		}
 
 		// Check expected files are present
@@ -29,6 +29,7 @@ func TestBuildFileList(t *testing.T) {
 			"skills/issue-plan/SKILL.md",
 			"skills/issue-plan-codex/SKILL.md",
 			"skills/issue-plan-user/SKILL.md",
+			"skills/issue-plan-hybrid/SKILL.md",
 			"CLAUDE.md",
 		}
 		for _, p := range expectedPaths {
@@ -66,6 +67,8 @@ func TestMustReadTemplate(t *testing.T) {
 		"skill-issue-plan.md",
 		"skill-issue-plan-codex.md",
 		"skill-issue-plan-user.md",
+		"skill-issue-plan-hybrid.md",
+		"_shared-patterns.md",
 		"claude-md-append.md",
 	}
 
@@ -145,6 +148,7 @@ func TestRun_Install(t *testing.T) {
 		".claude/skills/issue-plan/SKILL.md",
 		".claude/skills/issue-plan-codex/SKILL.md",
 		".claude/skills/issue-plan-user/SKILL.md",
+		".claude/skills/issue-plan-hybrid/SKILL.md",
 		".claude/CLAUDE.md",
 	}
 
@@ -156,8 +160,8 @@ func TestRun_Install(t *testing.T) {
 	}
 
 	// Check result
-	if len(result.Created) != 7 {
-		t.Errorf("expected 7 created files, got %d", len(result.Created))
+	if len(result.Created) != 8 {
+		t.Errorf("expected 8 created files, got %d", len(result.Created))
 	}
 	if len(result.Appended) != 1 {
 		t.Errorf("expected 1 appended file, got %d", len(result.Appended))
@@ -786,6 +790,7 @@ func TestBuildFileList_MarkerReplacement(t *testing.T) {
 		"skills/issue-plan/SKILL.md",
 		"skills/issue-plan-codex/SKILL.md",
 		"skills/issue-plan-user/SKILL.md",
+		"skills/issue-plan-hybrid/SKILL.md",
 	}
 
 	for _, path := range skillPaths {
