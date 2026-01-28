@@ -38,16 +38,15 @@ result, err := initcmd.Run(opts)
 ```
 .claude/
   rules/
-    issue-tracking.md      # Always installed
-    session-protocol.md    # Unless --minimal
+    issue-tracking.md               # Always installed
+    session-protocol.md             # Unless --minimal
   skills/
-    issue-tracking.md      # Unless --minimal
-  commands/
-    issue-create.md        # Unless --minimal
-    issue-plan.md          # Unless --minimal
-    issue-plan-codex.md    # Unless --minimal
-    issue-plan-user.md     # Unless --minimal
-  CLAUDE.md                # Appended, never overwritten
+    issue-tracking.md               # Unless --minimal
+    issue-create/SKILL.md           # Unless --minimal
+    issue-plan/SKILL.md             # Unless --minimal
+    issue-plan-codex/SKILL.md       # Unless --minimal
+    issue-plan-user/SKILL.md        # Unless --minimal
+  CLAUDE.md                         # Appended, never overwritten
 ```
 
 ## Behavior

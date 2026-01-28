@@ -65,7 +65,7 @@ func TestMustReadTemplate(t *testing.T) {
 		"issue-create.md",
 		"skill-issue-plan.md",
 		"skill-issue-plan-codex.md",
-		"issue-plan-user.md",
+		"skill-issue-plan-user.md",
 		"claude-md-append.md",
 	}
 

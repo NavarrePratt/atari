@@ -86,7 +86,7 @@ func BuildFileList(minimal bool) []InstallFile {
 			},
 			processSkill("skill-issue-plan.md", "skills/issue-plan/SKILL.md"),
 			processSkill("skill-issue-plan-codex.md", "skills/issue-plan-codex/SKILL.md"),
-			processSkill("issue-plan-user.md", "skills/issue-plan-user/SKILL.md"),
+			processSkill("skill-issue-plan-user.md", "skills/issue-plan-user/SKILL.md"),
 			InstallFile{
 				Path:     "CLAUDE.md",
 				Content:  MustReadTemplate("claude-md-append.md"),

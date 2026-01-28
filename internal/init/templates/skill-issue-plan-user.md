@@ -120,83 +120,11 @@ Present this synthesis to the user and confirm it accurately captures the plan.
 
 ## Step 6: Create Beads
 
-Based on the synthesized plan, create issues using the issue-tracking skill.
-
-### Single Bead (Simple Plans)
-
-If the plan is small enough for one session:
-
-```bash
-br create "Title here" --description "$(cat <<'EOF'
-# Description
-[What and why from synthesis]
-
-# Technical Approach
-[How it will be implemented]
-
-# Key Decisions
-- [Decision 1 from interview]
-- [Decision 2 from interview]
-
-# Edge Cases
-- [Edge case 1]: [How handled]
-- [Edge case 2]: [How handled]
-
-# Acceptance Criteria
-- [ ] [Specific criterion 1]
-- [ ] [Specific criterion 2]
-
-# Verification
-- [ ] `[discovered lint command]` passes
-- [ ] `[discovered test command]` passes
-
-If implementation reveals new issues, create separate issues for investigation.
-EOF
-)" --json
-```
-
-### Multiple Beads (Complex Plans)
-
-If the plan requires multiple sessions, create beads in deferred status, then publish:
-
-```bash
-# Create implementation beads (deferred)
-id1=$(br create "First task" --description "..." --json | jq -r '.id')
-br update $id1 --status deferred
-
-id2=$(br create "Second task" --description "..." --json | jq -r '.id')
-br update $id2 --status deferred
-
-# Set up dependencies if needed
-br dep add $id2 $id1 --type blocks
-
-# Create final verification bead
-final_id=$(br create "Run full test suite (final verification)" --description "..." --json | jq -r '.id')
-br update $final_id --status deferred
-br dep add $final_id $id1 --type blocks
-br dep add $final_id $id2 --type blocks
-
-# Create epic
-epic_id=$(br create "Epic title" --type epic --description "..." --json | jq -r '.id')
-br dep add $id1 $epic_id --type parent-child
-br dep add $id2 $epic_id --type parent-child
-br dep add $final_id $epic_id --type parent-child
-
-# Publish all beads
-for id in $id1 $id2 $final_id; do
-  br update $id --status open
-done
-```
-
-Each bead must:
-1. Have clear acceptance criteria (what success looks like)
-2. Be scoped to complete in one session
-3. Include verification notes with discovered commands
-4. Include note: "If implementation reveals new issues, create separate issues for investigation"
+{{ SHARED_BEAD_CREATION }}
 
 ## Step 7: Output Summary
 
-After creating beads, output a clear summary:
+After creating and publishing beads, output a clear summary:
 
 ```
 Created X bead(s) from user interview:
