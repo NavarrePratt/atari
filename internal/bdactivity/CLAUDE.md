@@ -34,6 +34,8 @@ if err := watcher.Stop(); err != nil {
 - Compares old and new state to emit diff-based events
 - Handles file truncation gracefully (br sync rewrites)
 - No dependency on bd binary
+- Silent initialization: if file exists at startup, baseline state is loaded without emitting events; only subsequent changes emit BeadChangedEvents
+- Delayed initialization: if file does not exist at startup, first file creation emits events for all initial beads
 
 ### ParseJSONLLine
 
@@ -103,6 +105,8 @@ From `config.BDActivityConfig`:
 
 | Scenario | Behavior |
 |----------|----------|
+| File exists at startup | Silent load, baseline state seeded without events |
+| File created later | First creation emits events for all beads |
 | File doesn't exist | Watches directory, detects file creation |
 | File truncated | Re-reads entire file, emits delete events for removed beads |
 | Rapid changes | Debounced to 100ms before processing |
