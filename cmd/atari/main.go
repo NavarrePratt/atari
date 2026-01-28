@@ -482,6 +482,13 @@ Use --daemon to run in the background.`,
 					obs = observer.NewObserver(&cfg.Observer, broker, contextBuilder, ctrl)
 				}
 
+				// Get working directory for TUI status line
+				workDir, err := os.Getwd()
+				if err != nil {
+					slog.Warn("failed to get working directory", "error", err)
+					workDir = ""
+				}
+
 				// Create graph fetcher for bead visualization
 				graphFetcher := tui.NewBDFetcher(cmdRunner)
 
@@ -495,6 +502,7 @@ Use --daemon to run in the background.`,
 					tui.WithGraphFetcher(graphFetcher),
 					tui.WithBeadStateGetter(ctrl),
 					tui.WithEpicID(cfg.WorkQueue.Epic),
+					tui.WithWorkingDirectory(workDir),
 				)
 
 				// Run controller in background
