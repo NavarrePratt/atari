@@ -2114,3 +2114,277 @@ func TestFullscreen_VisualDifference(t *testing.T) {
 	// The layout should be noticeably different
 	// (In fullscreen, there should be no events pane, just the graph)
 }
+
+// Focus state consistency tests - verifies focusMode and focusedPane stay in sync
+// after toggle operations
+
+func TestToggle_ExitsFullscreenMode(t *testing.T) {
+	t.Run("e toggle exits observer fullscreen", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusObserver,
+			focusMode:    FocusObserver, // In fullscreen observer
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		m.toggleEvents()
+
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after toggle, got %v", m.focusMode)
+		}
+	})
+
+	t.Run("o toggle exits graph fullscreen", func(t *testing.T) {
+		graphPane := NewGraphPane(nil, nil, "horizontal")
+		graphPane.focused = true
+
+		m := model{
+			focusedPane:  FocusGraph,
+			focusMode:    FocusGraph, // In fullscreen graph
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+			width:        100,
+			height:       30,
+		}
+
+		m.toggleObserver()
+
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after toggle, got %v", m.focusMode)
+		}
+	})
+
+	t.Run("b toggle exits events fullscreen", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusEvents, // In fullscreen events
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		m.toggleGraph()
+
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after toggle, got %v", m.focusMode)
+		}
+	})
+}
+
+func TestToggle_ClosingFullscreenPaneClearsFocusMode(t *testing.T) {
+	t.Run("closing fullscreen observer via toggle", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.focused = true
+
+		m := model{
+			focusedPane:  FocusObserver,
+			focusMode:    FocusObserver,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		// Toggle observer closed while in fullscreen
+		m.toggleObserver()
+
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after closing fullscreen pane, got %v", m.focusMode)
+		}
+		if m.observerOpen {
+			t.Error("observer should be closed")
+		}
+	})
+
+	t.Run("closing fullscreen graph via toggle", func(t *testing.T) {
+		graphPane := NewGraphPane(nil, nil, "horizontal")
+		graphPane.focused = true
+
+		m := model{
+			focusedPane:  FocusGraph,
+			focusMode:    FocusGraph,
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+			width:        100,
+			height:       30,
+		}
+
+		// Toggle graph closed while in fullscreen
+		m.toggleGraph()
+
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after closing fullscreen pane, got %v", m.focusMode)
+		}
+		if m.graphOpen {
+			t.Error("graph should be closed")
+		}
+	})
+}
+
+func TestToggle_RapidSequenceMaintainsConsistency(t *testing.T) {
+	t.Run("rapid toggle sequence", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusModeNone,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+		}
+
+		// Simulate rapid toggle sequence
+		m.toggleGraph()  // Open graph
+		m.toggleObserver() // Open observer
+		m.focusMode = FocusObserver // Enter fullscreen
+		m.toggleEvents() // Toggle events while in fullscreen
+		m.toggleGraph()  // Toggle graph
+		m.toggleObserver() // Toggle observer
+
+		// After all toggles, focusMode should be FocusModeNone
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after rapid toggles, got %v", m.focusMode)
+		}
+
+		// State should be internally consistent
+		m.ensureFocusModeValid()
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should remain FocusModeNone after validation, got %v", m.focusMode)
+		}
+	})
+}
+
+func TestEnsureFocusModeValid(t *testing.T) {
+	t.Run("does nothing when focusMode is none", func(t *testing.T) {
+		m := model{
+			focusedPane: FocusEvents,
+			focusMode:   FocusModeNone,
+			eventsOpen:  true,
+		}
+
+		m.ensureFocusModeValid()
+
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should remain FocusModeNone, got %v", m.focusMode)
+		}
+	})
+
+	t.Run("clears focusMode when fullscreen pane is closed", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusObserver,
+			focusMode:    FocusObserver,
+			observerOpen: false, // Observer was closed
+			eventsOpen:   true,
+		}
+
+		m.ensureFocusModeValid()
+
+		if m.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be cleared when pane is closed, got %v", m.focusMode)
+		}
+	})
+
+	t.Run("syncs focusedPane to match focusMode", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,   // Mismatched
+			focusMode:    FocusObserver, // In fullscreen observer
+			observerOpen: true,
+			eventsOpen:   true,
+		}
+
+		m.ensureFocusModeValid()
+
+		if m.focusedPane != FocusObserver {
+			t.Errorf("focusedPane should match focusMode, got %v", m.focusedPane)
+		}
+	})
+}
+
+func TestHandleKey_ToggleExitsFullscreen(t *testing.T) {
+	// Integration test via handleKey to ensure full flow works
+	t.Run("e key exits observer fullscreen", func(t *testing.T) {
+		obsPane := NewObserverPane(nil)
+		obsPane.focused = true
+
+		m := model{
+			focusedPane:  FocusObserver,
+			focusMode:    FocusObserver,
+			observerOpen: true,
+			eventsOpen:   true,
+			observerPane: obsPane,
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+			status:       "idle",
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after 'e' toggle, got %v", resultM.focusMode)
+		}
+	})
+
+	t.Run("o key exits graph fullscreen", func(t *testing.T) {
+		graphPane := NewGraphPane(nil, nil, "horizontal")
+		graphPane.focused = true
+
+		m := model{
+			focusedPane:  FocusGraph,
+			focusMode:    FocusGraph,
+			graphOpen:    true,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    graphPane,
+			width:        100,
+			height:       30,
+			status:       "idle",
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after 'o' toggle, got %v", resultM.focusMode)
+		}
+		if !resultM.observerOpen {
+			t.Error("observer should be open after 'o' toggle")
+		}
+	})
+
+	t.Run("b key exits events fullscreen", func(t *testing.T) {
+		m := model{
+			focusedPane:  FocusEvents,
+			focusMode:    FocusEvents,
+			eventsOpen:   true,
+			observerPane: NewObserverPane(nil),
+			graphPane:    NewGraphPane(nil, nil, "horizontal"),
+			width:        100,
+			height:       30,
+			status:       "idle",
+		}
+
+		newM, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+		resultM := newM.(model)
+
+		if resultM.focusMode != FocusModeNone {
+			t.Errorf("focusMode should be FocusModeNone after 'b' toggle, got %v", resultM.focusMode)
+		}
+		if !resultM.graphOpen {
+			t.Error("graph should be open after 'b' toggle")
+		}
+	})
+}

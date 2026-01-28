@@ -201,6 +201,9 @@ func newModel(
 
 // toggleEvents toggles the events pane visibility.
 func (m *model) toggleEvents() {
+	// Exit fullscreen mode on any toggle operation
+	m.focusMode = FocusModeNone
+
 	m.eventsOpen = !m.eventsOpen
 	if !m.eventsOpen && m.focusedPane == FocusEvents {
 		// Move focus to another open pane, or clear focus if none open
@@ -214,10 +217,14 @@ func (m *model) toggleEvents() {
 		// If no panes open, focusedPane stays as FocusEvents (will be used when reopening)
 	}
 	m.updatePaneSizes()
+	m.ensureFocusModeValid()
 }
 
 // toggleObserver toggles the observer pane visibility.
 func (m *model) toggleObserver() {
+	// Exit fullscreen mode on any toggle operation
+	m.focusMode = FocusModeNone
+
 	m.observerOpen = !m.observerOpen
 	if m.observerOpen {
 		m.focusedPane = FocusObserver
@@ -235,10 +242,14 @@ func (m *model) toggleObserver() {
 		}
 	}
 	m.updatePaneSizes()
+	m.ensureFocusModeValid()
 }
 
 // toggleGraph toggles the graph pane visibility.
 func (m *model) toggleGraph() {
+	// Exit fullscreen mode on any toggle operation
+	m.focusMode = FocusModeNone
+
 	m.graphOpen = !m.graphOpen
 	m.graphPane.SetVisible(m.graphOpen)
 	if m.graphOpen {
@@ -256,6 +267,7 @@ func (m *model) toggleGraph() {
 		}
 	}
 	m.updatePaneSizes()
+	m.ensureFocusModeValid()
 }
 
 // updatePaneSizes recalculates pane dimensions based on current layout.
@@ -596,4 +608,35 @@ func (m model) paneAt(x, y int) FocusedPane {
 		return FocusGraph
 	}
 	return FocusModeNone
+}
+
+// ensureFocusModeValid validates and corrects focus state consistency.
+// Invariant: if focusMode != FocusModeNone, the corresponding pane must be open
+// and focusedPane must match focusMode.
+func (m *model) ensureFocusModeValid() {
+	if m.focusMode == FocusModeNone {
+		return
+	}
+
+	// Check if the fullscreen pane is still open
+	paneOpen := false
+	switch m.focusMode {
+	case FocusEvents:
+		paneOpen = m.eventsOpen
+	case FocusObserver:
+		paneOpen = m.observerOpen
+	case FocusGraph:
+		paneOpen = m.graphOpen
+	}
+
+	if !paneOpen {
+		// Fullscreen pane was closed, exit fullscreen mode
+		m.focusMode = FocusModeNone
+		return
+	}
+
+	// Ensure focusedPane matches focusMode when in fullscreen
+	if m.focusedPane != m.focusMode {
+		m.focusedPane = m.focusMode
+	}
 }
