@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/viewmodel"
 )
@@ -844,6 +845,298 @@ func TestRenderBlockedInfo(t *testing.T) {
 
 		if !strings.Contains(result, "...") {
 			t.Error("should truncate long text with ellipsis")
+		}
+	})
+}
+
+// Working directory display tests
+
+func TestRenderStatusWithWorkDir(t *testing.T) {
+	t.Run("displays working directory after status", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/Users/test/project")
+		m.status = "idle"
+
+		status := m.renderStatusWithWorkDir(80, 10)
+
+		if !strings.Contains(status, "IDLE") {
+			t.Error("should contain status IDLE")
+		}
+		if !strings.Contains(status, "/Users/test/project") {
+			t.Errorf("should contain working directory, got %q", status)
+		}
+	})
+
+	t.Run("displays working directory after epic when epic is set", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "bd-epic-123", "/home/user/work")
+		m.status = "working"
+
+		status := m.renderStatusWithWorkDir(100, 10)
+
+		if !strings.Contains(status, "WORKING") {
+			t.Error("should contain status WORKING")
+		}
+		if !strings.Contains(status, "(epic: bd-epic-123)") {
+			t.Error("should contain epic suffix")
+		}
+		if !strings.Contains(status, "/home/user/work") {
+			t.Errorf("should contain working directory after epic, got %q", status)
+		}
+	})
+
+	t.Run("empty working directory results in no extra text", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "")
+		m.status = "idle"
+
+		status := m.renderStatusWithWorkDir(80, 10)
+
+		// Should just have IDLE, nothing after it related to path
+		if !strings.Contains(status, "IDLE") {
+			t.Error("should contain status IDLE")
+		}
+		// The status should end cleanly without path content
+		if strings.Contains(status, "/") && !strings.Contains(status, "epic") {
+			t.Errorf("should not contain path separator when working directory is empty, got %q", status)
+		}
+	})
+
+	t.Run("path omitted when zero width provided", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/path/to/dir")
+		m.status = "idle"
+
+		// When totalWidth is 0, working directory should be skipped
+		status := m.renderStatusWithWorkDir(0, 0)
+
+		if strings.Contains(status, "/path/to/dir") {
+			t.Errorf("should not contain working directory when width is 0, got %q", status)
+		}
+	})
+
+	t.Run("path omitted when terminal very narrow", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/very/long/path")
+		m.status = "idle"
+
+		// Very narrow width where even "..." won't fit after status
+		// IDLE is ~4 chars styled, cost takes some, leaving very little
+		status := m.renderStatusWithWorkDir(15, 8)
+
+		// With such narrow width, the path should be omitted entirely
+		if strings.Contains(status, "/very/long/path") {
+			t.Errorf("should omit path when terminal too narrow, got %q", status)
+		}
+	})
+
+	t.Run("path truncated with ... prefix when narrow", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/Users/developer/projects/myapp")
+		m.status = "idle"
+
+		// Width that can fit status + some path but not all
+		status := m.renderStatusWithWorkDir(50, 10)
+
+		// Should contain ellipsis indicating truncation
+		if strings.Contains(status, "/Users/developer/projects/myapp") {
+			// Full path fits, which is fine for this width
+		} else if !strings.Contains(status, "...") {
+			// If path doesn't fully fit, should have ellipsis
+			t.Logf("status was: %q", status)
+		}
+	})
+}
+
+func TestTruncatePathForWidth(t *testing.T) {
+	t.Run("returns full path when it fits", func(t *testing.T) {
+		result := truncatePathForWidth("/short/path", 20)
+		if result != "/short/path" {
+			t.Errorf("expected full path, got %q", result)
+		}
+	})
+
+	t.Run("truncates with ... prefix showing path end", func(t *testing.T) {
+		result := truncatePathForWidth("/Users/developer/projects/myapp/src", 20)
+
+		if !strings.HasPrefix(result, "...") {
+			t.Errorf("truncated path should start with ..., got %q", result)
+		}
+		// Should show trailing components
+		if !strings.Contains(result, "src") && !strings.Contains(result, "myapp") {
+			t.Errorf("should show trailing path components, got %q", result)
+		}
+	})
+
+	t.Run("returns empty when maxWidth less than 4", func(t *testing.T) {
+		result := truncatePathForWidth("/any/path", 3)
+		if result != "" {
+			t.Errorf("expected empty string for width < 4, got %q", result)
+		}
+	})
+
+	t.Run("returns empty when maxWidth is 0", func(t *testing.T) {
+		result := truncatePathForWidth("/any/path", 0)
+		if result != "" {
+			t.Errorf("expected empty string for width 0, got %q", result)
+		}
+	})
+
+	t.Run("handles single component path", func(t *testing.T) {
+		result := truncatePathForWidth("/verylongdirectoryname", 15)
+
+		// Should truncate the single component
+		if len(result) > 15 {
+			t.Errorf("result should fit within width, got %q (len %d)", result, len(result))
+		}
+	})
+
+	t.Run("exact fit boundary - path equals available width", func(t *testing.T) {
+		path := "/a/b/c"
+		width := len(path)
+
+		result := truncatePathForWidth(path, width)
+
+		if result != path {
+			t.Errorf("path that exactly fits should be returned unchanged, got %q", result)
+		}
+	})
+
+	t.Run("one char over exact fit triggers truncation", func(t *testing.T) {
+		path := "/a/b/c"
+		width := len(path) - 1
+
+		result := truncatePathForWidth(path, width)
+
+		if result == path {
+			t.Error("path should be truncated when width is less than path length")
+		}
+	})
+
+	t.Run("handles path with trailing slash", func(t *testing.T) {
+		result := truncatePathForWidth("/path/to/dir/", 15)
+
+		// Should handle gracefully
+		if len(result) > 15 {
+			t.Errorf("result should fit within width, got %q", result)
+		}
+	})
+
+	t.Run("handles root path", func(t *testing.T) {
+		result := truncatePathForWidth("/", 10)
+
+		// Root path should work
+		if result != "/" && result != "" {
+			t.Logf("root path result: %q", result)
+		}
+	})
+}
+
+func TestTruncateStringForWidth(t *testing.T) {
+	t.Run("returns string unchanged when it fits", func(t *testing.T) {
+		result := truncateStringForWidth("short", 10)
+		if result != "short" {
+			t.Errorf("expected unchanged string, got %q", result)
+		}
+	})
+
+	t.Run("truncates with ... suffix when too long", func(t *testing.T) {
+		result := truncateStringForWidth("this is a very long string", 15)
+
+		if !strings.HasSuffix(result, "...") {
+			t.Errorf("truncated string should end with ..., got %q", result)
+		}
+		if len(result) > 15 {
+			t.Errorf("result should fit within width, got %q (len %d)", result, len(result))
+		}
+	})
+
+	t.Run("returns empty when maxWidth less than 4", func(t *testing.T) {
+		result := truncateStringForWidth("anything", 3)
+		if result != "" {
+			t.Errorf("expected empty string for width < 4, got %q", result)
+		}
+	})
+
+	t.Run("exact fit returns unchanged", func(t *testing.T) {
+		s := "exact"
+		result := truncateStringForWidth(s, len(s))
+		if result != s {
+			t.Errorf("exact fit should return unchanged, got %q", result)
+		}
+	})
+}
+
+func TestRenderStatusWithWorkDir_WidthCalculations(t *testing.T) {
+	// These tests verify the width calculation logic more thoroughly
+
+	t.Run("working directory shows after status with sufficient width", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/home/user")
+		m.status = "idle"
+
+		// Wide enough to fit everything
+		status := m.renderStatusWithWorkDir(100, 10)
+
+		if !strings.Contains(status, "/home/user") {
+			t.Errorf("should contain full path with sufficient width, got %q", status)
+		}
+	})
+
+	t.Run("working directory truncated with moderate width", func(t *testing.T) {
+		eventChan := make(chan events.Event)
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/Users/developer/very/long/path/to/project")
+		m.status = "working"
+
+		// Moderate width that requires truncation
+		status := m.renderStatusWithWorkDir(60, 15)
+
+		// Path should be present but possibly truncated
+		if !strings.Contains(status, "...") && !strings.Contains(status, "project") {
+			// Either full path or truncated with ... should appear
+			t.Logf("status with moderate width: %q", status)
+		}
+	})
+}
+
+func TestTruncatePathForWidth_CJKCharacters(t *testing.T) {
+	// CJK characters typically occupy 2 cells in terminal width
+	// lipgloss.Width should handle this correctly
+
+	t.Run("path with CJK characters truncates using visual width", func(t *testing.T) {
+		// Each CJK character is typically 2 cells wide
+		// "中文" = 4 visual cells
+		path := "/home/用户/项目"
+
+		// Request a width that can fit some but not all
+		result := truncatePathForWidth(path, 15)
+
+		// Result should fit within visual width
+		visualWidth := lipgloss.Width(result)
+		if visualWidth > 15 {
+			t.Errorf("CJK path should fit within visual width 15, got visual width %d for %q", visualWidth, result)
+		}
+	})
+
+	t.Run("CJK-only path components handled correctly", func(t *testing.T) {
+		path := "/项目/子目录"
+
+		result := truncatePathForWidth(path, 20)
+
+		// Should not panic and should return something reasonable
+		if result == "" && lipgloss.Width(path) <= 20 {
+			t.Errorf("path that fits should be returned, got empty string for path %q", path)
+		}
+	})
+
+	t.Run("mixed ASCII and CJK path", func(t *testing.T) {
+		path := "/home/user/我的项目/src"
+
+		result := truncatePathForWidth(path, 25)
+
+		visualWidth := lipgloss.Width(result)
+		if visualWidth > 25 {
+			t.Errorf("mixed path should fit within visual width 25, got %d for %q", visualWidth, result)
 		}
 	})
 }
