@@ -5,15 +5,14 @@ package testutil
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/npratt/atari/internal/exec"
 )
 
-// CommandRunner abstracts command execution for testing.
-type CommandRunner interface {
-	Run(ctx context.Context, name string, args ...string) ([]byte, error)
-}
+// CommandRunner is an alias to exec.CommandRunner for backward compatibility.
+type CommandRunner = exec.CommandRunner
 
 // CommandCall records a command invocation for assertion purposes.
 type CommandCall struct {
@@ -122,39 +121,10 @@ func makeKey(name string, args []string) string {
 	return name + " " + strings.Join(args, " ")
 }
 
-// ExecRunner executes real commands using os/exec.
-// This is the production implementation of CommandRunner.
-type ExecRunner struct{}
-
 // NewExecRunner creates a new ExecRunner for production use.
-func NewExecRunner() *ExecRunner {
-	return &ExecRunner{}
-}
-
-// Run executes a command and returns its combined output.
-func (r *ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := execCommand(ctx, name, args...)
-	return cmd.Output()
-}
-
-// execCommand is a variable to allow testing.
-var execCommand = execCommandImpl
-
-func execCommandImpl(ctx context.Context, name string, args ...string) execCmd {
-	return realExecCmd{cmd: exec.CommandContext(ctx, name, args...)}
-}
-
-// execCmd abstracts exec.Cmd for testing.
-type execCmd interface {
-	Output() ([]byte, error)
-}
-
-type realExecCmd struct {
-	cmd *exec.Cmd
-}
-
-func (c realExecCmd) Output() ([]byte, error) {
-	return c.cmd.Output()
+// This is a convenience wrapper that delegates to exec.NewExecRunner.
+func NewExecRunner() *exec.ExecRunner {
+	return exec.NewExecRunner()
 }
 
 // SetupMockEnrichment configures the MockRunner to return bead-specific responses
@@ -182,3 +152,4 @@ func SetupMockEnrichment(runner *MockRunner, fixtures map[string]string) {
 		return nil, nil, false
 	}
 }
+

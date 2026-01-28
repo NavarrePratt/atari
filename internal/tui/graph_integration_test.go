@@ -3,16 +3,17 @@ package tui
 import (
 	"errors"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/config"
-	"github.com/npratt/atari/internal/testutil"
 )
 
 // graphTestEnv provides an isolated test environment for graph pane integration tests.
 type graphTestEnv struct {
 	t       *testing.T
-	runner  *testutil.MockRunner
+	client  *brclient.MockClient
 	fetcher *BDFetcher
 	cfg     *config.GraphConfig
 }
@@ -21,8 +22,8 @@ type graphTestEnv struct {
 func newGraphTestEnv(t *testing.T) *graphTestEnv {
 	t.Helper()
 
-	runner := testutil.NewMockRunner()
-	fetcher := NewBDFetcher(runner)
+	client := brclient.NewMockClient()
+	fetcher := NewBDFetcher(client)
 	cfg := &config.GraphConfig{
 		Enabled:        true,
 		Density:        "standard",
@@ -31,7 +32,7 @@ func newGraphTestEnv(t *testing.T) *graphTestEnv {
 
 	return &graphTestEnv{
 		t:       t,
-		runner:  runner,
+		client:  client,
 		fetcher: fetcher,
 		cfg:     cfg,
 	}
@@ -45,21 +46,64 @@ func (env *graphTestEnv) newPane() GraphPane {
 	return pane
 }
 
-// setActiveBeads configures the mock runner to return the given JSON for bd list.
-func (env *graphTestEnv) setActiveBeads(json string) {
-	env.runner.SetResponse("br", []string{"list", "--json"}, []byte(json))
+// setActiveBeads configures the mock client to return the given beads.
+func (env *graphTestEnv) setActiveBeads(beads []brclient.Bead) {
+	env.client.ListResponse = beads
 }
 
-// setError configures the mock runner to return an error for bd list.
+// setError configures the mock client to return an error for list.
 func (env *graphTestEnv) setError(err error) {
-	env.runner.SetError("br", []string{"list", "--json"}, err)
+	env.client.ListError = err
+}
+
+// testBeads creates a set of active beads for testing.
+func testActiveBeads() []brclient.Bead {
+	return []brclient.Bead{
+		{ID: "bd-epic-001", Title: "Epic 1", Status: "open", Priority: 1, IssueType: "epic", CreatedAt: time.Now()},
+		{ID: "bd-task-001", Title: "Task 1", Status: "in_progress", Priority: 2, IssueType: "task", Parent: "bd-epic-001", CreatedAt: time.Now()},
+		{ID: "bd-task-002", Title: "Task 2", Status: "blocked", Priority: 3, IssueType: "task", Parent: "bd-epic-001", CreatedAt: time.Now()},
+	}
+}
+
+// testSingleBead creates a single bead for testing.
+func testSingleBead() []brclient.Bead {
+	return []brclient.Bead{
+		{ID: "bd-001", Title: "Single Task", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Now()},
+	}
+}
+
+// testEnrichedEpicBeads creates enriched beads with dependencies for testing.
+func testEnrichedEpicBeads() []brclient.Bead {
+	return []brclient.Bead{
+		{ID: "bd-epic-enrich", Title: "Enriched Epic", Status: "open", Priority: 1, IssueType: "epic", CreatedAt: time.Now()},
+		{ID: "bd-task-enrich-1", Title: "Task 1", Status: "open", Priority: 2, IssueType: "task", Parent: "bd-epic-enrich", CreatedAt: time.Now()},
+		{ID: "bd-task-enrich-2", Title: "Task 2", Status: "open", Priority: 3, IssueType: "task", Parent: "bd-epic-enrich", CreatedAt: time.Now()},
+		{ID: "bd-task-enrich-3", Title: "Task 3", Status: "blocked", Priority: 4, IssueType: "task", Parent: "bd-epic-enrich", CreatedAt: time.Now(),
+			Dependencies: []brclient.BeadReference{{ID: "bd-task-enrich-1", DependencyType: "blocks"}}},
+	}
+}
+
+// testComplexHierarchyBeads creates complex hierarchy for navigation testing.
+func testComplexHierarchyBeads() []brclient.Bead {
+	return []brclient.Bead{
+		{ID: "bd-epic-001", Title: "Epic 1", Status: "open", Priority: 1, IssueType: "epic", CreatedAt: time.Now()},
+		{ID: "bd-task-001", Title: "Task 1", Status: "open", Priority: 2, IssueType: "task", Parent: "bd-epic-001", CreatedAt: time.Now()},
+		{ID: "bd-task-002", Title: "Task 2", Status: "open", Priority: 3, IssueType: "task", Parent: "bd-epic-001", CreatedAt: time.Now()},
+		{ID: "bd-epic-002", Title: "Epic 2", Status: "open", Priority: 1, IssueType: "epic", CreatedAt: time.Now()},
+		{ID: "bd-task-003", Title: "Task 3", Status: "open", Priority: 2, IssueType: "task", Parent: "bd-epic-002", CreatedAt: time.Now()},
+	}
+}
+
+// beadsToGraphBeadsHelper converts brclient.Bead to GraphBead for tests.
+func beadsToGraphBeadsHelper(beads []brclient.Bead) []GraphBead {
+	return beadsToGraphBeads(beads)
 }
 
 // TestGraphPane_InitialFetchLoadsBeads verifies that Init triggers a fetch
 // and the result populates the graph with beads.
 func TestGraphPane_InitialFetchLoadsBeads(t *testing.T) {
 	env := newGraphTestEnv(t)
-	env.setActiveBeads(testutil.GraphActiveBeadsJSON)
+	env.setActiveBeads(testActiveBeads())
 
 	pane := env.newPane()
 
@@ -96,7 +140,7 @@ func TestGraphPane_InitialFetchLoadsBeads(t *testing.T) {
 // a new fetch with an incremented requestID.
 func TestGraphPane_RefreshKeyTriggersNewFetch(t *testing.T) {
 	env := newGraphTestEnv(t)
-	env.setActiveBeads(testutil.GraphActiveBeadsJSON)
+	env.setActiveBeads(testActiveBeads())
 
 	pane := env.newPane()
 	pane.SetFocused(true)
@@ -137,7 +181,7 @@ func TestGraphPane_RefreshKeyTriggersNewFetch(t *testing.T) {
 // through Active, Backlog, and Closed views.
 func TestGraphPane_ViewToggleSwitchesViews(t *testing.T) {
 	env := newGraphTestEnv(t)
-	env.setActiveBeads(testutil.GraphActiveBeadsJSON)
+	env.setActiveBeads(testActiveBeads())
 
 	pane := env.newPane()
 	pane.SetFocused(true)
@@ -230,10 +274,7 @@ func TestGraphPane_NavigationUpdatesSelectedNode(t *testing.T) {
 	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
 
 	// Parse and load the complex hierarchy fixture
-	beads, err := parseBeads([]byte(testutil.GraphComplexHierarchyJSON))
-	if err != nil {
-		t.Fatalf("failed to parse fixture: %v", err)
-	}
+	beads := beadsToGraphBeadsHelper(testComplexHierarchyBeads())
 	pane.graph.RebuildFromBeads(beads)
 
 	// Get initial selected node
@@ -281,10 +322,7 @@ func TestGraphPane_EnterKeyTwoStepSelection(t *testing.T) {
 
 	// Set up graph with single bead
 	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
-	beads, err := parseBeads([]byte(testutil.GraphSingleBeadJSON))
-	if err != nil {
-		t.Fatalf("failed to parse fixture: %v", err)
-	}
+	beads := beadsToGraphBeadsHelper(testSingleBead())
 	pane.graph.RebuildFromBeads(beads)
 
 	expectedID := pane.graph.GetSelectedID()
@@ -473,7 +511,7 @@ func TestGraphPane_UnfocusedIgnoresKeyPresses(t *testing.T) {
 
 	// Set up graph to verify navigation doesn't happen
 	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
-	beads, _ := parseBeads([]byte(testutil.GraphActiveBeadsJSON))
+	beads := beadsToGraphBeadsHelper(testActiveBeads())
 	pane.graph.RebuildFromBeads(beads)
 	initialSelected := pane.graph.GetSelectedID()
 
@@ -505,17 +543,14 @@ func TestEpicCollapse_EndToEnd(t *testing.T) {
 	env := newGraphTestEnv(t)
 
 	// Set enriched beads with parent-child dependencies
-	env.setActiveBeads(testutil.GraphEnrichedEpicJSON)
+	env.setActiveBeads(testEnrichedEpicBeads())
 
 	pane := env.newPane()
 	pane.SetFocused(true)
 
 	// Initialize graph with enriched beads
 	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
-	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
-	if err != nil {
-		t.Fatalf("failed to parse enriched beads: %v", err)
-	}
+	beads := beadsToGraphBeadsHelper(testEnrichedEpicBeads())
 	pane.graph.RebuildFromBeads(beads)
 	pane.graph.SetViewport(100, 30)
 
@@ -581,19 +616,14 @@ func TestViewSwitch_CollapsedState(t *testing.T) {
 	env := newGraphTestEnv(t)
 
 	// Set up mock responses for different views
-	env.setActiveBeads(testutil.GraphEnrichedEpicJSON)
-	env.runner.SetResponse("br", []string{"list", "--json", "--status", "deferred"},
-		[]byte(testutil.GraphBacklogBeadsJSON))
+	env.setActiveBeads(testEnrichedEpicBeads())
 
 	pane := env.newPane()
 	pane.SetFocused(true)
 
 	// Initialize with enriched beads
 	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
-	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
-	if err != nil {
-		t.Fatalf("failed to parse beads: %v", err)
-	}
+	beads := beadsToGraphBeadsHelper(testEnrichedEpicBeads())
 	pane.graph.RebuildFromBeads(beads)
 	pane.graph.SetViewport(100, 30)
 
@@ -648,10 +678,7 @@ func TestCollapseExpand_SelectionRecovery(t *testing.T) {
 
 	// Initialize with enriched beads
 	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
-	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
-	if err != nil {
-		t.Fatalf("failed to parse beads: %v", err)
-	}
+	beads := beadsToGraphBeadsHelper(testEnrichedEpicBeads())
 	pane.graph.RebuildFromBeads(beads)
 	pane.graph.SetViewport(100, 30)
 
@@ -696,10 +723,7 @@ func TestCollapse_RenderWithDependencyBadge(t *testing.T) {
 
 	// Initialize with enriched beads that include blocking dependencies
 	pane.graph = NewGraph(env.cfg, env.fetcher, "horizontal")
-	beads, err := parseBeads([]byte(testutil.GraphEnrichedEpicJSON))
-	if err != nil {
-		t.Fatalf("failed to parse beads: %v", err)
-	}
+	beads := beadsToGraphBeadsHelper(testEnrichedEpicBeads())
 	pane.graph.RebuildFromBeads(beads)
 	pane.graph.SetViewport(100, 30)
 

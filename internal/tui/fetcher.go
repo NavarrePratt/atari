@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/npratt/atari/internal/testutil"
+	"github.com/npratt/atari/internal/brclient"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -26,29 +25,25 @@ type BeadFetcher interface {
 	FetchBead(ctx context.Context, id string) (*GraphBead, error)
 }
 
-// BDFetcher implements BeadFetcher using the bd CLI.
+// BDFetcher implements BeadFetcher using the brclient interface.
 type BDFetcher struct {
-	cmdRunner testutil.CommandRunner
+	client brclient.BeadReader
 }
 
-// NewBDFetcher creates a BDFetcher with the given command runner.
-func NewBDFetcher(runner testutil.CommandRunner) *BDFetcher {
-	return &BDFetcher{cmdRunner: runner}
+// NewBDFetcher creates a BDFetcher with the given bead reader.
+func NewBDFetcher(client brclient.BeadReader) *BDFetcher {
+	return &BDFetcher{client: client}
 }
 
 // FetchActive retrieves beads with open, in_progress, or blocked status.
 // Agent beads are filtered out as they are internal tracking beads.
 func (f *BDFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "br", "list", "--json")
+	brBeads, err := f.client.List(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("br list active failed: %w", err)
 	}
 
-	beads, err := parseBeads(output)
-	if err != nil {
-		return nil, err
-	}
-
+	beads := beadsToGraphBeads(brBeads)
 	beads = filterByStatus(beads, "open", "in_progress", "blocked")
 
 	beads, err = f.enrichBeadsWithDetails(ctx, beads)
@@ -62,16 +57,12 @@ func (f *BDFetcher) FetchActive(ctx context.Context) ([]GraphBead, error) {
 // FetchBacklog retrieves beads with deferred status.
 // Agent beads are filtered out as they are internal tracking beads.
 func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "br", "list", "--json")
+	brBeads, err := f.client.List(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("br list backlog failed: %w", err)
 	}
 
-	beads, err := parseBeads(output)
-	if err != nil {
-		return nil, err
-	}
-
+	beads := beadsToGraphBeads(brBeads)
 	beads = filterByStatus(beads, "deferred")
 
 	beads, err = f.enrichBeadsWithDetails(ctx, beads)
@@ -86,15 +77,12 @@ func (f *BDFetcher) FetchBacklog(ctx context.Context) ([]GraphBead, error) {
 // Agent beads are filtered out as they are internal tracking beads.
 // Note: br CLI lacks --closed-after flag, so date filtering is done in Go.
 func (f *BDFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "br", "list", "--status", "closed", "--json")
+	brBeads, err := f.client.List(ctx, &brclient.ListOptions{Status: "closed"})
 	if err != nil {
 		return nil, fmt.Errorf("br list closed failed: %w", err)
 	}
 
-	beads, err := parseBeads(output)
-	if err != nil {
-		return nil, err
-	}
+	beads := beadsToGraphBeads(brBeads)
 
 	// Filter to beads closed within last 7 days (br lacks --closed-after)
 	cutoff := time.Now().AddDate(0, 0, -7)
@@ -110,27 +98,24 @@ func (f *BDFetcher) FetchClosed(ctx context.Context) ([]GraphBead, error) {
 
 // FetchBead retrieves full details for a single bead by ID.
 func (f *BDFetcher) FetchBead(ctx context.Context, id string) (*GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "br", "show", id, "--json")
+	brBead, err := f.client.Show(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("br show %s failed: %w", id, err)
 	}
-
-	bead, err := parseBead(output)
-	if err != nil {
-		return nil, err
+	if brBead == nil {
+		return nil, fmt.Errorf("bead not found: %s", id)
 	}
 
+	bead := beadToGraphBead(brBead)
+
 	// Fetch labels separately
-	labelsOutput, err := f.cmdRunner.Run(ctx, "br", "label", "list", id, "--json")
+	labels, err := f.client.Labels(ctx, id)
 	if err == nil {
-		labels, parseErr := parseLabels(labelsOutput)
-		if parseErr == nil {
-			bead.Labels = labels
-		}
+		bead.Labels = labels
 	}
 	// Ignore label fetch errors - labels are optional
 
-	return bead, nil
+	return &bead, nil
 }
 
 // maxConcurrentFetches is the maximum number of parallel br show commands.
@@ -217,61 +202,72 @@ func (f *BDFetcher) enrichBeadsWithDetails(ctx context.Context, beads []GraphBea
 // fetchBeadDetails fetches full bead details without labels.
 // Used by enrichBeadsWithDetails for parallel fetching.
 func (f *BDFetcher) fetchBeadDetails(ctx context.Context, id string) (*GraphBead, error) {
-	output, err := f.cmdRunner.Run(ctx, "br", "show", id, "--json")
+	brBead, err := f.client.Show(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("br show %s failed: %w", id, err)
 	}
+	if brBead == nil {
+		return nil, fmt.Errorf("bead not found: %s", id)
+	}
 
-	return parseBead(output)
+	bead := beadToGraphBead(brBead)
+	return &bead, nil
 }
 
-// parseBead parses JSON output from br show into a single GraphBead.
-func parseBead(data []byte) (*GraphBead, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("empty response")
+// beadToGraphBead converts a brclient.Bead to a GraphBead.
+func beadToGraphBead(b *brclient.Bead) GraphBead {
+	var deps []BeadReference
+	for _, d := range b.Dependencies {
+		deps = append(deps, BeadReference{
+			ID:             d.ID,
+			Title:          d.Title,
+			Status:         d.Status,
+			DependencyType: d.DependencyType,
+		})
 	}
 
-	// br show --json returns an array with one element
-	var beads []GraphBead
-	if err := json.Unmarshal(data, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bead data: %w", err)
+	var dependents []BeadReference
+	for _, d := range b.Dependents {
+		dependents = append(dependents, BeadReference{
+			ID:             d.ID,
+			Title:          d.Title,
+			Status:         d.Status,
+			DependencyType: d.DependencyType,
+		})
 	}
 
-	if len(beads) == 0 {
-		return nil, fmt.Errorf("bead not found")
+	return GraphBead{
+		ID:              b.ID,
+		Title:           b.Title,
+		Description:     b.Description,
+		Status:          b.Status,
+		Priority:        b.Priority,
+		IssueType:       b.IssueType,
+		CreatedAt:       b.CreatedAt.Format(time.RFC3339),
+		CreatedBy:       b.CreatedBy,
+		UpdatedAt:       b.UpdatedAt.Format(time.RFC3339),
+		ClosedAt:        b.ClosedAt,
+		Parent:          b.Parent,
+		Notes:           b.Notes,
+		Labels:          b.Labels,
+		DependencyCount: b.DependencyCount,
+		DependentCount:  b.DependentCount,
+		Dependencies:    deps,
+		Dependents:      dependents,
 	}
-
-	return &beads[0], nil
 }
 
-// parseBeads parses JSON output from br list into GraphBead slice.
-func parseBeads(data []byte) ([]GraphBead, error) {
-	// Handle empty response
-	if len(data) == 0 {
-		return nil, nil
+// beadsToGraphBeads converts a slice of brclient.Bead to GraphBead slice.
+func beadsToGraphBeads(brBeads []brclient.Bead) []GraphBead {
+	if len(brBeads) == 0 {
+		return nil
 	}
 
-	var beads []GraphBead
-	if err := json.Unmarshal(data, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bead data: %w", err)
+	result := make([]GraphBead, len(brBeads))
+	for i := range brBeads {
+		result[i] = beadToGraphBead(&brBeads[i])
 	}
-
-	return beads, nil
-}
-
-// parseLabels parses JSON output from br label list into a string slice.
-func parseLabels(data []byte) ([]string, error) {
-	// Handle empty response
-	if len(data) == 0 {
-		return nil, nil
-	}
-
-	var labels []string
-	if err := json.Unmarshal(data, &labels); err != nil {
-		return nil, fmt.Errorf("failed to parse labels: %w", err)
-	}
-
-	return labels, nil
+	return result
 }
 
 // filterByStatus returns beads matching any of the given statuses.

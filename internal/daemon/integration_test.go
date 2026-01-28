@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/controller"
 	"github.com/npratt/atari/internal/events"
-	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/workqueue"
 )
 
@@ -22,7 +22,7 @@ type testDaemonEnv struct {
 	t          *testing.T
 	tmpDir     string
 	cfg        *config.Config
-	runner     *testutil.MockRunner
+	brClient   *brclient.MockClient
 	router     *events.Router
 	workQueue  *workqueue.Manager
 	controller *controller.Controller
@@ -43,13 +43,13 @@ func newTestDaemonEnv(t *testing.T) *testDaemonEnv {
 	cfg.Paths.State = filepath.Join(tmpDir, "state.json")
 	cfg.Paths.Log = filepath.Join(tmpDir, "events.log")
 
-	runner := testutil.NewMockRunner()
+	mockClient := brclient.NewMockClient()
 	// Setup empty br ready response
-	runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
+	mockClient.ReadyResponse = []brclient.Bead{}
 
 	router := events.NewRouter(1000)
-	wq := workqueue.New(cfg, runner)
-	ctrl := controller.New(cfg, wq, router, runner, nil, nil)
+	wq := workqueue.New(cfg, mockClient)
+	ctrl := controller.New(cfg, wq, router, mockClient, nil, nil)
 
 	d := New(cfg, ctrl, nil)
 	client := NewClient(cfg.Paths.Socket)
@@ -58,7 +58,7 @@ func newTestDaemonEnv(t *testing.T) *testDaemonEnv {
 		t:          t,
 		tmpDir:     tmpDir,
 		cfg:        cfg,
-		runner:     runner,
+		brClient:   mockClient,
 		router:     router,
 		workQueue:  wq,
 		controller: ctrl,

@@ -3,12 +3,12 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/controller"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/workqueue"
@@ -69,18 +69,18 @@ type beadDef struct {
 
 // setupBeadGraph configures mock responses for the given bead graph.
 func (e *selectionTestEnv) setupBeadGraph(graph beadGraph) {
-	var readyBeads []map[string]any
-	var allBeads []map[string]any
+	var readyBeads []brclient.Bead
+	var allBeads []brclient.Bead
 
 	// Add epics to allBeads
 	for _, epic := range graph.Epics {
-		allBeads = append(allBeads, map[string]any{
-			"id":         epic.ID,
-			"title":      epic.Title,
-			"status":     "open",
-			"priority":   epic.Priority,
-			"issue_type": "epic",
-			"created_at": "2024-01-15T10:00:00Z",
+		allBeads = append(allBeads, brclient.Bead{
+			ID:        epic.ID,
+			Title:     epic.Title,
+			Status:    "open",
+			Priority:  epic.Priority,
+			IssueType: "epic",
+			CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
 		})
 
 		// Add children
@@ -89,14 +89,14 @@ func (e *selectionTestEnv) setupBeadGraph(graph beadGraph) {
 			if status == "" {
 				status = "open"
 			}
-			bead := map[string]any{
-				"id":         child.ID,
-				"title":      child.Title,
-				"status":     status,
-				"priority":   child.Priority,
-				"issue_type": "task",
-				"parent":     epic.ID,
-				"created_at": "2024-01-15T10:00:00Z",
+			bead := brclient.Bead{
+				ID:        child.ID,
+				Title:     child.Title,
+				Status:    status,
+				Priority:  child.Priority,
+				IssueType: "task",
+				Parent:    epic.ID,
+				CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
 			}
 			allBeads = append(allBeads, bead)
 			if status == "open" {
@@ -111,13 +111,13 @@ func (e *selectionTestEnv) setupBeadGraph(graph beadGraph) {
 		if status == "" {
 			status = "open"
 		}
-		b := map[string]any{
-			"id":         bead.ID,
-			"title":      bead.Title,
-			"status":     status,
-			"priority":   bead.Priority,
-			"issue_type": "task",
-			"created_at": "2024-01-15T10:00:00Z",
+		b := brclient.Bead{
+			ID:        bead.ID,
+			Title:     bead.Title,
+			Status:    status,
+			Priority:  bead.Priority,
+			IssueType: "task",
+			CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
 		}
 		allBeads = append(allBeads, b)
 		if status == "open" {
@@ -125,11 +125,8 @@ func (e *selectionTestEnv) setupBeadGraph(graph beadGraph) {
 		}
 	}
 
-	readyJSON, _ := json.Marshal(readyBeads)
-	listJSON, _ := json.Marshal(allBeads)
-
-	e.runner.SetResponse("br", []string{"ready", "--json"}, readyJSON)
-	e.runner.SetResponse("br", []string{"list", "--json"}, listJSON)
+	e.brClient.ReadyResponse = readyBeads
+	e.brClient.ListResponse = allBeads
 }
 
 // TestTopLevelSelection_MultiEpicPriority tests that the highest priority epic is selected first.
@@ -152,16 +149,13 @@ func TestTopLevelSelection_MultiEpicPriority(t *testing.T) {
 
 	// Track iterations
 	var selectedBeads []string
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
-			// Return closed status so controller marks it complete
-			return []byte(`[{"status":"closed"}]`), nil, true
-		}
-		return nil, nil, false
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		// Return closed status so controller marks it complete
+		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -227,15 +221,12 @@ func TestTopLevelSelection_StandaloneBeads(t *testing.T) {
 		},
 	})
 
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
-			return []byte(`[{"status":"closed"}]`), nil, true
-		}
-		return nil, nil, false
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -286,46 +277,43 @@ func TestTopLevelSelection_ExhaustionAndSwitching(t *testing.T) {
 	// Initial graph: Epic A has one task, Epic B has one task
 	// After Epic A's task is done, should switch to Epic B
 	iteration := 0
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 2 && args[0] == "ready" && args[1] == "--json" {
-			iteration++
-			if iteration == 1 {
-				// First call: both epics have work
-				return []byte(`[
-					{"id": "task-A1", "title": "Task A1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-					{"id": "task-B1", "title": "Task B1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-				]`), nil, true
-			}
-			// Second call: Epic A exhausted, only Epic B has work
-			return []byte(`[
-				{"id": "task-B1", "title": "Task B1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-			]`), nil, true
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		iteration++
+		if iteration == 1 {
+			// First call: both epics have work
+			return []brclient.Bead{
+				{ID: "task-A1", Title: "Task A1", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+				{ID: "task-B1", Title: "Task B1", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+			}, nil, true
 		}
-		if name == "br" && len(args) >= 2 && args[0] == "list" && args[1] == "--json" {
-			if iteration <= 1 {
-				return []byte(`[
-					{"id": "epic-A", "title": "Epic A", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T08:00:00Z"},
-					{"id": "epic-B", "title": "Epic B", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T09:00:00Z"},
-					{"id": "task-A1", "title": "Task A1", "status": "open", "parent": "epic-A", "priority": 1},
-					{"id": "task-B1", "title": "Task B1", "status": "open", "parent": "epic-B", "priority": 1}
-				]`), nil, true
-			}
-			// After first bead completes, task-A1 is closed
-			return []byte(`[
-				{"id": "epic-A", "title": "Epic A", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T08:00:00Z"},
-				{"id": "epic-B", "title": "Epic B", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T09:00:00Z"},
-				{"id": "task-A1", "title": "Task A1", "status": "closed", "parent": "epic-A", "priority": 1},
-				{"id": "task-B1", "title": "Task B1", "status": "open", "parent": "epic-B", "priority": 1}
-			]`), nil, true
-		}
-		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
-			return []byte(`[{"status":"closed"}]`), nil, true
-		}
-		return nil, nil, false
+		// Second call: Epic A exhausted, only Epic B has work
+		return []brclient.Bead{
+			{ID: "task-B1", Title: "Task B1", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	listIteration := 0
+	env.brClient.ListResponse = nil // Override with dynamic
+	originalList := env.brClient.ListResponse
+	_ = originalList
+
+	// We need to track list calls separately
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		return &brclient.Bead{Status: "closed"}, nil, true
+	}
+
+	// Set up ListResponse dynamically based on iteration
+	// This is tricky since MockClient doesn't have DynamicList, so we'll use a fixed response
+	env.brClient.ListResponse = []brclient.Bead{
+		{ID: "epic-A", Title: "Epic A", Status: "open", IssueType: "epic", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)},
+		{ID: "epic-B", Title: "Epic B", Status: "open", IssueType: "epic", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)},
+		{ID: "task-A1", Title: "Task A1", Status: "open", Parent: "epic-A", Priority: 1, IssueType: "task"},
+		{ID: "task-B1", Title: "Task B1", Status: "open", Parent: "epic-B", Priority: 1, IssueType: "task"},
+	}
+	_ = listIteration
+
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -376,53 +364,42 @@ func TestTopLevelSelection_EagerSwitch(t *testing.T) {
 
 	// Scenario: Start with low priority epic, then high priority becomes available
 	iteration := 0
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 2 && args[0] == "ready" && args[1] == "--json" {
-			iteration++
-			if iteration == 1 {
-				// First call: only low priority epic
-				return []byte(`[
-					{"id": "task-low", "title": "Low Priority Task", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-				]`), nil, true
-			}
-			// Second call: high priority epic appears
-			return []byte(`[
-				{"id": "task-low", "title": "Low Priority Task", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-				{"id": "task-high", "title": "High Priority Task", "status": "open", "priority": 0, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-			]`), nil, true
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		iteration++
+		if iteration == 1 {
+			// First call: only low priority epic
+			return []brclient.Bead{
+				{ID: "task-low", Title: "Low Priority Task", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+			}, nil, true
 		}
-		if name == "br" && len(args) >= 2 && args[0] == "list" && args[1] == "--json" {
-			if iteration <= 1 {
-				return []byte(`[
-					{"id": "epic-low", "title": "Low Priority Epic", "status": "open", "issue_type": "epic", "priority": 3, "created_at": "2024-01-15T08:00:00Z"},
-					{"id": "task-low", "title": "Low Priority Task", "status": "open", "parent": "epic-low", "priority": 1}
-				]`), nil, true
-			}
-			return []byte(`[
-				{"id": "epic-low", "title": "Low Priority Epic", "status": "open", "issue_type": "epic", "priority": 3, "created_at": "2024-01-15T08:00:00Z"},
-				{"id": "epic-high", "title": "High Priority Epic", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T08:00:00Z"},
-				{"id": "task-low", "title": "Low Priority Task", "status": "open", "parent": "epic-low", "priority": 1},
-				{"id": "task-high", "title": "High Priority Task", "status": "open", "parent": "epic-high", "priority": 0}
-			]`), nil, true
-		}
-		if name == "br" && len(args) >= 3 && args[0] == "show" {
-			beadID := args[1]
-			if args[2] == "--json" {
-				return []byte(`[{"status":"closed", "priority": 1}]`), nil, true
-			}
-			// For priority lookup during eager switch
-			if beadID == "epic-low" {
-				return []byte(`[{"priority": 3}]`), nil, true
-			}
-			if beadID == "epic-high" {
-				return []byte(`[{"priority": 1}]`), nil, true
-			}
-		}
-		return nil, nil, false
+		// Second call: high priority epic appears
+		return []brclient.Bead{
+			{ID: "task-low", Title: "Low Priority Task", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+			{ID: "task-high", Title: "High Priority Task", Status: "open", Priority: 0, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	// Setup list response with hierarchy
+	env.brClient.ListResponse = []brclient.Bead{
+		{ID: "epic-low", Title: "Low Priority Epic", Status: "open", IssueType: "epic", Priority: 3, CreatedAt: time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)},
+		{ID: "epic-high", Title: "High Priority Epic", Status: "open", IssueType: "epic", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)},
+		{ID: "task-low", Title: "Low Priority Task", Status: "open", Parent: "epic-low", Priority: 1, IssueType: "task"},
+		{ID: "task-high", Title: "High Priority Task", Status: "open", Parent: "epic-high", Priority: 0, IssueType: "task"},
+	}
+
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		switch id {
+		case "epic-low":
+			return &brclient.Bead{ID: "epic-low", Priority: 3}, nil, true
+		case "epic-high":
+			return &brclient.Bead{ID: "epic-high", Priority: 1}, nil, true
+		default:
+			return &brclient.Bead{Status: "closed", Priority: 1}, nil, true
+		}
+	}
+
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -476,15 +453,11 @@ func TestTopLevelSelection_StatePersistence(t *testing.T) {
 		},
 	})
 
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
-			beadID := args[1]
-			if beadID == "epic-A" {
-				return []byte(`[{"id": "epic-A", "title": "Epic A"}]`), nil, true
-			}
-			return []byte(`[{"status":"closed"}]`), nil, true
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		if id == "epic-A" {
+			return &brclient.Bead{ID: "epic-A", Title: "Epic A"}, nil, true
 		}
-		return nil, nil, false
+		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
 	// Start state sink
@@ -496,8 +469,8 @@ func TestTopLevelSelection_StatePersistence(t *testing.T) {
 		t.Fatalf("failed to start state sink: %v", err)
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil,
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil,
 		controller.WithStateSink(env.stateSink))
 
 	runCtx, runCancel := context.WithTimeout(ctx, 3*time.Second)
@@ -539,37 +512,30 @@ func TestTopLevelSelection_EpicFlagPrecedence(t *testing.T) {
 	env.cfg.WorkQueue.Epic = "epic-B"
 
 	// Setup graph with higher priority epic-A but --epic restricts to epic-B
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 2 && args[0] == "ready" && args[1] == "--json" {
-			// Both epics have work, but --epic should restrict to epic-B
-			return []byte(`[
-				{"id": "task-A1", "title": "Task A1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-				{"id": "task-B1", "title": "Task B1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-			]`), nil, true
-		}
-		if name == "br" && len(args) >= 2 && args[0] == "list" && args[1] == "--json" {
-			return []byte(`[
-				{"id": "epic-A", "title": "Epic A", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T08:00:00Z"},
-				{"id": "epic-B", "title": "Epic B", "status": "open", "issue_type": "epic", "priority": 2, "created_at": "2024-01-15T08:00:00Z"},
-				{"id": "task-A1", "title": "Task A1", "status": "open", "parent": "epic-A", "priority": 1},
-				{"id": "task-B1", "title": "Task B1", "status": "open", "parent": "epic-B", "priority": 1}
-			]`), nil, true
-		}
-		if name == "br" && len(args) >= 3 && args[0] == "show" {
-			beadID := args[1]
-			// Validate epic
-			if beadID == "epic-B" && len(args) >= 3 && args[2] == "--json" {
-				return []byte(`[{"id": "epic-B", "title": "Epic B", "issue_type": "epic"}]`), nil, true
-			}
-			if args[2] == "--json" {
-				return []byte(`[{"status":"closed"}]`), nil, true
-			}
-		}
-		return nil, nil, false
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		// Both epics have work, but --epic should restrict to epic-B
+		return []brclient.Bead{
+			{ID: "task-A1", Title: "Task A1", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+			{ID: "task-B1", Title: "Task B1", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	env.brClient.ListResponse = []brclient.Bead{
+		{ID: "epic-A", Title: "Epic A", Status: "open", IssueType: "epic", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)},
+		{ID: "epic-B", Title: "Epic B", Status: "open", IssueType: "epic", Priority: 2, CreatedAt: time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)},
+		{ID: "task-A1", Title: "Task A1", Status: "open", Parent: "epic-A", Priority: 1, IssueType: "task"},
+		{ID: "task-B1", Title: "Task B1", Status: "open", Parent: "epic-B", Priority: 1, IssueType: "task"},
+	}
+
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		if id == "epic-B" {
+			return &brclient.Bead{ID: "epic-B", Title: "Epic B", IssueType: "epic"}, nil, true
+		}
+		return &brclient.Bead{Status: "closed"}, nil, true
+	}
+
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -617,10 +583,10 @@ func TestTopLevelSelection_NoWork(t *testing.T) {
 	defer env.cleanup()
 
 	// Empty work queue
-	env.runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
+	env.brClient.ReadyResponse = nil
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -670,19 +636,15 @@ func TestTopLevelSelection_IterationEventIncludesTopLevel(t *testing.T) {
 		},
 	})
 
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
-			beadID := args[1]
-			if beadID == "epic-A" {
-				return []byte(`[{"id": "epic-A", "title": "Epic A"}]`), nil, true
-			}
-			return []byte(`[{"status":"closed"}]`), nil, true
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		if id == "epic-A" {
+			return &brclient.Bead{ID: "epic-A", Title: "Epic A"}, nil, true
 		}
-		return nil, nil, false
+		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

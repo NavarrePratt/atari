@@ -4,17 +4,16 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/controller"
 	"github.com/npratt/atari/internal/events"
-	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/workqueue"
 )
 
@@ -22,7 +21,7 @@ import (
 type testEnv struct {
 	t         *testing.T
 	cfg       *config.Config
-	runner    *testutil.MockRunner
+	brClient  *brclient.MockClient
 	router    *events.Router
 	tempDir   string
 	mockPath  string
@@ -52,7 +51,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	_ = os.Setenv("PATH", tempDir+":"+oldPath)
 
 	cfg := testConfig()
-	runner := testutil.NewMockRunner()
+	mockClient := brclient.NewMockClient()
 
 	router := events.NewRouter(1000)
 	sub := router.Subscribe()
@@ -60,7 +59,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	return &testEnv{
 		t:        t,
 		cfg:      cfg,
-		runner:   runner,
+		brClient: mockClient,
 		router:   router,
 		tempDir:  tempDir,
 		mockPath: mockClaudePath,
@@ -185,41 +184,36 @@ exit 1
 	return nil
 }
 
-// singleBeadJSON returns br ready response with a single bead.
-func singleBeadJSON(id, title string) []byte {
-	bead := []map[string]interface{}{
-		{
-			"id":          id,
-			"title":       title,
-			"description": "Test bead description",
-			"status":      "open",
-			"priority":    1,
-			"issue_type":  "task",
-			"created_at":  "2024-01-15T10:00:00Z",
-			"created_by":  "user",
-		},
+// singleBead creates a single bead for testing.
+func singleBead(id, title string) brclient.Bead {
+	return brclient.Bead{
+		ID:          id,
+		Title:       title,
+		Description: "Test bead description",
+		Status:      "open",
+		Priority:    1,
+		IssueType:   "task",
+		CreatedAt:   time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
+		CreatedBy:   "user",
 	}
-	data, _ := json.Marshal(bead)
-	return data
 }
 
-// multipleBeadsJSON returns br ready response with multiple beads.
-func multipleBeadsJSON(count int) []byte {
-	beads := make([]map[string]interface{}, count)
+// multipleBeads creates multiple beads for testing.
+func multipleBeads(count int) []brclient.Bead {
+	beads := make([]brclient.Bead, count)
 	for i := 0; i < count; i++ {
-		beads[i] = map[string]interface{}{
-			"id":          fmt.Sprintf("bd-%03d", i+1),
-			"title":       fmt.Sprintf("Test bead %d", i+1),
-			"description": fmt.Sprintf("Description for bead %d", i+1),
-			"status":      "open",
-			"priority":    i + 1,
-			"issue_type":  "task",
-			"created_at":  "2024-01-15T10:00:00Z",
-			"created_by":  "user",
+		beads[i] = brclient.Bead{
+			ID:          fmt.Sprintf("bd-%03d", i+1),
+			Title:       fmt.Sprintf("Test bead %d", i+1),
+			Description: fmt.Sprintf("Description for bead %d", i+1),
+			Status:      "open",
+			Priority:    i + 1,
+			IssueType:   "task",
+			CreatedAt:   time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
+			CreatedBy:   "user",
 		}
 	}
-	data, _ := json.Marshal(beads)
-	return data
+	return beads
 }
 
 func TestFullDrainCycle(t *testing.T) {
@@ -228,21 +222,18 @@ func TestFullDrainCycle(t *testing.T) {
 
 	// Configure mock to return one bead, then empty
 	callCount := 0
-	beadJSON := singleBeadJSON("bd-001", "Test bead 1")
+	bead := singleBead("bd-001", "Test bead 1")
 
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 2 && args[0] == "ready" {
-			callCount++
-			if callCount > 1 {
-				return []byte("[]"), nil, true
-			}
-			return beadJSON, nil, true
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		callCount++
+		if callCount > 1 {
+			return nil, nil, true
 		}
-		return nil, nil, false
+		return []brclient.Bead{bead}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -305,22 +296,19 @@ func TestDrainWithMultipleBeads(t *testing.T) {
 
 	// Configure mock to return 3 beads initially, then empty
 	callCount := 0
-	beadsJSON := multipleBeadsJSON(3)
+	beads := multipleBeads(3)
 
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 2 && args[0] == "ready" {
-			callCount++
-			// Return beads for first 3 calls, then empty
-			if callCount <= 3 {
-				return beadsJSON, nil, true
-			}
-			return []byte("[]"), nil, true
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		callCount++
+		// Return beads for first 3 calls, then empty
+		if callCount <= 3 {
+			return beads, nil, true
 		}
-		return nil, nil, false
+		return nil, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -365,10 +353,11 @@ func TestDrainWithFailedBead(t *testing.T) {
 	}
 
 	// Return one bead
-	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-fail-001", "Failing bead"))
+	bead := singleBead("bd-fail-001", "Failing bead")
+	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -411,10 +400,11 @@ func TestGracefulShutdown(t *testing.T) {
 	defer env.cleanup()
 
 	// Return beads continuously
-	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-shutdown-001", "Shutdown test"))
+	bead := singleBead("bd-shutdown-001", "Shutdown test")
+	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx := context.Background()
 
@@ -477,10 +467,11 @@ func TestBackoffProgression(t *testing.T) {
 	}
 
 	// Return one bead repeatedly
-	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-backoff-001", "Backoff test"))
+	bead := singleBead("bd-backoff-001", "Backoff test")
+	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -531,10 +522,11 @@ func TestContextCancellation(t *testing.T) {
 	defer env.cleanup()
 
 	// Return beads
-	env.runner.SetResponse("br", []string{"ready", "--json"}, singleBeadJSON("bd-cancel-001", "Cancel test"))
+	bead := singleBead("bd-cancel-001", "Cancel test")
+	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -572,10 +564,10 @@ func TestPauseResumeDuringDrain(t *testing.T) {
 	defer env.cleanup()
 
 	// Always return empty beads to keep controller in idle state
-	env.runner.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
+	env.brClient.ReadyResponse = nil
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx := context.Background()
 
@@ -751,20 +743,17 @@ func TestGracefulPauseDuringSession(t *testing.T) {
 	}
 
 	// Return a bead
-	beadJSON := singleBeadJSON("bd-graceful-001", "Graceful pause test")
-	env.runner.SetResponse("br", []string{"ready", "--json"}, beadJSON)
+	bead := singleBead("bd-graceful-001", "Graceful pause test")
+	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	// Setup bead status responses
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
-			// Bead not closed (in_progress)
-			return []byte(`[{"status":"in_progress"}]`), nil, true
-		}
-		return nil, nil, false
+	// Setup bead status responses - bead not closed (in_progress)
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		b := &brclient.Bead{Status: "in_progress"}
+		return b, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -833,11 +822,11 @@ func TestSessionResumeWithStoredID(t *testing.T) {
 	}
 
 	beadID := "bd-resume-001"
-	beadJSON := singleBeadJSON(beadID, "Resume test")
-	env.runner.SetResponse("br", []string{"ready", "--json"}, beadJSON)
-	env.runner.SetResponse("br", []string{"show", beadID, "--json"}, []byte(`[{"status":"closed"}]`))
+	bead := singleBead(beadID, "Resume test")
+	env.brClient.ReadyResponse = []brclient.Bead{bead}
+	env.brClient.SetShowResponse(beadID, &brclient.Bead{Status: "closed"})
 
-	wq := workqueue.New(env.cfg, env.runner)
+	wq := workqueue.New(env.cfg, env.brClient)
 
 	// Pre-populate history with session ID (simulating previous graceful pause)
 	history := map[string]*events.BeadHistory{
@@ -850,7 +839,7 @@ func TestSessionResumeWithStoredID(t *testing.T) {
 	}
 	wq.SetHistory(history)
 
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -923,11 +912,11 @@ exit 0
 	}
 
 	beadID := "bd-fallback-001"
-	beadJSON := singleBeadJSON(beadID, "Fallback test")
-	env.runner.SetResponse("br", []string{"ready", "--json"}, beadJSON)
-	env.runner.SetResponse("br", []string{"show", beadID, "--json"}, []byte(`[{"status":"closed"}]`))
+	bead := singleBead(beadID, "Fallback test")
+	env.brClient.ReadyResponse = []brclient.Bead{bead}
+	env.brClient.SetShowResponse(beadID, &brclient.Bead{Status: "closed"})
 
-	wq := workqueue.New(env.cfg, env.runner)
+	wq := workqueue.New(env.cfg, env.brClient)
 
 	// Pre-populate history with stale session ID
 	history := map[string]*events.BeadHistory{
@@ -940,7 +929,7 @@ exit 0
 	}
 	wq.SetHistory(history)
 
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -983,20 +972,6 @@ exit 0
 	t.Log("session resume fallback test completed")
 }
 
-// closedEpicsJSON returns a mock response for br epic close-eligible --json.
-// This returns the list of epics that were closed by the command.
-func closedEpicsJSON(epicID, title string, dependentCount int) []byte {
-	response := []map[string]any{
-		{
-			"id":              epicID,
-			"title":           title,
-			"dependent_count": dependentCount,
-		},
-	}
-	data, _ := json.Marshal(response)
-	return data
-}
-
 func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.cleanup()
@@ -1004,33 +979,30 @@ func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
 	// Scenario: 2 child beads, epic auto-closes after both complete
 	childBeadID := "bd-child-001"
 	epicID := "bd-epic-001"
-	beadJSON := singleBeadJSON(childBeadID, "Child bead 1")
-	closedEpics := closedEpicsJSON(epicID, "Test Epic", 2)
+	bead := singleBead(childBeadID, "Child bead 1")
 
 	callCount := 0
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 1 {
-			switch {
-			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
-				callCount++
-				// Return bead on first call, empty on subsequent
-				if callCount > 1 {
-					return []byte("[]"), nil, true
-				}
-				return beadJSON, nil, true
-			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
-				// Return closed status for the bead
-				return []byte(`[{"status":"closed"}]`), nil, true
-			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
-				// br epic close-eligible --json
-				return closedEpics, nil, true
-			}
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		callCount++
+		// Return bead on first call, empty on subsequent
+		if callCount > 1 {
+			return nil, nil, true
 		}
-		return nil, nil, false
+		return []brclient.Bead{bead}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	// Setup show response - bead is closed
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		return &brclient.Bead{Status: "closed"}, nil, true
+	}
+
+	// Setup epic closure response
+	env.brClient.CloseEligibleResult = []brclient.EpicCloseResult{
+		{ID: epicID, Title: "Test Epic", DependentCount: 2},
+	}
+
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1095,31 +1067,27 @@ func TestEpicAutoClosureSingleChild(t *testing.T) {
 	// Scenario: single child epic
 	childBeadID := "bd-only-child"
 	epicID := "bd-epic-single"
-	beadJSON := singleBeadJSON(childBeadID, "Only child bead")
-	closedEpics := closedEpicsJSON(epicID, "Single Child Epic", 1)
+	bead := singleBead(childBeadID, "Only child bead")
 
 	callCount := 0
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 1 {
-			switch {
-			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
-				callCount++
-				if callCount > 1 {
-					return []byte("[]"), nil, true
-				}
-				return beadJSON, nil, true
-			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
-				return []byte(`[{"status":"closed"}]`), nil, true
-			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
-				// br epic close-eligible --json
-				return closedEpics, nil, true
-			}
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		callCount++
+		if callCount > 1 {
+			return nil, nil, true
 		}
-		return nil, nil, false
+		return []brclient.Bead{bead}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		return &brclient.Bead{Status: "closed"}, nil, true
+	}
+
+	env.brClient.CloseEligibleResult = []brclient.EpicCloseResult{
+		{ID: epicID, Title: "Single Child Epic", DependentCount: 1},
+	}
+
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1163,30 +1131,26 @@ func TestNoEpicClosureWhenNoneEligible(t *testing.T) {
 
 	// Scenario: bead completes but no epic is eligible for closure
 	beadID := "bd-standalone"
-	beadJSON := singleBeadJSON(beadID, "Standalone bead")
+	bead := singleBead(beadID, "Standalone bead")
 
 	callCount := 0
-	env.runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
-		if name == "br" && len(args) >= 1 {
-			switch {
-			case args[0] == "ready" && len(args) >= 2 && args[1] == "--json":
-				callCount++
-				if callCount > 1 {
-					return []byte("[]"), nil, true
-				}
-				return beadJSON, nil, true
-			case args[0] == "show" && len(args) >= 3 && args[2] == "--json":
-				return []byte(`[{"status":"closed"}]`), nil, true
-			case args[0] == "epic" && len(args) >= 2 && args[1] == "close-eligible":
-				// br epic close-eligible --json - no epics eligible, return empty
-				return []byte("[]"), nil, true
-			}
+	env.brClient.DynamicReady = func(ctx context.Context, opts *brclient.ReadyOptions) ([]brclient.Bead, error, bool) {
+		callCount++
+		if callCount > 1 {
+			return nil, nil, true
 		}
-		return nil, nil, false
+		return []brclient.Bead{bead}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.runner)
-	ctrl := controller.New(env.cfg, wq, env.router, env.runner, nil, nil)
+	env.brClient.DynamicShow = func(ctx context.Context, id string) (*brclient.Bead, error, bool) {
+		return &brclient.Bead{Status: "closed"}, nil, true
+	}
+
+	// No epics eligible - return empty
+	env.brClient.CloseEligibleResult = nil
+
+	wq := workqueue.New(env.cfg, env.brClient)
+	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

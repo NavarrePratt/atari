@@ -3,15 +3,14 @@ package workqueue
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
-	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/viewmodel"
 )
 
@@ -28,71 +27,41 @@ const (
 	HistoryAbandoned = events.HistoryAbandoned
 )
 
-// Bead represents an issue from br ready --json output.
-type Bead struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	Priority    int       `json:"priority"`
-	IssueType   string    `json:"issue_type"`
-	Labels      []string  `json:"labels,omitempty"`
-	Parent      string    `json:"parent,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	CreatedBy   string    `json:"created_by"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
+// Bead is an alias to brclient.Bead for backward compatibility.
+type Bead = brclient.Bead
 
 // Manager discovers available work by polling br ready.
 type Manager struct {
 	config         *config.Config
-	runner         testutil.CommandRunner
+	client         brclient.WorkQueueClient
 	history        map[string]*BeadHistory
 	activeTopLevel string // Runtime state: currently active top-level item ID
 	mu             sync.RWMutex
 }
 
-// New creates a Manager with the given config and command runner.
-func New(cfg *config.Config, runner testutil.CommandRunner) *Manager {
+// New creates a Manager with the given config and br client.
+func New(cfg *config.Config, client brclient.WorkQueueClient) *Manager {
 	return &Manager{
 		config:  cfg,
-		runner:  runner,
+		client:  client,
 		history: make(map[string]*BeadHistory),
 	}
 }
 
 // Poll executes br ready --json and returns available beads.
-// It applies the configured label filter and uses a 30 second timeout.
+// It applies the configured label filter.
 // Returns nil slice (not error) when no work is available.
 func (m *Manager) Poll(ctx context.Context) ([]Bead, error) {
-	// Apply 30 second timeout for br command
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	args := []string{"ready", "--json"}
-	if m.config.WorkQueue.Label != "" {
-		args = append(args, "--label", m.config.WorkQueue.Label)
-	}
-	if m.config.WorkQueue.UnassignedOnly {
-		args = append(args, "--unassigned")
+	opts := &brclient.ReadyOptions{
+		Label:          m.config.WorkQueue.Label,
+		UnassignedOnly: m.config.WorkQueue.UnassignedOnly,
 	}
 
-	output, err := m.runner.Run(ctx, "br", args...)
+	beads, err := m.client.Ready(ctx, opts)
 	if err != nil {
-		return nil, fmt.Errorf("br ready failed: %w", err)
+		return nil, err
 	}
 
-	// Empty output means no work available
-	if len(output) == 0 {
-		return nil, nil
-	}
-
-	var beads []Bead
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("parse br ready output: %w", err)
-	}
-
-	// Empty array also means no work available
 	if len(beads) == 0 {
 		return nil, nil
 	}
@@ -244,21 +213,13 @@ func (m *Manager) hasExcludedLabel(beadLabels []string) bool {
 // (including the epic itself). The algorithm iteratively adds beads whose parent
 // is already in the set until no new beads are found.
 func (m *Manager) fetchDescendants(ctx context.Context, epicID string) (map[string]bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	output, err := m.runner.Run(ctx, "br", "list", "--json")
+	beads, err := m.client.List(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("br list failed: %w", err)
+		return nil, err
 	}
 
-	if len(output) == 0 {
+	if len(beads) == 0 {
 		return map[string]bool{epicID: true}, nil
-	}
-
-	var beads []Bead
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("parse br list output: %w", err)
 	}
 
 	return buildDescendantSet(epicID, beads), nil
@@ -291,21 +252,13 @@ func buildDescendantSet(epicID string, beads []Bead) map[string]bool {
 
 // fetchAllBeads retrieves all beads from br list --json.
 func (m *Manager) fetchAllBeads(ctx context.Context) ([]Bead, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	output, err := m.runner.Run(ctx, "br", "list", "--json")
+	beads, err := m.client.List(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("br list failed: %w", err)
+		return nil, err
 	}
 
-	if len(output) == 0 {
+	if len(beads) == 0 {
 		return nil, nil
-	}
-
-	var beads []Bead
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("parse br list output: %w", err)
 	}
 
 	return beads, nil

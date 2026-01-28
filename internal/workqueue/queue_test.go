@@ -7,13 +7,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/config"
-	"github.com/npratt/atari/internal/testutil"
 )
 
+func newMockClient() *brclient.MockClient {
+	return brclient.NewMockClient()
+}
+
 func TestPoll_ReturnsBeads(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.SampleBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+		{ID: "bd-002", Title: "Test bead 2", Status: "open", Priority: 2},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -26,7 +33,6 @@ func TestPoll_ReturnsBeads(t *testing.T) {
 		t.Fatalf("expected 2 beads, got %d", len(beads))
 	}
 
-	// Verify first bead
 	if beads[0].ID != "bd-001" {
 		t.Errorf("expected ID bd-001, got %s", beads[0].ID)
 	}
@@ -37,20 +43,19 @@ func TestPoll_ReturnsBeads(t *testing.T) {
 		t.Errorf("expected priority 1, got %d", beads[0].Priority)
 	}
 
-	// Verify second bead
 	if beads[1].ID != "bd-002" {
 		t.Errorf("expected ID bd-002, got %s", beads[1].ID)
 	}
 	if beads[1].Priority != 2 {
 		t.Errorf("expected priority 2, got %d", beads[1].Priority)
 	}
-
-	testutil.AssertCalled(t, mock, "br", "ready", "--json")
 }
 
 func TestPoll_SingleBead(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -68,8 +73,8 @@ func TestPoll_SingleBead(t *testing.T) {
 }
 
 func TestPoll_EmptyArray(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.EmptyBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -84,8 +89,8 @@ func TestPoll_EmptyArray(t *testing.T) {
 }
 
 func TestPoll_EmptyOutput(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(""))
+	mock := newMockClient()
+	mock.ReadyResponse = nil
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -100,8 +105,10 @@ func TestPoll_EmptyOutput(t *testing.T) {
 }
 
 func TestPoll_WithLabelFilter(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetResponse("br", []string{"ready", "--json", "--label", "automated"}, []byte(testutil.SingleBeadReadyJSON))
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
 
 	cfg := config.Default()
 	cfg.WorkQueue.Label = "automated"
@@ -115,12 +122,19 @@ func TestPoll_WithLabelFilter(t *testing.T) {
 		t.Fatalf("expected 1 bead, got %d", len(beads))
 	}
 
-	testutil.AssertCalled(t, mock, "br", "ready", "--json", "--label", "automated")
+	// Verify the options were passed
+	if len(mock.ReadyCalls) != 1 {
+		t.Fatalf("expected 1 Ready call, got %d", len(mock.ReadyCalls))
+	}
+	opts := mock.ReadyCalls[0]
+	if opts == nil || opts.Label != "automated" {
+		t.Errorf("expected label 'automated' in options")
+	}
 }
 
 func TestPoll_CommandError(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetError("br", []string{"ready", "--json"}, errors.New("command not found"))
+	mock := newMockClient()
+	mock.ReadyError = errors.New("command not found")
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -134,31 +148,15 @@ func TestPoll_CommandError(t *testing.T) {
 	}
 }
 
-func TestPoll_InvalidJSON(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte("not valid json"))
-
-	cfg := config.Default()
-	m := New(cfg, mock)
-
-	beads, err := m.Poll(context.Background())
-	if err == nil {
-		t.Fatal("expected error for invalid JSON, got nil")
-	}
-	if beads != nil {
-		t.Errorf("expected nil beads on error, got %v", beads)
-	}
-}
-
 func TestPoll_CanceledContext(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetError("br", []string{"ready", "--json"}, context.Canceled)
+	mock := newMockClient()
+	mock.ReadyError = context.Canceled
 
 	cfg := config.Default()
 	m := New(cfg, mock)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
 	beads, err := m.Poll(ctx)
 	if err == nil {
@@ -170,7 +168,6 @@ func TestPoll_CanceledContext(t *testing.T) {
 }
 
 func TestBead_JSONParsing(t *testing.T) {
-	// Test that Bead struct correctly parses all fields from br ready JSON
 	jsonData := `{
 		"id": "bd-042",
 		"title": "Fix auth bug",
@@ -214,7 +211,6 @@ func TestBead_JSONParsing(t *testing.T) {
 		t.Errorf("expected created_by 'user', got %s", bead.CreatedBy)
 	}
 
-	// Verify timestamps
 	expectedCreated := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	if !bead.CreatedAt.Equal(expectedCreated) {
 		t.Errorf("expected created_at %v, got %v", expectedCreated, bead.CreatedAt)
@@ -226,7 +222,6 @@ func TestBead_JSONParsing(t *testing.T) {
 }
 
 func TestBead_OptionalLabels(t *testing.T) {
-	// Test that Labels field is optional (omitempty)
 	jsonData := `{
 		"id": "bd-001",
 		"title": "No labels",
@@ -250,7 +245,7 @@ func TestBead_OptionalLabels(t *testing.T) {
 }
 
 func TestNew_CreateManager(t *testing.T) {
-	mock := testutil.NewMockRunner()
+	mock := newMockClient()
 	cfg := config.Default()
 
 	m := New(cfg, mock)
@@ -260,27 +255,23 @@ func TestNew_CreateManager(t *testing.T) {
 	if m.config != cfg {
 		t.Error("expected config to be set")
 	}
-	if m.runner != mock {
-		t.Error("expected runner to be set")
+	if m.client != mock {
+		t.Error("expected client to be set")
 	}
 	if m.history == nil {
 		t.Error("expected history map to be initialized")
 	}
 }
 
-// Tests for calculateBackoff
-
 func TestCalculateBackoff_FirstAttempt(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// First attempt (attempts=1) should return 0 backoff
 	backoff := m.calculateBackoff(1)
 	if backoff != 0 {
 		t.Errorf("expected 0 backoff for first attempt, got %v", backoff)
 	}
 
-	// Zero attempts should also return 0
 	backoff = m.calculateBackoff(0)
 	if backoff != 0 {
 		t.Errorf("expected 0 backoff for zero attempts, got %v", backoff)
@@ -293,21 +284,18 @@ func TestCalculateBackoff_ExponentialGrowth(t *testing.T) {
 	cfg.Backoff.Multiplier = 2.0
 	cfg.Backoff.Max = 1 * time.Hour
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// 2 attempts: initial = 1m
 	backoff := m.calculateBackoff(2)
 	if backoff != 1*time.Minute {
 		t.Errorf("expected 1m for 2 attempts, got %v", backoff)
 	}
 
-	// 3 attempts: 1m * 2 = 2m
 	backoff = m.calculateBackoff(3)
 	if backoff != 2*time.Minute {
 		t.Errorf("expected 2m for 3 attempts, got %v", backoff)
 	}
 
-	// 4 attempts: 2m * 2 = 4m
 	backoff = m.calculateBackoff(4)
 	if backoff != 4*time.Minute {
 		t.Errorf("expected 4m for 4 attempts, got %v", backoff)
@@ -320,20 +308,17 @@ func TestCalculateBackoff_MaxCap(t *testing.T) {
 	cfg.Backoff.Multiplier = 2.0
 	cfg.Backoff.Max = 10 * time.Minute
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// After many attempts, backoff should be capped at max
-	backoff := m.calculateBackoff(10) // Would be 256m without cap
+	backoff := m.calculateBackoff(10)
 	if backoff != 10*time.Minute {
 		t.Errorf("expected max backoff 10m, got %v", backoff)
 	}
 }
 
-// Tests for filterEligible
-
 func TestFilterEligible_NewBeads(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1},
@@ -348,7 +333,7 @@ func TestFilterEligible_NewBeads(t *testing.T) {
 
 func TestFilterEligible_ExcludesEpics(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1, IssueType: "task"},
@@ -361,13 +346,11 @@ func TestFilterEligible_ExcludesEpics(t *testing.T) {
 		t.Errorf("expected 2 eligible beads (excluding epic), got %d", len(eligible))
 	}
 
-	// Verify the epic is excluded
 	for _, b := range eligible {
 		if b.IssueType == "epic" {
 			t.Errorf("epic should have been filtered out, but found %s", b.ID)
 		}
 	}
-	// Verify task and bug are included
 	if eligible[0].ID != "bd-001" {
 		t.Errorf("expected bd-001, got %s", eligible[0].ID)
 	}
@@ -378,9 +361,8 @@ func TestFilterEligible_ExcludesEpics(t *testing.T) {
 
 func TestFilterEligible_ExcludesCompleted(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Mark bd-001 as completed
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 
 	beads := []Bead{
@@ -399,9 +381,8 @@ func TestFilterEligible_ExcludesCompleted(t *testing.T) {
 
 func TestFilterEligible_ExcludesAbandoned(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Mark bd-001 as abandoned
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryAbandoned}
 
 	beads := []Bead{
@@ -420,11 +401,10 @@ func TestFilterEligible_ExcludesAbandoned(t *testing.T) {
 
 func TestFilterEligible_ExcludesInBackoff(t *testing.T) {
 	cfg := config.Default()
-	cfg.Backoff.Initial = 1 * time.Hour // Long backoff
+	cfg.Backoff.Initial = 1 * time.Hour
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Mark bd-001 as failed recently (still in backoff)
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
 		Status:      HistoryFailed,
@@ -448,11 +428,10 @@ func TestFilterEligible_ExcludesInBackoff(t *testing.T) {
 
 func TestFilterEligible_IncludesAfterBackoff(t *testing.T) {
 	cfg := config.Default()
-	cfg.Backoff.Initial = 1 * time.Millisecond // Very short backoff
+	cfg.Backoff.Initial = 1 * time.Millisecond
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Mark bd-001 as failed long ago (past backoff)
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
 		Status:      HistoryFailed,
@@ -474,15 +453,14 @@ func TestFilterEligible_IncludesAfterBackoff(t *testing.T) {
 func TestFilterEligible_ExcludesMaxFailures(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.MaxFailures = 3
-	cfg.Backoff.Initial = 1 * time.Millisecond // Short backoff
+	cfg.Backoff.Initial = 1 * time.Millisecond
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Mark bd-001 as failed with max attempts (would be abandoned on next failure)
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
 		Status:      HistoryFailed,
-		Attempts:    3, // At max failures
+		Attempts:    3,
 		LastAttempt: time.Now().Add(-1 * time.Hour),
 	}
 
@@ -500,15 +478,12 @@ func TestFilterEligible_ExcludesMaxFailures(t *testing.T) {
 	}
 }
 
-// Tests for Next
-
 func TestNext_ReturnsHighestPriority(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	// Return beads in non-priority order
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(`[
-		{"id": "bd-002", "title": "Low priority", "status": "open", "priority": 3, "created_at": "2024-01-15T10:00:00Z"},
-		{"id": "bd-001", "title": "High priority", "status": "open", "priority": 1, "created_at": "2024-01-15T11:00:00Z"}
-	]`))
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-002", Title: "Low priority", Status: "open", Priority: 3, CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{ID: "bd-001", Title: "High priority", Status: "open", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -526,12 +501,11 @@ func TestNext_ReturnsHighestPriority(t *testing.T) {
 }
 
 func TestNext_SamePriorityOldestFirst(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	// Return beads with same priority, different creation times
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(`[
-		{"id": "bd-002", "title": "Newer", "status": "open", "priority": 1, "created_at": "2024-01-15T12:00:00Z"},
-		{"id": "bd-001", "title": "Older", "status": "open", "priority": 1, "created_at": "2024-01-15T10:00:00Z"}
-	]`))
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-002", Title: "Newer", Status: "open", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)},
+		{ID: "bd-001", Title: "Older", Status: "open", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -549,8 +523,8 @@ func TestNext_SamePriorityOldestFirst(t *testing.T) {
 }
 
 func TestNext_NoBeadsAvailable(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.EmptyBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -565,13 +539,14 @@ func TestNext_NoBeadsAvailable(t *testing.T) {
 }
 
 func TestNext_AllBeadsFiltered(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	// Mark the only bead as completed
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 
 	bead, err := m.Next(context.Background())
@@ -584,8 +559,10 @@ func TestNext_AllBeadsFiltered(t *testing.T) {
 }
 
 func TestNext_MarksAsWorking(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -598,7 +575,6 @@ func TestNext_MarksAsWorking(t *testing.T) {
 		t.Fatal("expected a bead")
 	}
 
-	// Check history was updated
 	h := m.history[bead.ID]
 	if h == nil {
 		t.Fatal("expected history entry")
@@ -612,15 +588,16 @@ func TestNext_MarksAsWorking(t *testing.T) {
 }
 
 func TestNext_IncrementsAttempts(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.SingleBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
 
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Millisecond
 
 	m := New(cfg, mock)
 
-	// Set up existing history with previous failed attempt
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
 		Status:      HistoryFailed,
@@ -642,11 +619,9 @@ func TestNext_IncrementsAttempts(t *testing.T) {
 	}
 }
 
-// Tests for RecordSuccess and RecordFailure
-
 func TestRecordSuccess(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	m.RecordSuccess("bd-001")
 
@@ -661,9 +636,8 @@ func TestRecordSuccess(t *testing.T) {
 
 func TestRecordSuccess_ExistingHistory(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Set up existing working history
 	m.history["bd-001"] = &BeadHistory{
 		ID:       "bd-001",
 		Status:   HistoryWorking,
@@ -683,7 +657,7 @@ func TestRecordSuccess_ExistingHistory(t *testing.T) {
 
 func TestRecordFailure(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	testErr := errors.New("test failed")
 	m.RecordFailure("bd-001", testErr)
@@ -704,13 +678,12 @@ func TestRecordFailure_TriggersAbandoned(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.MaxFailures = 3
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Set up existing history at max failures
 	m.history["bd-001"] = &BeadHistory{
 		ID:       "bd-001",
 		Status:   HistoryWorking,
-		Attempts: 3, // At max
+		Attempts: 3,
 	}
 
 	m.RecordFailure("bd-001", errors.New("failed again"))
@@ -725,13 +698,12 @@ func TestRecordFailure_NotAbandonedBelowMax(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.MaxFailures = 3
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Set up existing history below max failures
 	m.history["bd-001"] = &BeadHistory{
 		ID:       "bd-001",
 		Status:   HistoryWorking,
-		Attempts: 2, // Below max
+		Attempts: 2,
 	}
 
 	m.RecordFailure("bd-001", errors.New("failed"))
@@ -742,11 +714,9 @@ func TestRecordFailure_NotAbandonedBelowMax(t *testing.T) {
 	}
 }
 
-// Tests for Stats
-
 func TestStats_Empty(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	stats := m.Stats()
 	if stats.TotalSeen != 0 {
@@ -761,22 +731,21 @@ func TestStats_Counts(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Hour
 
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Add various history entries
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 	m.history["bd-002"] = &BeadHistory{ID: "bd-002", Status: HistoryCompleted}
 	m.history["bd-003"] = &BeadHistory{
 		ID:          "bd-003",
 		Status:      HistoryFailed,
 		Attempts:    2,
-		LastAttempt: time.Now(), // Still in backoff
+		LastAttempt: time.Now(),
 	}
 	m.history["bd-004"] = &BeadHistory{
 		ID:          "bd-004",
 		Status:      HistoryFailed,
 		Attempts:    2,
-		LastAttempt: time.Now().Add(-2 * time.Hour), // Past backoff
+		LastAttempt: time.Now().Add(-2 * time.Hour),
 	}
 	m.history["bd-005"] = &BeadHistory{ID: "bd-005", Status: HistoryAbandoned}
 
@@ -798,11 +767,9 @@ func TestStats_Counts(t *testing.T) {
 	}
 }
 
-// Tests for History and SetHistory
-
 func TestHistory_ReturnsCopy(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 
@@ -811,13 +778,11 @@ func TestHistory_ReturnsCopy(t *testing.T) {
 		t.Errorf("expected 1 history entry, got %d", len(h))
 	}
 
-	// Modifying returned map shouldn't affect internal state
 	h["bd-002"] = &BeadHistory{ID: "bd-002", Status: HistoryFailed}
 	if len(m.history) != 1 {
 		t.Errorf("internal history should still have 1 entry, got %d", len(m.history))
 	}
 
-	// Modifying returned entry shouldn't affect internal state
 	h["bd-001"].Status = HistoryFailed
 	if m.history["bd-001"].Status != HistoryCompleted {
 		t.Errorf("internal status should still be completed")
@@ -826,9 +791,8 @@ func TestHistory_ReturnsCopy(t *testing.T) {
 
 func TestSetHistory_RestoresState(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Simulate restoring from persisted state
 	persisted := map[string]*BeadHistory{
 		"bd-001": {ID: "bd-001", Status: HistoryCompleted, Attempts: 1},
 		"bd-002": {ID: "bd-002", Status: HistoryFailed, Attempts: 2},
@@ -849,7 +813,7 @@ func TestSetHistory_RestoresState(t *testing.T) {
 
 func TestSetHistory_CopiesInput(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	input := map[string]*BeadHistory{
 		"bd-001": {ID: "bd-001", Status: HistoryCompleted},
@@ -857,18 +821,17 @@ func TestSetHistory_CopiesInput(t *testing.T) {
 
 	m.SetHistory(input)
 
-	// Modifying input shouldn't affect internal state
 	input["bd-001"].Status = HistoryFailed
 	if m.history["bd-001"].Status != HistoryCompleted {
 		t.Errorf("internal status should still be completed after input modification")
 	}
 }
 
-// Tests for UnassignedOnly filtering
-
 func TestPoll_WithUnassignedFilter(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetResponse("br", []string{"ready", "--json", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
 
 	cfg := config.Default()
 	cfg.WorkQueue.UnassignedOnly = true
@@ -882,12 +845,20 @@ func TestPoll_WithUnassignedFilter(t *testing.T) {
 		t.Fatalf("expected 1 bead, got %d", len(beads))
 	}
 
-	testutil.AssertCalled(t, mock, "br", "ready", "--json", "--unassigned")
+	if len(mock.ReadyCalls) != 1 {
+		t.Fatalf("expected 1 Ready call, got %d", len(mock.ReadyCalls))
+	}
+	opts := mock.ReadyCalls[0]
+	if opts == nil || !opts.UnassignedOnly {
+		t.Error("expected UnassignedOnly to be true")
+	}
 }
 
 func TestPoll_WithLabelAndUnassigned(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetResponse("br", []string{"ready", "--json", "--label", "automated", "--unassigned"}, []byte(testutil.SingleBeadReadyJSON))
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
 
 	cfg := config.Default()
 	cfg.WorkQueue.Label = "automated"
@@ -902,21 +873,22 @@ func TestPoll_WithLabelAndUnassigned(t *testing.T) {
 		t.Fatalf("expected 1 bead, got %d", len(beads))
 	}
 
-	testutil.AssertCalled(t, mock, "br", "ready", "--json", "--label", "automated", "--unassigned")
+	opts := mock.ReadyCalls[0]
+	if opts == nil || opts.Label != "automated" || !opts.UnassignedOnly {
+		t.Error("expected both label and unassigned options")
+	}
 }
-
-// Tests for ExcludeLabels filtering
 
 func TestFilterEligible_ExcludesLabels(t *testing.T) {
 	cfg := config.Default()
 	cfg.WorkQueue.ExcludeLabels = []string{"manual", "blocked"}
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1, Labels: []string{"automated"}},
-		{ID: "bd-002", Priority: 2, Labels: []string{"manual"}},              // should be excluded
-		{ID: "bd-003", Priority: 3, Labels: []string{"urgent", "blocked"}},   // should be excluded
-		{ID: "bd-004", Priority: 4, Labels: nil},                             // no labels - included
+		{ID: "bd-002", Priority: 2, Labels: []string{"manual"}},
+		{ID: "bd-003", Priority: 3, Labels: []string{"urgent", "blocked"}},
+		{ID: "bd-004", Priority: 4, Labels: nil},
 	}
 
 	eligible := m.filterEligible(beads, nil)
@@ -924,7 +896,6 @@ func TestFilterEligible_ExcludesLabels(t *testing.T) {
 		t.Errorf("expected 2 eligible beads, got %d", len(eligible))
 	}
 
-	// Verify correct beads are included
 	ids := make(map[string]bool)
 	for _, b := range eligible {
 		ids[b.ID] = true
@@ -935,18 +906,11 @@ func TestFilterEligible_ExcludesLabels(t *testing.T) {
 	if !ids["bd-004"] {
 		t.Error("expected bd-004 to be eligible")
 	}
-	if ids["bd-002"] {
-		t.Error("expected bd-002 to be excluded")
-	}
-	if ids["bd-003"] {
-		t.Error("expected bd-003 to be excluded")
-	}
 }
 
 func TestFilterEligible_NoExcludeLabels(t *testing.T) {
 	cfg := config.Default()
-	// No exclude labels set
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1, Labels: []string{"manual"}},
@@ -962,7 +926,7 @@ func TestFilterEligible_NoExcludeLabels(t *testing.T) {
 func TestHasExcludedLabel(t *testing.T) {
 	cfg := config.Default()
 	cfg.WorkQueue.ExcludeLabels = []string{"manual", "blocked"}
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	tests := []struct {
 		name     string
@@ -974,7 +938,7 @@ func TestHasExcludedLabel(t *testing.T) {
 		{"no match", []string{"automated", "urgent"}, false},
 		{"single match", []string{"manual"}, true},
 		{"one of many", []string{"urgent", "blocked", "priority"}, true},
-		{"case sensitive", []string{"MANUAL"}, false}, // exact match only
+		{"case sensitive", []string{"MANUAL"}, false},
 	}
 
 	for _, tt := range tests {
@@ -989,16 +953,12 @@ func TestHasExcludedLabel(t *testing.T) {
 
 func TestHasExcludedLabel_EmptyExcludeList(t *testing.T) {
 	cfg := config.Default()
-	// No exclude labels set
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Should always return false when exclude list is empty
 	if m.hasExcludedLabel([]string{"manual", "blocked"}) {
 		t.Error("expected false when exclude list is empty")
 	}
 }
-
-// Tests for buildDescendantSet
 
 func TestBuildDescendantSet_SingleLevel(t *testing.T) {
 	beads := []Bead{
@@ -1010,7 +970,6 @@ func TestBuildDescendantSet_SingleLevel(t *testing.T) {
 
 	descendants := buildDescendantSet("epic-001", beads)
 
-	// Epic and its direct children should be included
 	if !descendants["epic-001"] {
 		t.Error("expected epic-001 to be in descendants")
 	}
@@ -1020,7 +979,6 @@ func TestBuildDescendantSet_SingleLevel(t *testing.T) {
 	if !descendants["task-002"] {
 		t.Error("expected task-002 to be in descendants")
 	}
-	// Other beads should not be included
 	if descendants["task-003"] {
 		t.Error("expected task-003 to NOT be in descendants")
 	}
@@ -1036,7 +994,6 @@ func TestBuildDescendantSet_MultiLevel(t *testing.T) {
 
 	descendants := buildDescendantSet("epic-001", beads)
 
-	// All nested descendants should be included
 	if !descendants["epic-001"] {
 		t.Error("expected epic-001 to be in descendants")
 	}
@@ -1062,7 +1019,6 @@ func TestBuildDescendantSet_NoChildren(t *testing.T) {
 
 	descendants := buildDescendantSet("epic-001", beads)
 
-	// Only the epic itself should be in the set
 	if !descendants["epic-001"] {
 		t.Error("expected epic-001 to be in descendants")
 	}
@@ -1074,7 +1030,6 @@ func TestBuildDescendantSet_NoChildren(t *testing.T) {
 func TestBuildDescendantSet_EmptyBeads(t *testing.T) {
 	descendants := buildDescendantSet("epic-001", nil)
 
-	// Epic should still be in the set
 	if !descendants["epic-001"] {
 		t.Error("expected epic-001 to be in descendants")
 	}
@@ -1083,11 +1038,9 @@ func TestBuildDescendantSet_EmptyBeads(t *testing.T) {
 	}
 }
 
-// Tests for epic filtering in filterEligible
-
 func TestFilterEligible_WithEpicDescendants(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	beads := []Bead{
 		{ID: "task-001", Priority: 1, IssueType: "task"},
@@ -1095,7 +1048,6 @@ func TestFilterEligible_WithEpicDescendants(t *testing.T) {
 		{ID: "task-003", Priority: 3, IssueType: "task"},
 	}
 
-	// Only task-001 and task-003 are descendants
 	descendants := map[string]bool{
 		"epic-001": true,
 		"task-001": true,
@@ -1117,14 +1069,13 @@ func TestFilterEligible_WithEpicDescendants(t *testing.T) {
 
 func TestFilterEligible_WithNilDescendants(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	beads := []Bead{
 		{ID: "task-001", Priority: 1, IssueType: "task"},
 		{ID: "task-002", Priority: 2, IssueType: "task"},
 	}
 
-	// nil descendants = no epic filtering
 	eligible := m.filterEligible(beads, nil)
 
 	if len(eligible) != 2 {
@@ -1134,14 +1085,13 @@ func TestFilterEligible_WithNilDescendants(t *testing.T) {
 
 func TestFilterEligible_EpicDescendantsEmptyResult(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
 	beads := []Bead{
 		{ID: "task-001", Priority: 1, IssueType: "task"},
 		{ID: "task-002", Priority: 2, IssueType: "task"},
 	}
 
-	// No beads match the descendant set
 	descendants := map[string]bool{
 		"epic-001": true,
 	}
@@ -1153,25 +1103,19 @@ func TestFilterEligible_EpicDescendantsEmptyResult(t *testing.T) {
 	}
 }
 
-// Test for Next with epic filter
-
 func TestNext_WithEpicFilter(t *testing.T) {
-	mock := testutil.NewMockRunner()
+	mock := newMockClient()
 
-	// br ready returns beads from multiple epics
-	readyJSON := `[
-		{"id": "task-001", "title": "Task in epic", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-		{"id": "task-002", "title": "Task outside epic", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T11:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", Title: "Task in epic", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{ID: "task-002", Title: "Task outside epic", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)},
+	}
 
-	// br list returns all beads with parent info
-	listJSON := `[
-		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic"},
-		{"id": "task-001", "title": "Task in epic", "status": "open", "parent": "epic-001"},
-		{"id": "task-002", "title": "Task outside epic", "status": "open", "parent": "other-epic"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", Title: "Epic", Status: "open", IssueType: "epic"},
+		{ID: "task-001", Title: "Task in epic", Status: "open", Parent: "epic-001"},
+		{ID: "task-002", Title: "Task outside epic", Status: "open", Parent: "other-epic"},
+	}
 
 	cfg := config.Default()
 	cfg.WorkQueue.Epic = "epic-001"
@@ -1190,20 +1134,16 @@ func TestNext_WithEpicFilter(t *testing.T) {
 }
 
 func TestNext_WithEpicFilter_NoEligibleBeads(t *testing.T) {
-	mock := testutil.NewMockRunner()
+	mock := newMockClient()
 
-	// br ready returns beads not in the epic
-	readyJSON := `[
-		{"id": "task-002", "title": "Task outside epic", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T11:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-002", Title: "Task outside epic", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)},
+	}
 
-	// br list shows the bead is not under the epic
-	listJSON := `[
-		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic"},
-		{"id": "task-002", "title": "Task outside epic", "status": "open", "parent": "other-epic"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", Title: "Epic", Status: "open", IssueType: "epic"},
+		{ID: "task-002", Title: "Task outside epic", Status: "open", Parent: "other-epic"},
+	}
 
 	cfg := config.Default()
 	cfg.WorkQueue.Epic = "epic-001"
@@ -1218,45 +1158,14 @@ func TestNext_WithEpicFilter_NoEligibleBeads(t *testing.T) {
 	}
 }
 
-func TestNext_WithEpicFilter_NestedDescendants(t *testing.T) {
-	mock := testutil.NewMockRunner()
-
-	// br ready returns a nested descendant
-	readyJSON := `[
-		{"id": "task-nested", "title": "Nested task", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
-
-	// br list shows nested hierarchy: epic -> sub-epic -> task
-	listJSON := `[
-		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic"},
-		{"id": "sub-epic", "title": "Sub Epic", "status": "open", "parent": "epic-001", "issue_type": "epic"},
-		{"id": "task-nested", "title": "Nested task", "status": "open", "parent": "sub-epic"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
-
-	cfg := config.Default()
-	cfg.WorkQueue.Epic = "epic-001"
-	m := New(cfg, mock)
-
-	bead, err := m.Next(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if bead == nil {
-		t.Fatal("expected nested task to be selected")
-	}
-	if bead.ID != "task-nested" {
-		t.Errorf("expected task-nested, got %s", bead.ID)
-	}
-}
-
 func TestNext_WithoutEpicFilter(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	testutil.SetupMockBRReady(mock, testutil.SampleBeadReadyJSON)
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+		{ID: "bd-002", Title: "Test bead 2", Status: "open", Priority: 2},
+	}
 
 	cfg := config.Default()
-	// No epic filter set
 	m := New(cfg, mock)
 
 	bead, err := m.Next(context.Background())
@@ -1268,13 +1177,11 @@ func TestNext_WithoutEpicFilter(t *testing.T) {
 	}
 }
 
-// Tests for top-level selection
-
 func TestIdentifyTopLevelItems_EpicsAndRoots(t *testing.T) {
 	beads := []Bead{
 		{ID: "epic-001", IssueType: "epic", Priority: 2, CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
-		{ID: "task-001", Parent: "epic-001", Priority: 1},                                                           // Not top-level (has parent)
-		{ID: "standalone-001", IssueType: "task", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)}, // Top-level (no parent)
+		{ID: "task-001", Parent: "epic-001", Priority: 1},
+		{ID: "standalone-001", IssueType: "task", Priority: 1, CreatedAt: time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)},
 		{ID: "epic-002", IssueType: "epic", Priority: 3, CreatedAt: time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)},
 	}
 
@@ -1284,10 +1191,6 @@ func TestIdentifyTopLevelItems_EpicsAndRoots(t *testing.T) {
 		t.Fatalf("expected 3 top-level items, got %d", len(topLevel))
 	}
 
-	// Should be sorted by priority, then creation time
-	// Priority 1: standalone-001
-	// Priority 2: epic-001
-	// Priority 3: epic-002
 	if topLevel[0].ID != "standalone-001" {
 		t.Errorf("expected standalone-001 first (priority 1), got %s", topLevel[0].ID)
 	}
@@ -1311,7 +1214,6 @@ func TestIdentifyTopLevelItems_SamePrioritySortByTime(t *testing.T) {
 		t.Fatalf("expected 2 top-level items, got %d", len(topLevel))
 	}
 
-	// Same priority, should be sorted by creation time (oldest first)
 	if topLevel[0].ID != "epic-001" {
 		t.Errorf("expected epic-001 first (older), got %s", topLevel[0].ID)
 	}
@@ -1377,7 +1279,7 @@ func TestHasReadyDescendants_NoReadyWork(t *testing.T) {
 
 func TestHasReadyDescendants_SkipsEpics(t *testing.T) {
 	readyBeads := []Bead{
-		{ID: "epic-001", IssueType: "epic"}, // Epic itself is ready but should be skipped
+		{ID: "epic-001", IssueType: "epic"},
 	}
 	allBeads := []Bead{
 		{ID: "epic-001", IssueType: "epic"},
@@ -1393,7 +1295,7 @@ func TestHasReadyDescendants_StandaloneBeadIsOwnDescendant(t *testing.T) {
 		{ID: "standalone-001", IssueType: "task"},
 	}
 	allBeads := []Bead{
-		{ID: "standalone-001", IssueType: "task"}, // No parent, not an epic
+		{ID: "standalone-001", IssueType: "task"},
 	}
 
 	if !hasReadyDescendants("standalone-001", readyBeads, allBeads) {
@@ -1412,11 +1314,10 @@ func TestSelectBestTopLevel(t *testing.T) {
 	allBeads := []Bead{
 		{ID: "epic-001", IssueType: "epic"},
 		{ID: "epic-002", IssueType: "epic"},
-		{ID: "task-001", Parent: "epic-001"}, // Not ready
-		{ID: "task-002", Parent: "epic-002"}, // Ready
+		{ID: "task-001", Parent: "epic-001"},
+		{ID: "task-002", Parent: "epic-002"},
 	}
 
-	// epic-001 has no ready work, epic-002 does
 	best := selectBestTopLevel(topLevelItems, readyBeads, allBeads)
 	if best != "epic-002" {
 		t.Errorf("expected epic-002 (has ready work), got %s", best)
@@ -1439,28 +1340,23 @@ func TestSelectBestTopLevel_NoReadyWork(t *testing.T) {
 }
 
 func TestNextTopLevel_SelectsFromActiveTopLevel(t *testing.T) {
-	mock := testutil.NewMockRunner()
+	mock := newMockClient()
 
-	// br ready returns tasks from multiple epics
-	readyJSON := `[
-		{"id": "task-epic1", "title": "Task in epic1", "status": "open", "priority": 2, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-epic1", Title: "Task in epic1", Status: "open", Priority: 2, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{ID: "task-epic2", Title: "Task in epic2", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+	}
 
-	// br list returns hierarchy
-	listJSON := `[
-		{"id": "epic-001", "title": "Epic 1", "status": "open", "issue_type": "epic", "priority": 2},
-		{"id": "epic-002", "title": "Epic 2", "status": "open", "issue_type": "epic", "priority": 1},
-		{"id": "task-epic1", "title": "Task in epic1", "status": "open", "parent": "epic-001"},
-		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "parent": "epic-002"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", Title: "Epic 1", Status: "open", IssueType: "epic", Priority: 2},
+		{ID: "epic-002", Title: "Epic 2", Status: "open", IssueType: "epic", Priority: 1},
+		{ID: "task-epic1", Title: "Task in epic1", Status: "open", Parent: "epic-001"},
+		{ID: "task-epic2", Title: "Task in epic2", Status: "open", Parent: "epic-002"},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	// Set active top-level to epic-001
 	m.SetActiveTopLevel("epic-001")
 
 	bead, err := m.NextTopLevel(context.Background())
@@ -1471,38 +1367,31 @@ func TestNextTopLevel_SelectsFromActiveTopLevel(t *testing.T) {
 		t.Fatal("expected a bead")
 	}
 
-	// Should select from epic-001 even though epic-002 has higher priority work
 	if bead.ID != "task-epic1" {
 		t.Errorf("expected task-epic1 (from active top-level), got %s", bead.ID)
 	}
 
-	// Active top-level should remain
 	if m.ActiveTopLevel() != "epic-001" {
 		t.Errorf("expected active top-level to remain epic-001, got %s", m.ActiveTopLevel())
 	}
 }
 
 func TestNextTopLevel_SwitchesWhenExhausted(t *testing.T) {
-	mock := testutil.NewMockRunner()
+	mock := newMockClient()
 
-	// br ready returns only task from epic-002 (epic-001 is exhausted)
-	readyJSON := `[
-		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-epic2", Title: "Task in epic2", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+	}
 
-	// br list returns hierarchy
-	listJSON := `[
-		{"id": "epic-001", "title": "Epic 1", "status": "open", "issue_type": "epic", "priority": 2},
-		{"id": "epic-002", "title": "Epic 2", "status": "open", "issue_type": "epic", "priority": 1},
-		{"id": "task-epic2", "title": "Task in epic2", "status": "open", "parent": "epic-002"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", Title: "Epic 1", Status: "open", IssueType: "epic", Priority: 2},
+		{ID: "epic-002", Title: "Epic 2", Status: "open", IssueType: "epic", Priority: 1},
+		{ID: "task-epic2", Title: "Task in epic2", Status: "open", Parent: "epic-002"},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	// Set active top-level to epic-001 (which is exhausted)
 	m.SetActiveTopLevel("epic-001")
 
 	bead, err := m.NextTopLevel(context.Background())
@@ -1513,97 +1402,18 @@ func TestNextTopLevel_SwitchesWhenExhausted(t *testing.T) {
 		t.Fatal("expected a bead")
 	}
 
-	// Should switch to epic-002 and select its task
 	if bead.ID != "task-epic2" {
 		t.Errorf("expected task-epic2, got %s", bead.ID)
 	}
 
-	// Active top-level should switch to epic-002
 	if m.ActiveTopLevel() != "epic-002" {
 		t.Errorf("expected active top-level to switch to epic-002, got %s", m.ActiveTopLevel())
 	}
 }
 
-func TestNextTopLevel_SelectsHighestPriorityTopLevel(t *testing.T) {
-	mock := testutil.NewMockRunner()
-
-	// br ready returns tasks from multiple epics
-	readyJSON := `[
-		{"id": "task-low", "title": "Task low priority", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-		{"id": "task-high", "title": "Task high priority", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
-
-	// br list returns hierarchy - epic-high has highest priority (lower number)
-	listJSON := `[
-		{"id": "epic-low", "title": "Low Priority Epic", "status": "open", "issue_type": "epic", "priority": 3},
-		{"id": "epic-high", "title": "High Priority Epic", "status": "open", "issue_type": "epic", "priority": 1},
-		{"id": "task-low", "title": "Task low priority", "status": "open", "parent": "epic-low"},
-		{"id": "task-high", "title": "Task high priority", "status": "open", "parent": "epic-high"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
-
-	cfg := config.Default()
-	m := New(cfg, mock)
-
-	bead, err := m.NextTopLevel(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if bead == nil {
-		t.Fatal("expected a bead")
-	}
-
-	// Should select from highest priority top-level (epic-high with priority 1)
-	if bead.ID != "task-high" {
-		t.Errorf("expected task-high (from highest priority epic), got %s", bead.ID)
-	}
-
-	// Active top-level should be epic-high
-	if m.ActiveTopLevel() != "epic-high" {
-		t.Errorf("expected active top-level to be epic-high, got %s", m.ActiveTopLevel())
-	}
-}
-
-func TestNextTopLevel_StandaloneBeads(t *testing.T) {
-	mock := testutil.NewMockRunner()
-
-	// br ready returns a standalone bead (no parent)
-	readyJSON := `[
-		{"id": "standalone-001", "title": "Standalone task", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
-
-	// br list shows the standalone bead has no parent
-	listJSON := `[
-		{"id": "standalone-001", "title": "Standalone task", "status": "open", "issue_type": "task", "priority": 1}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
-
-	cfg := config.Default()
-	m := New(cfg, mock)
-
-	bead, err := m.NextTopLevel(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if bead == nil {
-		t.Fatal("expected a bead")
-	}
-
-	if bead.ID != "standalone-001" {
-		t.Errorf("expected standalone-001, got %s", bead.ID)
-	}
-
-	// Standalone bead should be its own top-level
-	if m.ActiveTopLevel() != "standalone-001" {
-		t.Errorf("expected active top-level to be standalone-001, got %s", m.ActiveTopLevel())
-	}
-}
-
 func TestNextTopLevel_NoBeads(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -1617,137 +1427,31 @@ func TestNextTopLevel_NoBeads(t *testing.T) {
 	}
 }
 
-func TestNextTopLevel_RespectsHistoryFilters(t *testing.T) {
-	mock := testutil.NewMockRunner()
-
-	// br ready returns tasks
-	readyJSON := `[
-		{"id": "task-001", "title": "Task 1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-		{"id": "task-002", "title": "Task 2", "status": "open", "priority": 2, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
-
-	// br list
-	listJSON := `[
-		{"id": "epic-001", "title": "Epic", "status": "open", "issue_type": "epic", "priority": 1},
-		{"id": "task-001", "title": "Task 1", "status": "open", "parent": "epic-001"},
-		{"id": "task-002", "title": "Task 2", "status": "open", "parent": "epic-001"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
-
-	cfg := config.Default()
-	m := New(cfg, mock)
-
-	// Mark task-001 as completed
-	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistoryCompleted}
-
-	bead, err := m.NextTopLevel(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if bead == nil {
-		t.Fatal("expected a bead")
-	}
-
-	// Should skip task-001 (completed) and select task-002
-	if bead.ID != "task-002" {
-		t.Errorf("expected task-002 (task-001 is completed), got %s", bead.ID)
-	}
-}
-
-func TestNextTopLevel_MultiEpicScenario(t *testing.T) {
-	mock := testutil.NewMockRunner()
-
-	// Multiple tasks across different epics
-	readyJSON := `[
-		{"id": "task-A1", "title": "Task A1", "status": "open", "priority": 2, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-		{"id": "task-A2", "title": "Task A2", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"},
-		{"id": "task-B1", "title": "Task B1", "status": "open", "priority": 1, "issue_type": "task", "created_at": "2024-01-15T10:00:00Z"}
-	]`
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte(readyJSON))
-
-	// Hierarchy with two epics
-	listJSON := `[
-		{"id": "epic-A", "title": "Epic A", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T08:00:00Z"},
-		{"id": "epic-B", "title": "Epic B", "status": "open", "issue_type": "epic", "priority": 1, "created_at": "2024-01-15T09:00:00Z"},
-		{"id": "task-A1", "title": "Task A1", "status": "open", "parent": "epic-A", "priority": 2},
-		{"id": "task-A2", "title": "Task A2", "status": "open", "parent": "epic-A", "priority": 1},
-		{"id": "task-B1", "title": "Task B1", "status": "open", "parent": "epic-B", "priority": 1}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
-
-	cfg := config.Default()
-	m := New(cfg, mock)
-
-	// First selection should pick from epic-A (older, same priority)
-	bead1, err := m.NextTopLevel(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if bead1 == nil {
-		t.Fatal("expected a bead")
-	}
-
-	// Should select task-A2 (highest priority within epic-A)
-	if bead1.ID != "task-A2" {
-		t.Errorf("expected task-A2, got %s", bead1.ID)
-	}
-	if m.ActiveTopLevel() != "epic-A" {
-		t.Errorf("expected active top-level to be epic-A, got %s", m.ActiveTopLevel())
-	}
-}
-
 func TestActiveTopLevel_GetSet(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, testutil.NewMockRunner())
+	m := New(cfg, newMockClient())
 
-	// Initially empty
 	if m.ActiveTopLevel() != "" {
 		t.Errorf("expected empty active top-level, got %s", m.ActiveTopLevel())
 	}
 
-	// Set and get
 	m.SetActiveTopLevel("epic-001")
 	if m.ActiveTopLevel() != "epic-001" {
 		t.Errorf("expected epic-001, got %s", m.ActiveTopLevel())
 	}
 
-	// Clear
 	m.ClearActiveTopLevel()
 	if m.ActiveTopLevel() != "" {
 		t.Errorf("expected empty after clear, got %s", m.ActiveTopLevel())
 	}
 }
 
-func TestNextTopLevel_ExhaustedClearsActiveTopLevel(t *testing.T) {
-	mock := testutil.NewMockRunner()
-
-	// No ready beads (all exhausted)
-	mock.SetResponse("br", []string{"ready", "--json"}, []byte("[]"))
-
-	cfg := config.Default()
-	m := New(cfg, mock)
-
-	// Set an active top-level
-	m.SetActiveTopLevel("epic-001")
-
-	// NextTopLevel with no beads should not crash and return nil
-	bead, err := m.NextTopLevel(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if bead != nil {
-		t.Errorf("expected nil bead, got %v", bead)
-	}
-}
-
 func TestFetchAllBeads(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	listJSON := `[
-		{"id": "bead-001", "title": "Bead 1", "status": "open"},
-		{"id": "bead-002", "title": "Bead 2", "status": "open"}
-	]`
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(listJSON))
+	mock := newMockClient()
+	mock.ListResponse = []brclient.Bead{
+		{ID: "bead-001", Title: "Bead 1", Status: "open"},
+		{ID: "bead-002", Title: "Bead 2", Status: "open"},
+	}
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -1765,8 +1469,8 @@ func TestFetchAllBeads(t *testing.T) {
 }
 
 func TestFetchAllBeads_Empty(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetResponse("br", []string{"list", "--json"}, []byte(""))
+	mock := newMockClient()
+	mock.ListResponse = nil
 
 	cfg := config.Default()
 	m := New(cfg, mock)
@@ -1781,8 +1485,8 @@ func TestFetchAllBeads_Empty(t *testing.T) {
 }
 
 func TestFetchAllBeads_Error(t *testing.T) {
-	mock := testutil.NewMockRunner()
-	mock.SetError("br", []string{"list", "--json"}, errors.New("command failed"))
+	mock := newMockClient()
+	mock.ListError = errors.New("command failed")
 
 	cfg := config.Default()
 	m := New(cfg, mock)

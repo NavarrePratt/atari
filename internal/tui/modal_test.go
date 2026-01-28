@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/npratt/atari/internal/testutil"
+	"github.com/npratt/atari/internal/brclient"
 )
 
 func TestNewDetailModal(t *testing.T) {
@@ -393,19 +393,19 @@ func TestDetailModal_ViewWithFullBead(t *testing.T) {
 	}
 }
 
-// Test FetchBead using testutil.MockRunner
+// Test FetchBead using brclient.MockClient
 func TestBDFetcher_FetchBead_Success(t *testing.T) {
-	runner := testutil.NewMockRunner()
-	runner.SetResponse("br", []string{"show", "bd-test-123", "--json"}, []byte(`[{
-		"id": "bd-test-123",
-		"title": "Test bead",
-		"description": "Test description",
-		"status": "open",
-		"priority": 2,
-		"issue_type": "task"
-	}]`))
+	client := brclient.NewMockClient()
+	client.SetShowResponse("bd-test-123", &brclient.Bead{
+		ID:          "bd-test-123",
+		Title:       "Test bead",
+		Description: "Test description",
+		Status:      "open",
+		Priority:    2,
+		IssueType:   "task",
+	})
 
-	fetcher := NewBDFetcher(runner)
+	fetcher := NewBDFetcher(client)
 
 	bead, err := fetcher.FetchBead(t.Context(), "bd-test-123")
 	if err != nil {
@@ -423,10 +423,10 @@ func TestBDFetcher_FetchBead_Success(t *testing.T) {
 }
 
 func TestBDFetcher_FetchBead_Error(t *testing.T) {
-	runner := testutil.NewMockRunner()
-	runner.SetError("br", []string{"show", "bd-test-123", "--json"}, errors.New("command failed"))
+	client := brclient.NewMockClient()
+	client.SetShowError("bd-test-123", errors.New("command failed"))
 
-	fetcher := NewBDFetcher(runner)
+	fetcher := NewBDFetcher(client)
 
 	_, err := fetcher.FetchBead(t.Context(), "bd-test-123")
 	if err == nil {
@@ -438,10 +438,10 @@ func TestBDFetcher_FetchBead_Error(t *testing.T) {
 }
 
 func TestBDFetcher_FetchBead_NotFound(t *testing.T) {
-	runner := testutil.NewMockRunner()
-	runner.SetResponse("br", []string{"show", "bd-nonexistent", "--json"}, []byte(`[]`))
+	client := brclient.NewMockClient()
+	// Don't set any response - MockClient returns nil for unknown IDs
 
-	fetcher := NewBDFetcher(runner)
+	fetcher := NewBDFetcher(client)
 
 	_, err := fetcher.FetchBead(t.Context(), "bd-nonexistent")
 	if err == nil {

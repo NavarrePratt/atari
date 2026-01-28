@@ -4,19 +4,18 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/npratt/atari/internal/bdactivity"
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/config"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/observer"
 	"github.com/npratt/atari/internal/runner"
 	"github.com/npratt/atari/internal/session"
-	"github.com/npratt/atari/internal/testutil"
 	"github.com/npratt/atari/internal/viewmodel"
 	"github.com/npratt/atari/internal/workqueue"
 )
@@ -47,7 +46,7 @@ type Controller struct {
 	config    *config.Config
 	workQueue *workqueue.Manager
 	router    *events.Router
-	runner    testutil.CommandRunner
+	brClient  brclient.Client
 	logger    *slog.Logger
 
 	// BD activity watcher (optional, started when config.BDActivity.Enabled)
@@ -79,7 +78,8 @@ type Controller struct {
 	resumeSignal        chan struct{}
 	stopSignal          chan struct{}
 
-	// Statistics
+	// Statistics (protected by statsMu)
+	statsMu      sync.Mutex
 	iteration    int
 	totalCostUSD float64
 	startTime    time.Time
@@ -112,7 +112,7 @@ func WithStateSink(sink *events.StateSink) ControllerOption {
 
 // New creates a Controller with the given dependencies.
 // The processRunner parameter is optional - pass nil to disable BD activity watching.
-func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, cmdRunner testutil.CommandRunner, processRunner runner.ProcessRunner, logger *slog.Logger, opts ...ControllerOption) *Controller {
+func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, brClient brclient.Client, processRunner runner.ProcessRunner, logger *slog.Logger, opts ...ControllerOption) *Controller {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -120,7 +120,7 @@ func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, cmdRu
 		config:              cfg,
 		workQueue:           wq,
 		router:              router,
-		runner:              cmdRunner,
+		brClient:            brClient,
 		processRunner:       processRunner,
 		logger:              logger,
 		state:               StateIdle,
@@ -151,7 +151,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.cancelMu.Unlock()
 
 	// Record start time for uptime tracking
-	c.startTime = time.Now()
+	c.setStartTime(time.Now())
 
 	// Validate epic if configured (fail fast with clear error)
 	if err := c.validateEpic(c.ctx); err != nil {
@@ -300,26 +300,19 @@ func (c *Controller) syncActiveTopLevel() {
 
 // getActiveTopLevelTitle fetches the title for an active top-level item.
 func (c *Controller) getActiveTopLevelTitle(id string) string {
-	if id == "" || c.runner == nil {
+	if id == "" || c.brClient == nil {
 		return ""
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	output, err := c.runner.Run(ctx, "br", "show", id, "--json")
-	if err != nil {
+	bead, err := c.brClient.Show(ctx, id)
+	if err != nil || bead == nil {
 		return ""
 	}
 
-	var beads []struct {
-		Title string `json:"title"`
-	}
-	if err := json.Unmarshal(output, &beads); err != nil || len(beads) == 0 {
-		return ""
-	}
-
-	return beads[0].Title
+	return bead.Title
 }
 
 // restoreActiveTopLevel restores the active top-level from persisted state.
@@ -355,7 +348,7 @@ func (c *Controller) restoreActiveTopLevel() {
 
 // verifyTopLevelHasReadyWork checks if a top-level item still has ready descendants.
 func (c *Controller) verifyTopLevelHasReadyWork(topLevelID string) bool {
-	if c.runner == nil {
+	if c.brClient == nil {
 		return false
 	}
 
@@ -363,18 +356,8 @@ func (c *Controller) verifyTopLevelHasReadyWork(topLevelID string) bool {
 	defer cancel()
 
 	// Get all beads for hierarchy traversal
-	output, err := c.runner.Run(ctx, "br", "list", "--json")
-	if err != nil || len(output) == 0 {
-		return false
-	}
-
-	var allBeads []struct {
-		ID        string `json:"id"`
-		Parent    string `json:"parent"`
-		Status    string `json:"status"`
-		IssueType string `json:"issue_type"`
-	}
-	if err := json.Unmarshal(output, &allBeads); err != nil {
+	allBeads, err := c.brClient.List(ctx, nil)
+	if err != nil || len(allBeads) == 0 {
 		return false
 	}
 
@@ -394,16 +377,8 @@ func (c *Controller) verifyTopLevelHasReadyWork(topLevelID string) bool {
 	}
 
 	// Get ready beads
-	readyOutput, err := c.runner.Run(ctx, "br", "ready", "--json")
-	if err != nil || len(readyOutput) == 0 {
-		return false
-	}
-
-	var readyBeads []struct {
-		ID        string `json:"id"`
-		IssueType string `json:"issue_type"`
-	}
-	if err := json.Unmarshal(readyOutput, &readyBeads); err != nil {
+	readyBeads, err := c.brClient.Ready(ctx, nil)
+	if err != nil || len(readyBeads) == 0 {
 		return false
 	}
 
@@ -425,10 +400,10 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 	c.setState(StateWorking)
 	c.setCurrentBead(bead.ID, bead.Title)
 	defer c.clearCurrentBead()
-	c.iteration++
+	iteration := c.incrementIteration()
 
 	c.logger.Info("starting iteration",
-		"iteration", c.iteration,
+		"iteration", iteration,
 		"bead_id", bead.ID,
 		"title", bead.Title,
 	)
@@ -461,162 +436,15 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 
 	duration := time.Since(startTime)
 
-	// Record outcome
+	// Handle session outcome using extracted helpers
 	if err != nil {
-		c.logger.Error("session failed",
-			"bead_id", bead.ID,
-			"error", err,
-			"duration", duration,
-		)
-		c.workQueue.RecordFailure(bead.ID, err)
-
-		// Check if bead was abandoned
-		history := c.workQueue.History()
-		if h, ok := history[bead.ID]; ok && h.Status == workqueue.HistoryAbandoned {
-			c.emit(&events.BeadAbandonedEvent{
-				BaseEvent:   events.NewInternalEvent(events.EventBeadAbandoned),
-				BeadID:      bead.ID,
-				Attempts:    h.Attempts,
-				MaxFailures: c.config.Backoff.MaxFailures,
-				LastError:   err.Error(),
-			})
-		}
-
-		c.emit(&events.IterationEndEvent{
-			BaseEvent:  events.NewInternalEvent(events.EventIterationEnd),
-			BeadID:     bead.ID,
-			Success:    false,
-			DurationMs: duration.Milliseconds(),
-			Error:      err.Error(),
-		})
+		c.handleSessionError(bead, err, duration)
 	} else if result.GracefulPause {
-		// Graceful pause: session was paused mid-work, don't update history
-		c.logger.Info("session paused gracefully",
-			"bead_id", bead.ID,
-			"duration", duration,
-		)
-
-		// Accumulate total cost
-		c.totalCostUSD += result.TotalCostUSD
-
-		c.emit(&events.IterationEndEvent{
-			BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
-			BeadID:       bead.ID,
-			Success:      false,
-			NumTurns:     result.NumTurns,
-			DurationMs:   duration.Milliseconds(),
-			TotalCostUSD: result.TotalCostUSD,
-			Error:        "session paused gracefully",
-			SessionID:    result.SessionID,
-		})
+		c.handleGracefulPause(bead, result, duration)
+	} else if c.isBeadClosed(bead.ID) {
+		c.handleBeadClosed(bead, result, duration)
 	} else {
-		// Session completed normally - verify the bead was actually closed
-		beadClosed := c.isBeadClosed(bead.ID)
-
-		if beadClosed {
-			c.logger.Info("session completed and bead closed",
-				"bead_id", bead.ID,
-				"duration", duration,
-			)
-			c.workQueue.RecordSuccess(bead.ID)
-
-			// Auto-close any eligible epics asynchronously
-			go c.closeEligibleEpics(bead.ID)
-
-			// Accumulate total cost
-			c.totalCostUSD += result.TotalCostUSD
-
-			c.emit(&events.IterationEndEvent{
-				BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
-				BeadID:       bead.ID,
-				Success:      true,
-				NumTurns:     result.NumTurns,
-				DurationMs:   duration.Milliseconds(),
-				TotalCostUSD: result.TotalCostUSD,
-				SessionID:    result.SessionID,
-			})
-		} else {
-			// Session completed but bead was not closed - try follow-up session
-			c.logger.Warn("session completed but bead not closed, attempting follow-up",
-				"bead_id", bead.ID,
-				"duration", duration,
-			)
-
-			// Accumulate main session cost first
-			totalCost := result.TotalCostUSD
-
-			// Run follow-up session to verify and close
-			followUpClosed, followUpResult, followUpErr := c.runFollowUpSession(bead)
-
-			if followUpResult != nil {
-				totalCost += followUpResult.TotalCostUSD
-			}
-			c.totalCostUSD += totalCost
-
-			if followUpClosed {
-				// Follow-up successfully closed the bead
-				c.logger.Info("follow-up session closed bead",
-					"bead_id", bead.ID,
-					"total_duration", duration,
-				)
-				c.workQueue.RecordSuccess(bead.ID)
-
-				// Auto-close any eligible epics asynchronously
-				go c.closeEligibleEpics(bead.ID)
-
-				c.emit(&events.IterationEndEvent{
-					BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
-					BeadID:       bead.ID,
-					Success:      true,
-					NumTurns:     result.NumTurns + followUpResult.NumTurns,
-					DurationMs:   duration.Milliseconds(),
-					TotalCostUSD: totalCost,
-				})
-			} else if followUpErr == nil && c.getBeadStatus(bead.ID) == "open" {
-				// Follow-up reset to open (acceptable outcome - not stuck)
-				c.logger.Info("follow-up reset bead to open for retry",
-					"bead_id", bead.ID,
-				)
-				incompleteErr := fmt.Errorf("bead reset to open for retry")
-				c.workQueue.RecordFailure(bead.ID, incompleteErr)
-
-				c.emit(&events.IterationEndEvent{
-					BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
-					BeadID:       bead.ID,
-					Success:      false,
-					NumTurns:     result.NumTurns + followUpResult.NumTurns,
-					DurationMs:   duration.Milliseconds(),
-					TotalCostUSD: totalCost,
-					Error:        incompleteErr.Error(),
-				})
-			} else {
-				// Follow-up failed or bead still stuck - reset to open as last resort
-				resetNotes := "Atari: main session and follow-up both failed to close bead. Resetting to open for manual review or retry."
-				if followUpErr != nil {
-					resetNotes = fmt.Sprintf("Atari: follow-up session error: %v. Resetting to open.", followUpErr)
-				}
-
-				if resetErr := c.resetBeadToOpen(bead.ID, resetNotes); resetErr != nil {
-					c.logger.Error("failed to reset bead to open",
-						"bead_id", bead.ID,
-						"error", resetErr,
-					)
-				}
-
-				incompleteErr := fmt.Errorf("session and follow-up both failed to close bead")
-				c.workQueue.RecordFailure(bead.ID, incompleteErr)
-
-				c.emit(&events.IterationEndEvent{
-					BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
-					BeadID:       bead.ID,
-					Success:      false,
-					NumTurns:     result.NumTurns,
-					DurationMs:   duration.Milliseconds(),
-					TotalCostUSD: totalCost,
-					Error:        incompleteErr.Error(),
-				})
-			}
-		}
+		c.handleFollowUp(bead, result, duration)
 	}
 
 	// Check for eager switching to higher priority work (after successful completion)
@@ -639,6 +467,172 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 	default:
 		c.setState(StateIdle)
 	}
+}
+
+// handleSessionError records failure outcome when a session encounters an error.
+func (c *Controller) handleSessionError(bead *workqueue.Bead, err error, duration time.Duration) {
+	c.logger.Error("session failed",
+		"bead_id", bead.ID,
+		"error", err,
+		"duration", duration,
+	)
+	c.workQueue.RecordFailure(bead.ID, err)
+
+	// Check if bead was abandoned
+	history := c.workQueue.History()
+	if h, ok := history[bead.ID]; ok && h.Status == workqueue.HistoryAbandoned {
+		c.emit(&events.BeadAbandonedEvent{
+			BaseEvent:   events.NewInternalEvent(events.EventBeadAbandoned),
+			BeadID:      bead.ID,
+			Attempts:    h.Attempts,
+			MaxFailures: c.config.Backoff.MaxFailures,
+			LastError:   err.Error(),
+		})
+	}
+
+	c.emit(&events.IterationEndEvent{
+		BaseEvent:  events.NewInternalEvent(events.EventIterationEnd),
+		BeadID:     bead.ID,
+		Success:    false,
+		DurationMs: duration.Milliseconds(),
+		Error:      err.Error(),
+	})
+}
+
+// handleGracefulPause records outcome when a session was paused mid-work.
+func (c *Controller) handleGracefulPause(bead *workqueue.Bead, result *SessionResult, duration time.Duration) {
+	c.logger.Info("session paused gracefully",
+		"bead_id", bead.ID,
+		"duration", duration,
+	)
+
+	c.accumulateCost(result.TotalCostUSD)
+
+	c.emit(&events.IterationEndEvent{
+		BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+		BeadID:       bead.ID,
+		Success:      false,
+		NumTurns:     result.NumTurns,
+		DurationMs:   duration.Milliseconds(),
+		TotalCostUSD: result.TotalCostUSD,
+		Error:        "session paused gracefully",
+		SessionID:    result.SessionID,
+	})
+}
+
+// handleBeadClosed records success when the main session closed the bead.
+func (c *Controller) handleBeadClosed(bead *workqueue.Bead, result *SessionResult, duration time.Duration) {
+	c.logger.Info("session completed and bead closed",
+		"bead_id", bead.ID,
+		"duration", duration,
+	)
+	c.workQueue.RecordSuccess(bead.ID)
+
+	go c.closeEligibleEpics(bead.ID)
+
+	c.accumulateCost(result.TotalCostUSD)
+
+	c.emit(&events.IterationEndEvent{
+		BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+		BeadID:       bead.ID,
+		Success:      true,
+		NumTurns:     result.NumTurns,
+		DurationMs:   duration.Milliseconds(),
+		TotalCostUSD: result.TotalCostUSD,
+		SessionID:    result.SessionID,
+	})
+}
+
+// handleFollowUp manages the follow-up session when the main session didn't close the bead.
+func (c *Controller) handleFollowUp(bead *workqueue.Bead, mainResult *SessionResult, duration time.Duration) {
+	c.logger.Warn("session completed but bead not closed, attempting follow-up",
+		"bead_id", bead.ID,
+		"duration", duration,
+	)
+
+	totalCost := mainResult.TotalCostUSD
+
+	followUpClosed, followUpResult, followUpErr := c.runFollowUpSession(bead)
+
+	if followUpResult != nil {
+		totalCost += followUpResult.TotalCostUSD
+	}
+	c.accumulateCost(totalCost)
+
+	if followUpClosed {
+		c.handleFollowUpSuccess(bead, mainResult, followUpResult, totalCost, duration)
+	} else if followUpErr == nil && c.getBeadStatus(bead.ID) == "open" {
+		c.handleFollowUpResetToOpen(bead, mainResult, followUpResult, totalCost, duration)
+	} else {
+		c.handleFollowUpFailure(bead, mainResult, followUpErr, totalCost, duration)
+	}
+}
+
+// handleFollowUpSuccess records success when the follow-up session closed the bead.
+func (c *Controller) handleFollowUpSuccess(bead *workqueue.Bead, mainResult, followUpResult *SessionResult, totalCost float64, duration time.Duration) {
+	c.logger.Info("follow-up session closed bead",
+		"bead_id", bead.ID,
+		"total_duration", duration,
+	)
+	c.workQueue.RecordSuccess(bead.ID)
+
+	go c.closeEligibleEpics(bead.ID)
+
+	c.emit(&events.IterationEndEvent{
+		BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+		BeadID:       bead.ID,
+		Success:      true,
+		NumTurns:     mainResult.NumTurns + followUpResult.NumTurns,
+		DurationMs:   duration.Milliseconds(),
+		TotalCostUSD: totalCost,
+	})
+}
+
+// handleFollowUpResetToOpen records outcome when follow-up reset the bead to open.
+func (c *Controller) handleFollowUpResetToOpen(bead *workqueue.Bead, mainResult, followUpResult *SessionResult, totalCost float64, duration time.Duration) {
+	c.logger.Info("follow-up reset bead to open for retry",
+		"bead_id", bead.ID,
+	)
+	incompleteErr := fmt.Errorf("bead reset to open for retry")
+	c.workQueue.RecordFailure(bead.ID, incompleteErr)
+
+	c.emit(&events.IterationEndEvent{
+		BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+		BeadID:       bead.ID,
+		Success:      false,
+		NumTurns:     mainResult.NumTurns + followUpResult.NumTurns,
+		DurationMs:   duration.Milliseconds(),
+		TotalCostUSD: totalCost,
+		Error:        incompleteErr.Error(),
+	})
+}
+
+// handleFollowUpFailure handles the case when both main and follow-up sessions failed to close the bead.
+func (c *Controller) handleFollowUpFailure(bead *workqueue.Bead, mainResult *SessionResult, followUpErr error, totalCost float64, duration time.Duration) {
+	resetNotes := "Atari: main session and follow-up both failed to close bead. Resetting to open for manual review or retry."
+	if followUpErr != nil {
+		resetNotes = fmt.Sprintf("Atari: follow-up session error: %v. Resetting to open.", followUpErr)
+	}
+
+	if resetErr := c.resetBeadToOpen(bead.ID, resetNotes); resetErr != nil {
+		c.logger.Error("failed to reset bead to open",
+			"bead_id", bead.ID,
+			"error", resetErr,
+		)
+	}
+
+	incompleteErr := fmt.Errorf("session and follow-up both failed to close bead")
+	c.workQueue.RecordFailure(bead.ID, incompleteErr)
+
+	c.emit(&events.IterationEndEvent{
+		BaseEvent:    events.NewInternalEvent(events.EventIterationEnd),
+		BeadID:       bead.ID,
+		Success:      false,
+		NumTurns:     mainResult.NumTurns,
+		DurationMs:   duration.Milliseconds(),
+		TotalCostUSD: totalCost,
+		Error:        incompleteErr.Error(),
+	})
 }
 
 // checkEagerSwitch checks if a higher priority top-level item is available.
@@ -676,7 +670,7 @@ func (c *Controller) checkEagerSwitch() {
 // priority (lower number) than the current one that has ready work.
 // Returns the ID of the higher priority item, or empty string if none.
 func (c *Controller) findHigherPriorityTopLevel(currentID string) string {
-	if c.runner == nil {
+	if c.brClient == nil {
 		return ""
 	}
 
@@ -684,46 +678,21 @@ func (c *Controller) findHigherPriorityTopLevel(currentID string) string {
 	defer cancel()
 
 	// Get current item's priority
-	output, err := c.runner.Run(ctx, "br", "show", currentID, "--json")
-	if err != nil || len(output) == 0 {
+	currentBead, err := c.brClient.Show(ctx, currentID)
+	if err != nil || currentBead == nil {
 		return ""
 	}
-
-	var currentItems []struct {
-		Priority int `json:"priority"`
-	}
-	if err := json.Unmarshal(output, &currentItems); err != nil || len(currentItems) == 0 {
-		return ""
-	}
-	currentPriority := currentItems[0].Priority
+	currentPriority := currentBead.Priority
 
 	// Get all beads for hierarchy analysis
-	allOutput, err := c.runner.Run(ctx, "br", "list", "--json")
-	if err != nil || len(allOutput) == 0 {
-		return ""
-	}
-
-	var allBeads []struct {
-		ID        string `json:"id"`
-		Parent    string `json:"parent"`
-		Priority  int    `json:"priority"`
-		IssueType string `json:"issue_type"`
-	}
-	if err := json.Unmarshal(allOutput, &allBeads); err != nil {
+	allBeads, err := c.brClient.List(ctx, nil)
+	if err != nil || len(allBeads) == 0 {
 		return ""
 	}
 
 	// Get ready beads
-	readyOutput, err := c.runner.Run(ctx, "br", "ready", "--json")
-	if err != nil || len(readyOutput) == 0 {
-		return ""
-	}
-
-	var readyBeads []struct {
-		ID        string `json:"id"`
-		IssueType string `json:"issue_type"`
-	}
-	if err := json.Unmarshal(readyOutput, &readyBeads); err != nil {
+	readyBeads, err := c.brClient.Ready(ctx, nil)
+	if err != nil || len(readyBeads) == 0 {
 		return ""
 	}
 
@@ -1047,8 +1016,10 @@ func (c *Controller) Stats() Stats {
 	turns := c.currentTurnCount
 	c.currentTurnMu.RUnlock()
 
+	statsSnap := c.getStatsSnapshot()
+
 	return Stats{
-		Iteration:    c.iteration,
+		Iteration:    statsSnap.Iteration,
 		QueueStats:   c.workQueue.Stats(),
 		CurrentBead:  c.CurrentBead(),
 		CurrentTurns: turns,
@@ -1057,6 +1028,8 @@ func (c *Controller) Stats() Stats {
 
 // Iteration returns the current iteration count.
 func (c *Controller) Iteration() int {
+	c.statsMu.Lock()
+	defer c.statsMu.Unlock()
 	return c.iteration
 }
 
@@ -1081,6 +1054,48 @@ func (c *Controller) CurrentTurns() int {
 	c.currentTurnMu.RLock()
 	defer c.currentTurnMu.RUnlock()
 	return c.currentTurnCount
+}
+
+// incrementIteration increments and returns the new iteration count (thread-safe).
+func (c *Controller) incrementIteration() int {
+	c.statsMu.Lock()
+	defer c.statsMu.Unlock()
+	c.iteration++
+	return c.iteration
+}
+
+// accumulateCost adds the given cost to totalCostUSD (thread-safe).
+func (c *Controller) accumulateCost(cost float64) {
+	c.statsMu.Lock()
+	defer c.statsMu.Unlock()
+	c.totalCostUSD += cost
+}
+
+// setStartTime sets the start time for uptime tracking (thread-safe).
+func (c *Controller) setStartTime(t time.Time) {
+	c.statsMu.Lock()
+	defer c.statsMu.Unlock()
+	c.startTime = t
+}
+
+// StatsSnapshot returns an atomic snapshot of statistics (thread-safe).
+type StatsSnapshot struct {
+	Iteration    int
+	TotalCostUSD float64
+	StartTime    time.Time
+	Uptime       time.Duration
+}
+
+// getStatsSnapshot returns an atomic snapshot of all stats fields.
+func (c *Controller) getStatsSnapshot() StatsSnapshot {
+	c.statsMu.Lock()
+	defer c.statsMu.Unlock()
+	return StatsSnapshot{
+		Iteration:    c.iteration,
+		TotalCostUSD: c.totalCostUSD,
+		StartTime:    c.startTime,
+		Uptime:       time.Since(c.startTime),
+	}
 }
 
 // GetStats returns an atomic snapshot of all TUI statistics.
@@ -1179,10 +1194,12 @@ func (c *Controller) GetDrainState() observer.DrainState {
 	turns := c.currentTurnCount
 	c.currentTurnMu.RUnlock()
 
+	statsSnap := c.getStatsSnapshot()
+
 	state := observer.DrainState{
 		Status:       string(c.getState()),
-		Uptime:       time.Since(c.startTime),
-		TotalCost:    c.totalCostUSD,
+		Uptime:       statsSnap.Uptime,
+		TotalCost:    statsSnap.TotalCostUSD,
 		CurrentTurns: turns,
 	}
 
@@ -1226,14 +1243,14 @@ func (c *Controller) reportAgentState(state State) {
 // isBeadClosed checks if a bead has been closed in bd.
 // Returns true if the bead status is "closed" or "completed", false otherwise.
 func (c *Controller) isBeadClosed(beadID string) bool {
-	if c.runner == nil {
+	if c.brClient == nil {
 		return false
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	output, err := c.runner.Run(ctx, "br", "show", beadID, "--json")
+	bead, err := c.brClient.Show(ctx, beadID)
 	if err != nil {
 		c.logger.Warn("failed to check bead status",
 			"bead_id", beadID,
@@ -1241,24 +1258,11 @@ func (c *Controller) isBeadClosed(beadID string) bool {
 		return false
 	}
 
-	// Parse the JSON output to get status
-	// br show --json returns an array with one element
-	var beads []struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(output, &beads); err != nil {
-		c.logger.Warn("failed to parse bead status",
-			"bead_id", beadID,
-			"error", err)
+	if bead == nil {
 		return false
 	}
 
-	if len(beads) == 0 {
-		return false
-	}
-
-	status := beads[0].Status
-	return status == "closed" || status == "completed"
+	return bead.Status == "closed" || bead.Status == "completed"
 }
 
 // emit sends an event to the router if available.
@@ -1366,14 +1370,14 @@ func (c *Controller) runFollowUpSession(bead *workqueue.Bead) (bool, *SessionRes
 
 // resetBeadToOpen resets a stuck bead from in_progress to open status.
 func (c *Controller) resetBeadToOpen(beadID, notes string) error {
-	if c.runner == nil {
-		return fmt.Errorf("no command runner available")
+	if c.brClient == nil {
+		return fmt.Errorf("no br client available")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := c.runner.Run(ctx, "br", "update", beadID, "--status", "open", "--notes", notes)
+	err := c.brClient.UpdateStatus(ctx, beadID, "open", notes)
 	if err != nil {
 		return fmt.Errorf("reset bead status: %w", err)
 	}
@@ -1384,26 +1388,19 @@ func (c *Controller) resetBeadToOpen(beadID, notes string) error {
 
 // getBeadStatus returns the current status of a bead.
 func (c *Controller) getBeadStatus(beadID string) string {
-	if c.runner == nil {
+	if c.brClient == nil {
 		return ""
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	output, err := c.runner.Run(ctx, "br", "show", beadID, "--json")
-	if err != nil {
+	bead, err := c.brClient.Show(ctx, beadID)
+	if err != nil || bead == nil {
 		return ""
 	}
 
-	var beads []struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(output, &beads); err != nil || len(beads) == 0 {
-		return ""
-	}
-
-	return beads[0].Status
+	return bead.Status
 }
 
 // getStoredSessionID retrieves the stored session ID for a bead from history.
@@ -1417,8 +1414,10 @@ func (c *Controller) getStoredSessionID(beadID string) string {
 }
 
 // ValidatedEpic returns the validated epic info, if any epic was configured and validated.
-// Returns empty strings if no epic was configured.
+// Returns empty strings if no epic was configured. Thread-safe.
 func (c *Controller) ValidatedEpic() (id, title string) {
+	c.statsMu.Lock()
+	defer c.statsMu.Unlock()
 	return c.epicID, c.epicTitle
 }
 
@@ -1431,47 +1430,35 @@ func (c *Controller) validateEpic(ctx context.Context) error {
 		return nil
 	}
 
-	if c.runner == nil {
-		return fmt.Errorf("cannot validate epic: no command runner available")
+	if c.brClient == nil {
+		return fmt.Errorf("cannot validate epic: no br client available")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	output, err := c.runner.Run(ctx, "br", "show", epicID, "--json")
+	bead, err := c.brClient.Show(ctx, epicID)
 	if err != nil {
 		return fmt.Errorf("epic not found: %s", epicID)
 	}
 
-	if len(output) == 0 {
+	if bead == nil {
 		return fmt.Errorf("epic not found: %s", epicID)
 	}
 
-	var beads []struct {
-		ID        string `json:"id"`
-		Title     string `json:"title"`
-		IssueType string `json:"issue_type"`
-	}
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return fmt.Errorf("epic not found: %s", epicID)
-	}
-
-	if len(beads) == 0 {
-		return fmt.Errorf("epic not found: %s", epicID)
-	}
-
-	bead := beads[0]
 	if bead.IssueType != "epic" {
 		return fmt.Errorf("%s is not an epic (type: %s)", epicID, bead.IssueType)
 	}
 
-	// Store validated epic info
+	// Store validated epic info (protected by statsMu)
+	c.statsMu.Lock()
 	c.epicID = bead.ID
 	c.epicTitle = bead.Title
+	c.statsMu.Unlock()
 
 	c.logger.Info("validated epic",
-		"epic_id", c.epicID,
-		"epic_title", c.epicTitle)
+		"epic_id", bead.ID,
+		"epic_title", bead.Title)
 
 	return nil
 }
@@ -1480,15 +1467,14 @@ func (c *Controller) validateEpic(ctx context.Context) error {
 // This is called asynchronously after a successful bead completion or when idle.
 // Errors are logged but not propagated - this is a best-effort operation.
 func (c *Controller) closeEligibleEpics(triggeringBeadID string) {
-	if c.runner == nil {
+	if c.brClient == nil {
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Use br epic close-eligible which handles all the logic correctly
-	output, err := c.runner.Run(ctx, "br", "epic", "close-eligible", "--json")
+	closedEpics, err := c.brClient.CloseEligibleEpics(ctx)
 	if err != nil {
 		c.logger.Warn("failed to close eligible epics",
 			"triggering_bead_id", triggeringBeadID,
@@ -1496,22 +1482,8 @@ func (c *Controller) closeEligibleEpics(triggeringBeadID string) {
 		return
 	}
 
-	if len(output) == 0 {
+	if len(closedEpics) == 0 {
 		c.logger.Debug("no epics closed", "triggering_bead_id", triggeringBeadID)
-		return
-	}
-
-	// Parse the closed epics from the output
-	var closedEpics []struct {
-		ID             string `json:"id"`
-		Title          string `json:"title"`
-		DependentCount int    `json:"dependent_count"`
-	}
-
-	if err := json.Unmarshal(output, &closedEpics); err != nil {
-		c.logger.Warn("failed to parse close-eligible output",
-			"triggering_bead_id", triggeringBeadID,
-			"error", err)
 		return
 	}
 

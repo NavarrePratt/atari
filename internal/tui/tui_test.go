@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/npratt/atari/internal/brclient"
 	"github.com/npratt/atari/internal/events"
 	"github.com/npratt/atari/internal/observer"
-	"github.com/npratt/atari/internal/testutil"
 )
 
 // Note: mockStatsGetter is defined in update_test.go
@@ -65,8 +65,8 @@ func TestNew_WithStatsGetter(t *testing.T) {
 
 func TestNew_WithGraphFetcher(t *testing.T) {
 	eventChan := make(chan events.Event)
-	runner := testutil.NewMockRunner()
-	fetcher := NewBDFetcher(runner)
+	client := brclient.NewMockClient()
+	fetcher := NewBDFetcher(client)
 
 	tui := New(eventChan, WithGraphFetcher(fetcher))
 
@@ -157,8 +157,8 @@ func TestRenderStatus_WithoutEpic(t *testing.T) {
 // This is the test that would have caught the missing WithGraphFetcher bug.
 func TestNewModel_GraphPaneHasFetcher(t *testing.T) {
 	eventChan := make(chan events.Event)
-	runner := testutil.NewMockRunner()
-	fetcher := NewBDFetcher(runner)
+	client := brclient.NewMockClient()
+	fetcher := NewBDFetcher(client)
 
 	m := newModel(eventChan, nil, nil, nil, nil, nil, fetcher, nil, "", "")
 
@@ -186,8 +186,8 @@ func TestNewModel_GraphPaneNilFetcher(t *testing.T) {
 // TestNewModel_DetailModalHasFetcher verifies the detail modal receives the fetcher.
 func TestNewModel_DetailModalHasFetcher(t *testing.T) {
 	eventChan := make(chan events.Event)
-	runner := testutil.NewMockRunner()
-	fetcher := NewBDFetcher(runner)
+	client := brclient.NewMockClient()
+	fetcher := NewBDFetcher(client)
 
 	m := newModel(eventChan, nil, nil, nil, nil, nil, fetcher, nil, "", "")
 
@@ -274,8 +274,8 @@ func TestNewModel_ObserverPaneCreated(t *testing.T) {
 // This test documents the expected "production" configuration.
 func TestTUI_FullConfiguration(t *testing.T) {
 	eventChan := make(chan events.Event)
-	runner := testutil.NewMockRunner()
-	fetcher := NewBDFetcher(runner)
+	client := brclient.NewMockClient()
+	fetcher := NewBDFetcher(client)
 	stats := &mockStatsGetter{}
 	obs := observer.NewObserver(nil, nil, nil, nil)
 
@@ -314,8 +314,8 @@ func TestTUI_FullConfiguration(t *testing.T) {
 // when all dependencies are provided.
 func TestNewModel_FullConfiguration(t *testing.T) {
 	eventChan := make(chan events.Event)
-	runner := testutil.NewMockRunner()
-	fetcher := NewBDFetcher(runner)
+	client := brclient.NewMockClient()
+	fetcher := NewBDFetcher(client)
 	stats := &mockStatsGetter{}
 	obs := observer.NewObserver(nil, nil, nil, nil)
 
