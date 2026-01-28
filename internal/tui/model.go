@@ -108,6 +108,7 @@ type model struct {
 	inBackoff           int                        // number of beads currently in backoff period
 	topBlockedBead      *viewmodel.BlockedBeadInfo // bead with shortest remaining backoff
 	epicID              string                     // active epic filter, if any
+	workingDirectory    string                     // working directory for the TUI
 	activeTopLevelID    string                     // active top-level item ID (when selection_mode=top-level)
 	activeTopLevelTitle string                     // active top-level item title
 
@@ -165,6 +166,7 @@ func newModel(
 	graphFetcher BeadFetcher,
 	beadStateGetter BeadStateGetter,
 	epicID string,
+	workingDirectory string,
 ) model {
 	// Create default graph config for the graph pane
 	graphCfg := &config.GraphConfig{
@@ -182,20 +184,21 @@ func newModel(
 	}
 
 	return model{
-		eventChan:    eventChan,
-		status:       "idle",
-		autoScroll:   true,
-		onPause:      onPause,
-		onResume:     onResume,
-		onQuit:       onQuit,
-		statsGetter:  statsGetter,
-		eventsOpen:   true, // Events panel visible by default
-		observerPane: NewObserverPane(obs),
-		graphPane:    graphPane,
-		layout:       LayoutHorizontal,
-		focusMode:    FocusModeNone,
-		detailModal:  NewDetailModal(graphFetcher),
-		epicID:       epicID,
+		eventChan:        eventChan,
+		status:           "idle",
+		autoScroll:       true,
+		onPause:          onPause,
+		onResume:         onResume,
+		onQuit:           onQuit,
+		statsGetter:      statsGetter,
+		eventsOpen:       true, // Events panel visible by default
+		observerPane:     NewObserverPane(obs),
+		graphPane:        graphPane,
+		layout:           LayoutHorizontal,
+		focusMode:        FocusModeNone,
+		detailModal:      NewDetailModal(graphFetcher),
+		epicID:           epicID,
+		workingDirectory: workingDirectory,
 	}
 }
 

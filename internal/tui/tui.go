@@ -28,8 +28,9 @@ type TUI struct {
 	statsGetter     StatsGetter
 	observer        *observer.Observer
 	graphFetcher    BeadFetcher
-	beadStateGetter BeadStateGetter
-	epicID          string
+	beadStateGetter  BeadStateGetter
+	epicID           string
+	workingDirectory string
 }
 
 // Option configures the TUI.
@@ -104,6 +105,13 @@ func WithEpicID(epicID string) Option {
 	}
 }
 
+// WithWorkingDirectory sets the working directory for the TUI.
+func WithWorkingDirectory(workDir string) Option {
+	return func(t *TUI) {
+		t.workingDirectory = workDir
+	}
+}
+
 // Run starts the TUI and blocks until it exits.
 // If the environment is non-interactive (no TTY) or the terminal is too small,
 // it falls back to simple line-by-line output.
@@ -119,7 +127,7 @@ func (t *TUI) Run() error {
 	}
 
 	// Run the full bubbletea TUI
-	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher, t.beadStateGetter, t.epicID)
+	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher, t.beadStateGetter, t.epicID, t.workingDirectory)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
