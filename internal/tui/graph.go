@@ -431,26 +431,29 @@ func (g *Graph) getParent(nodeID string) string {
 }
 
 // nodeDimensions returns node width and height based on density.
+// Width varies by density (compact=16, others=26). Height is always 1
+// because nodes render as single lines regardless of density.
 func (g *Graph) nodeDimensions() (int, int) {
 	density := ParseDensity(g.config.Density)
 	switch density {
 	case DensityCompact:
 		return 16, 1
 	case DensityDetailed:
-		return 26, 3
+		return 26, 1
 	default: // DensityStandard
-		return 26, 2
+		return 26, 1
 	}
 }
 
-// nodeHeight returns node height based on density (for list mode).
+// nodeHeight returns node height for list mode. Always returns 1 because
+// nodes render as single lines. Density affects content richness, not layout height.
 func (g *Graph) nodeHeight() int {
 	_, h := g.nodeDimensions()
 	return h
 }
 
 // positionNodesForList computes positions for list mode layout.
-// Y = cumulative line count (density-aware node height)
+// Y = item index (one line per visible node)
 // X = depth * 2 (2-space indent per level), clamped to prevent overflow
 // Width = viewport.Width - X
 // Must be called with mu held.
@@ -1029,12 +1032,8 @@ func (g *Graph) renderListMode(width, height int) string {
 	}
 
 	// Apply viewport offset
-	// OffsetY is in lines, convert to item index based on node height
-	nodeH := g.nodeHeight()
-	startIdx := 0
-	if nodeH > 0 && g.viewport.OffsetY > 0 {
-		startIdx = g.viewport.OffsetY / nodeH
-	}
+	// OffsetY is item-based (one item per line since nodeHeight is always 1)
+	startIdx := g.viewport.OffsetY
 	if startIdx < 0 {
 		startIdx = 0
 	}
@@ -1042,11 +1041,8 @@ func (g *Graph) renderListMode(width, height int) string {
 		startIdx = 0
 	}
 
-	// height is in screen lines, convert to item count
+	// height equals items per screen (one line per item)
 	itemsPerScreen := height
-	if nodeH > 1 {
-		itemsPerScreen = height / nodeH
-	}
 	if itemsPerScreen < 1 {
 		itemsPerScreen = 1
 	}

@@ -100,9 +100,10 @@ type GraphEdge struct {
 }
 
 // Viewport represents the visible area of the graph.
+// OffsetY is item-based (one item per line) since nodes render as single lines.
 type Viewport struct {
-	OffsetX int // Horizontal scroll offset
-	OffsetY int // Vertical scroll offset
+	OffsetX int // Horizontal scroll offset (characters)
+	OffsetY int // Vertical scroll offset (items, not lines)
 	Width   int // Visible width in characters
 	Height  int // Visible height in rows
 }

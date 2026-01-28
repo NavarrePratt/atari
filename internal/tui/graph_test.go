@@ -717,8 +717,8 @@ func TestGraph_NodeDimensions(t *testing.T) {
 		wantH   int
 	}{
 		{"compact", 16, 1},
-		{"standard", 26, 2},
-		{"detailed", 26, 3},
+		{"standard", 26, 1},
+		{"detailed", 26, 1},
 	}
 
 	for _, tt := range tests {
