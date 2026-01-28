@@ -533,6 +533,10 @@ func (p *ObserverPane) SetSize(width, height int) {
 	p.height = height
 	p.input.SetWidth(safeWidth(width - 4))
 
+	// Save scroll state before resize
+	wasAtBottom := p.viewport.AtBottom()
+	oldYOffset := p.viewport.YOffset
+
 	// Update viewport size: total - input (3 lines) - status bar (1 line)
 	historyHeight := height - observerInputHeight - 1
 	if historyHeight < 1 {
@@ -541,8 +545,28 @@ func (p *ObserverPane) SetSize(width, height int) {
 	p.viewport.Width = safeWidth(width - 4)
 	p.viewport.Height = historyHeight
 
-	// Rebuild content with new width
+	// Rebuild content with new width (word wrapping may change line count)
 	p.updateViewportContent()
+
+	// Restore scroll position
+	if wasAtBottom {
+		p.viewport.GotoBottom()
+	} else {
+		// Clamp YOffset to valid range
+		totalLines := p.viewport.TotalLineCount()
+		maxOffset := totalLines - p.viewport.Height
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		clampedOffset := oldYOffset
+		if clampedOffset > maxOffset {
+			clampedOffset = maxOffset
+		}
+		if clampedOffset < 0 {
+			clampedOffset = 0
+		}
+		p.viewport.SetYOffset(clampedOffset)
+	}
 }
 
 // SetFocused updates the focus state.

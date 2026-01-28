@@ -618,3 +618,130 @@ func TestObserverPane_ViewRenderedHeightMinimum(t *testing.T) {
 		}
 	}
 }
+
+func TestObserverPane_SetSize_PreservesAtBottom(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+
+	// Add enough history to require scrolling
+	for i := 0; i < 30; i++ {
+		pane.history = append(pane.history, chatMessage{
+			role:    roleUser,
+			content: "Question " + string(rune('A'+i%26)),
+			time:    time.Now(),
+		})
+		pane.history = append(pane.history, chatMessage{
+			role:    roleAssistant,
+			content: "Answer " + string(rune('A'+i%26)) + " with some extra text to wrap",
+			time:    time.Now(),
+		})
+	}
+	pane.updateViewportContent()
+
+	// Scroll to bottom
+	pane.viewport.GotoBottom()
+	if !pane.viewport.AtBottom() {
+		t.Fatal("expected viewport to be at bottom after GotoBottom")
+	}
+
+	// Resize the pane
+	pane.SetSize(100, 30)
+
+	// Should still be at bottom
+	if !pane.viewport.AtBottom() {
+		t.Error("expected viewport to remain at bottom after resize")
+	}
+
+	// Resize again to a smaller size
+	pane.SetSize(60, 20)
+
+	// Should still be at bottom
+	if !pane.viewport.AtBottom() {
+		t.Error("expected viewport to remain at bottom after resize to smaller size")
+	}
+}
+
+func TestObserverPane_SetSize_ClampsMidScrollPosition(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+
+	// Add enough history to require scrolling
+	for i := 0; i < 30; i++ {
+		pane.history = append(pane.history, chatMessage{
+			role:    roleUser,
+			content: "Question " + string(rune('A'+i%26)),
+			time:    time.Now(),
+		})
+		pane.history = append(pane.history, chatMessage{
+			role:    roleAssistant,
+			content: "Answer " + string(rune('A'+i%26)) + " with some extra text",
+			time:    time.Now(),
+		})
+	}
+	pane.updateViewportContent()
+
+	// Scroll to middle (not at bottom)
+	pane.viewport.SetYOffset(50)
+	initialOffset := pane.viewport.YOffset
+	if pane.viewport.AtBottom() {
+		t.Fatal("expected viewport to not be at bottom for mid-scroll test")
+	}
+
+	// Resize to much smaller (may invalidate old offset)
+	pane.SetSize(40, 10)
+
+	// YOffset should be clamped to valid range
+	totalLines := pane.viewport.TotalLineCount()
+	viewportHeight := pane.viewport.Height
+	maxOffset := totalLines - viewportHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+
+	if pane.viewport.YOffset < 0 {
+		t.Errorf("YOffset should not be negative, got %d", pane.viewport.YOffset)
+	}
+	if pane.viewport.YOffset > maxOffset {
+		t.Errorf("YOffset %d exceeds max valid offset %d", pane.viewport.YOffset, maxOffset)
+	}
+
+	// Verify offset was actually changed if it was out of bounds
+	if initialOffset > maxOffset && pane.viewport.YOffset != maxOffset {
+		t.Errorf("expected YOffset to be clamped to %d, got %d", maxOffset, pane.viewport.YOffset)
+	}
+}
+
+func TestObserverPane_SetSize_EmptyHistory(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+
+	// No history - resize should not panic
+	pane.SetSize(100, 30)
+	pane.SetSize(40, 10)
+
+	// YOffset should remain valid (0)
+	if pane.viewport.YOffset != 0 {
+		t.Errorf("expected YOffset=0 with empty history, got %d", pane.viewport.YOffset)
+	}
+}
+
+func TestObserverPane_SetSize_VerySmallHeight(t *testing.T) {
+	pane := NewObserverPane(nil)
+	pane.SetSize(80, 24)
+
+	// Add some history
+	pane.history = []chatMessage{
+		{role: roleUser, content: "Question", time: time.Now()},
+		{role: roleAssistant, content: "Answer", time: time.Now()},
+	}
+	pane.updateViewportContent()
+	pane.viewport.GotoBottom()
+
+	// Resize to very small height - should not panic
+	pane.SetSize(80, 5)
+
+	// YOffset should be valid (non-negative)
+	if pane.viewport.YOffset < 0 {
+		t.Errorf("YOffset should not be negative, got %d", pane.viewport.YOffset)
+	}
+}
