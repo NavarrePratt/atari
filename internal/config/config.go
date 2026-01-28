@@ -14,7 +14,6 @@ type Config struct {
 	Observer    ObserverConfig    `yaml:"observer" mapstructure:"observer"`
 	Graph       GraphConfig       `yaml:"graph" mapstructure:"graph"`
 	FollowUp    FollowUpConfig    `yaml:"follow_up" mapstructure:"follow_up"`
-	WrapUp      WrapUpConfig      `yaml:"wrap_up" mapstructure:"wrap_up"`
 	Prompt     string `yaml:"prompt" mapstructure:"prompt"`
 	PromptFile string `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
 }
@@ -89,26 +88,6 @@ type FollowUpConfig struct {
 	Enabled  bool `yaml:"enabled" mapstructure:"enabled"`     // Enable follow-up sessions (default: true)
 	MaxTurns int  `yaml:"max_turns" mapstructure:"max_turns"` // Max turns for follow-up session (default: 5)
 }
-
-// WrapUpConfig holds settings for wrap-up prompts on graceful pause.
-type WrapUpConfig struct {
-	Enabled bool          `yaml:"enabled" mapstructure:"enabled"` // Enable wrap-up prompt on graceful pause (default: true)
-	Timeout time.Duration `yaml:"timeout" mapstructure:"timeout"` // Timeout for wrap-up response (default: 60s)
-}
-
-// DefaultWrapUpPrompt is the prompt sent before graceful pause to save progress notes.
-const DefaultWrapUpPrompt = `IMPORTANT: Atari is pausing this session. You must save your progress NOW.
-
-Run this command immediately to record your current progress:
-br update {{.BeadID}} --notes "WRAP-UP: <summarize what you completed and what remains to be done>"
-
-Include in your notes:
-- What tasks you completed
-- What you were working on when paused
-- Any blockers or issues discovered
-- Suggested next steps
-
-After running br update, your session will end.`
 
 // DefaultFollowUpPrompt is the prompt sent to follow-up sessions to verify and close beads.
 const DefaultFollowUpPrompt = `The previous session worked on bead {{.BeadID}} ("{{.BeadTitle}}") but did not close it.
@@ -218,10 +197,6 @@ func Default() *Config {
 		FollowUp: FollowUpConfig{
 			Enabled:  true,
 			MaxTurns: 5,
-		},
-		WrapUp: WrapUpConfig{
-			Enabled: true,
-			Timeout: 60 * time.Second,
 		},
 		Prompt: DefaultPrompt,
 	}

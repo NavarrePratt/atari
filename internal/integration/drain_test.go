@@ -644,9 +644,7 @@ func TestPauseResumeDuringDrain(t *testing.T) {
 }
 
 // createGracefulPauseMockClaude creates a mock that simulates a multi-turn session
-// that can be stopped gracefully. Stdin is closed immediately after prompt, so
-// wrap-up prompts cannot be injected. The graceful pause now works by stopping
-// the session at turn boundaries.
+// that can be stopped gracefully at turn boundaries.
 func createGracefulPauseMockClaude(path string) error {
 	// This script:
 	// 1. Reads stdin until EOF (matching real Claude behavior)
@@ -751,10 +749,6 @@ func TestGracefulPauseDuringSession(t *testing.T) {
 	if err := createGracefulPauseMockClaude(env.mockPath); err != nil {
 		t.Fatalf("failed to create graceful pause mock: %v", err)
 	}
-
-	// Enable wrap-up in config
-	env.cfg.WrapUp.Enabled = true
-	env.cfg.WrapUp.Timeout = 5 * time.Second
 
 	// Return a bead
 	beadJSON := singleBeadJSON("bd-graceful-001", "Graceful pause test")

@@ -98,11 +98,6 @@ follow_up:
   enabled: true                  # Enable follow-up sessions
   max_turns: 5                   # Max turns for follow-up session
 
-# Wrap-up prompts on graceful pause
-wrap_up:
-  enabled: true                  # Enable wrap-up prompt on pause
-  timeout: 60s                   # Timeout for wrap-up response
-
 # Logging
 logging:
   level: info                    # debug, info, warn, error
@@ -392,21 +387,6 @@ follow_up:
 |---------|------|---------|-------------|
 | `enabled` | bool | true | Enable follow-up sessions |
 | `max_turns` | int | 5 | Max turns for follow-up session |
-
-### Wrap-Up Settings
-
-When atari pauses gracefully (via `p` key or signal), it can prompt the current session to save progress notes before terminating.
-
-```yaml
-wrap_up:
-  enabled: true
-  timeout: 60s
-```
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `enabled` | bool | true | Enable wrap-up prompt on graceful pause |
-| `timeout` | duration | 60s | Timeout waiting for wrap-up response |
 
 ### Logging Settings
 

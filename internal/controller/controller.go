@@ -880,45 +880,9 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		c.currentTurnMu.Unlock()
 
 		// Check for graceful pause request
-		if sess.PauseRequested() && !sess.WrapUpSent() {
-			if c.config.WrapUp.Enabled {
-				// Send wrap-up prompt to give Claude a chance to save progress
-				c.logger.Info("sending wrap-up prompt at turn boundary", "bead_id", bead.ID)
-
-				// Expand wrap-up prompt template
-				vars := config.PromptVars{
-					BeadID:          bead.ID,
-					BeadTitle:       bead.Title,
-					BeadDescription: bead.Description,
-					Label:           c.config.WorkQueue.Label,
-				}
-				wrapUpPrompt := config.ExpandPrompt(config.DefaultWrapUpPrompt, vars)
-
-				if err := sess.SendWrapUp(wrapUpPrompt); err != nil {
-					c.logger.Error("failed to send wrap-up prompt", "error", err)
-					sess.Stop()
-					return
-				}
-
-				// Start timeout goroutine to force stop if wrap-up takes too long
-				go func() {
-					select {
-					case <-time.After(c.config.WrapUp.Timeout):
-						if sess.Running() {
-							c.logger.Warn("wrap-up timeout, forcing session stop",
-								"bead_id", bead.ID,
-								"timeout", c.config.WrapUp.Timeout)
-							sess.Stop()
-						}
-					case <-c.ctx.Done():
-						// Context cancelled, session will be cleaned up
-					}
-				}()
-			} else {
-				// Wrap-up disabled, stop immediately
-				c.logger.Info("stopping session at turn boundary", "bead_id", bead.ID)
-				sess.Stop()
-			}
+		if sess.PauseRequested() {
+			c.logger.Info("stopping session at turn boundary", "bead_id", bead.ID)
+			sess.Stop()
 		}
 	})
 

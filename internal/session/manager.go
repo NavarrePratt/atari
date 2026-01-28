@@ -78,7 +78,6 @@ type Manager struct {
 	stderr         *LimitedWriter
 	lastActive     atomic.Value // time.Time
 	pauseRequested atomic.Bool  // graceful pause requested
-	wrapUpSent     atomic.Bool  // wrap-up prompt has been sent
 	done           chan struct{}
 	mu             sync.Mutex
 	started        bool
@@ -270,21 +269,6 @@ func (m *Manager) RequestPause() {
 // PauseRequested returns true if a graceful pause has been requested.
 func (m *Manager) PauseRequested() bool {
 	return m.pauseRequested.Load()
-}
-
-// SendWrapUp is deprecated - stdin is closed immediately after the initial prompt.
-// Claude CLI in -p mode requires stdin EOF before processing, so wrap-up prompts
-// cannot be injected via stdin. This function now just marks the session as
-// wrapping up and returns nil. The graceful pause will stop the session without
-// a wrap-up prompt.
-func (m *Manager) SendWrapUp(prompt string) error {
-	m.wrapUpSent.Store(true)
-	return nil
-}
-
-// WrapUpSent returns true if a wrap-up prompt has been sent.
-func (m *Manager) WrapUpSent() bool {
-	return m.wrapUpSent.Load()
 }
 
 // CloseStdin is a no-op - stdin is now closed immediately in Start().
