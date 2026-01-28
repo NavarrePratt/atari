@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,6 +13,10 @@ import (
 
 // StateBufferSize is the recommended buffer size for state sink subscriptions.
 const StateBufferSize = 1000
+
+// CurrentStateVersion is the current state file format version.
+// Increment this when making incompatible changes to the State struct.
+const CurrentStateVersion = 1
 
 // State represents the persistent drain state.
 type State struct {
@@ -47,7 +52,7 @@ func NewStateSink(path string) *StateSink {
 	return &StateSink{
 		path: path,
 		state: &State{
-			Version: 1,
+			Version: CurrentStateVersion,
 			History: make(map[string]*BeadHistory),
 		},
 		done:            make(chan struct{}),
@@ -215,6 +220,7 @@ func (s *StateSink) Stop() error {
 }
 
 // Load reads the state file from disk.
+// If the version is missing or incompatible, the old state is backed up and a fresh state is used.
 func (s *StateSink) Load() error {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
@@ -226,7 +232,37 @@ func (s *StateSink) Load() error {
 
 	var state State
 	if err := json.Unmarshal(data, &state); err != nil {
-		return fmt.Errorf("unmarshal state: %w", err)
+		// Corrupted JSON: backup and start fresh
+		if backupErr := s.backupStateFile(); backupErr != nil {
+			slog.Warn("state file corrupted, failed to backup",
+				"path", s.path,
+				"error", err,
+				"backup_error", backupErr)
+		} else {
+			slog.Warn("state file corrupted, backed up and starting fresh",
+				"path", s.path,
+				"error", err)
+		}
+		s.resetState()
+		return nil
+	}
+
+	// Check version compatibility
+	if state.Version == 0 || state.Version != CurrentStateVersion {
+		if backupErr := s.backupStateFile(); backupErr != nil {
+			slog.Warn("incompatible state version, failed to backup",
+				"path", s.path,
+				"file_version", state.Version,
+				"current_version", CurrentStateVersion,
+				"backup_error", backupErr)
+		} else {
+			slog.Warn("incompatible state version, backed up and starting fresh",
+				"path", s.path,
+				"file_version", state.Version,
+				"current_version", CurrentStateVersion)
+		}
+		s.resetState()
+		return nil
 	}
 
 	// Initialize history map if nil
@@ -236,6 +272,22 @@ func (s *StateSink) Load() error {
 
 	s.state = &state
 	return nil
+}
+
+// backupStateFile moves the current state file to a .backup file.
+// Must be called with s.mu held.
+func (s *StateSink) backupStateFile() error {
+	backupPath := s.path + ".backup"
+	return os.Rename(s.path, backupPath)
+}
+
+// resetState initializes a fresh state.
+// Must be called with s.mu held.
+func (s *StateSink) resetState() {
+	s.state = &State{
+		Version: CurrentStateVersion,
+		History: make(map[string]*BeadHistory),
+	}
 }
 
 // State returns a copy of the current state.

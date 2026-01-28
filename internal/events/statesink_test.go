@@ -665,3 +665,180 @@ func TestStateSinkCostCountedOncePerBead(t *testing.T) {
 	cancel()
 	_ = sink.Stop()
 }
+
+func TestStateSinkVersionMismatch(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	// Write a state file with a different version
+	oldState := State{
+		Version:    999, // Future incompatible version
+		Status:     "running",
+		Iteration:  5,
+		TotalCost:  1.50,
+		TotalTurns: 100,
+		History: map[string]*BeadHistory{
+			"bd-old": {ID: "bd-old", Status: HistoryCompleted},
+		},
+	}
+	data, err := json.MarshalIndent(oldState, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal old state: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write old state: %v", err)
+	}
+
+	// Load with new sink
+	sink := NewStateSink(path)
+	err = sink.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// State should be fresh (version mismatch triggers reset)
+	state := sink.State()
+	if state.Version != CurrentStateVersion {
+		t.Errorf("Version = %d, want %d", state.Version, CurrentStateVersion)
+	}
+	if state.Iteration != 0 {
+		t.Errorf("Iteration = %d, want 0 (fresh state)", state.Iteration)
+	}
+	if state.TotalCost != 0 {
+		t.Errorf("TotalCost = %f, want 0 (fresh state)", state.TotalCost)
+	}
+	if len(state.History) != 0 {
+		t.Errorf("History has %d entries, want 0 (fresh state)", len(state.History))
+	}
+
+	// Backup file should exist
+	backupPath := path + ".backup"
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		t.Error("expected backup file to exist")
+	}
+}
+
+func TestStateSinkMissingVersion(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	// Write a state file with no version (version=0)
+	oldState := `{
+		"status": "running",
+		"iteration": 3,
+		"total_cost": 0.75,
+		"history": {}
+	}`
+	if err := os.WriteFile(path, []byte(oldState), 0644); err != nil {
+		t.Fatalf("failed to write old state: %v", err)
+	}
+
+	// Load with new sink
+	sink := NewStateSink(path)
+	err := sink.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// State should be fresh (missing version triggers reset)
+	state := sink.State()
+	if state.Version != CurrentStateVersion {
+		t.Errorf("Version = %d, want %d", state.Version, CurrentStateVersion)
+	}
+	if state.Iteration != 0 {
+		t.Errorf("Iteration = %d, want 0 (fresh state)", state.Iteration)
+	}
+
+	// Backup file should exist
+	backupPath := path + ".backup"
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		t.Error("expected backup file to exist")
+	}
+}
+
+func TestStateSinkCorruptedJSON(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	// Write corrupted JSON
+	if err := os.WriteFile(path, []byte(`{"version": 1, "status": "run`), 0644); err != nil {
+		t.Fatalf("failed to write corrupted state: %v", err)
+	}
+
+	// Load with new sink
+	sink := NewStateSink(path)
+	err := sink.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// State should be fresh (corrupted JSON triggers reset)
+	state := sink.State()
+	if state.Version != CurrentStateVersion {
+		t.Errorf("Version = %d, want %d", state.Version, CurrentStateVersion)
+	}
+	if state.Status != "" {
+		t.Errorf("Status = %q, want empty (fresh state)", state.Status)
+	}
+
+	// Backup file should exist
+	backupPath := path + ".backup"
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		t.Error("expected backup file to exist")
+	}
+}
+
+func TestStateSinkCompatibleVersion(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	// Write a state file with the current version
+	existingState := State{
+		Version:    CurrentStateVersion,
+		Status:     "paused",
+		Iteration:  10,
+		TotalCost:  2.50,
+		TotalTurns: 200,
+		History: map[string]*BeadHistory{
+			"bd-existing": {ID: "bd-existing", Status: HistoryCompleted},
+		},
+	}
+	data, err := json.MarshalIndent(existingState, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal state: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write state: %v", err)
+	}
+
+	// Load with new sink
+	sink := NewStateSink(path)
+	err = sink.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// State should be loaded (compatible version)
+	state := sink.State()
+	if state.Version != CurrentStateVersion {
+		t.Errorf("Version = %d, want %d", state.Version, CurrentStateVersion)
+	}
+	if state.Status != "paused" {
+		t.Errorf("Status = %q, want %q", state.Status, "paused")
+	}
+	if state.Iteration != 10 {
+		t.Errorf("Iteration = %d, want 10", state.Iteration)
+	}
+	if state.TotalCost != 2.50 {
+		t.Errorf("TotalCost = %f, want 2.50", state.TotalCost)
+	}
+	if len(state.History) != 1 {
+		t.Errorf("History has %d entries, want 1", len(state.History))
+	}
+
+	// No backup file should exist
+	backupPath := path + ".backup"
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Error("backup file should not exist for compatible version")
+	}
+}
