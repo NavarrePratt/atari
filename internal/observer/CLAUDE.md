@@ -58,6 +58,7 @@ func (o *Observer) SetRunnerFactory(factory func() runner.ProcessRunner)  // For
 - `ErrCancelled`: Query cancelled by user
 - `ErrQueryTimeout`: Query exceeded timeout
 - `ErrNoContext`: Failed to build context
+- `ErrBusy`: Session broker held by drain (observer uses 5-second timeout)
 
 ### SessionBroker (broker.go)
 
@@ -88,7 +89,7 @@ func (b *SessionBroker) IsHeld() bool
 - Safe to call Release multiple times
 - Holder tracking for debugging
 
-**Note:** Observer currently runs independently of drain - they use different models and are separate processes. The broker is available for future coordination if needed.
+**Coordination:** Observer acquires the session broker before running queries. If drain holds the broker, observer returns ErrBusy after a 5-second timeout to avoid blocking drain sessions.
 
 ### ContextBuilder (context.go)
 
@@ -201,12 +202,13 @@ type ObserverConfig struct {
 
 ## Design Notes
 
-1. **Independent sessions**: Observer uses separate Claude process from drain
-2. **Session continuity**: Uses `--resume` for follow-up questions
-3. **Memory-based history**: Conversation history stored in Observer struct
-4. **Output truncation**: 100KB limit prevents runaway responses
-5. **Log-based context**: Reads from existing `.atari/atari.log` file
-6. **Event summarization**: Truncates text to fit context limits
+1. **Broker serialization**: Observer acquires session broker with 5-second timeout to prevent conflicts with drain
+2. **Drain priority**: Observer returns ErrBusy when drain holds the broker, avoiding wait
+3. **Session continuity**: Uses `--resume` for follow-up questions
+4. **Memory-based history**: Conversation history stored in Observer struct
+5. **Output truncation**: 100KB limit prevents runaway responses
+6. **Log-based context**: Reads from existing `.atari/atari.log` file
+7. **Event summarization**: Truncates text to fit context limits
 
 ## Usage Example
 

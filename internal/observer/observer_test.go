@@ -135,7 +135,7 @@ func TestObserver_Ask_Success(t *testing.T) {
 	}
 }
 
-func TestObserver_Ask_RunsIndependentlyOfBroker(t *testing.T) {
+func TestObserver_Ask_ReturnsBusyWhenDrainHoldsBroker(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
 	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
@@ -150,28 +150,62 @@ func TestObserver_Ask_RunsIndependentlyOfBroker(t *testing.T) {
 
 	obs := NewObserver(cfg, broker, builder, nil)
 
+	// Mock runner should never be called since broker acquisition fails
+	runnerCalled := false
+	obs.SetRunnerFactory(func() runner.ProcessRunner {
+		runnerCalled = true
+		return &mockRunner{}
+	})
+
+	// Observer should return ErrBusy when broker is held by drain
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err = obs.Ask(ctx, "What is happening?")
+
+	if !errors.Is(err, ErrBusy) {
+		t.Errorf("expected ErrBusy, got %v", err)
+	}
+	if runnerCalled {
+		t.Error("runner should not be called when broker acquisition fails")
+	}
+}
+
+func TestObserver_Ask_AcquiresAndReleasesBroker(t *testing.T) {
+	cfg := &config.ObserverConfig{Model: "haiku"}
+	broker := NewSessionBroker()
+	logReader := NewLogReader("/tmp/test.log")
+	builder := NewContextBuilder(logReader, cfg)
+
+	obs := NewObserver(cfg, broker, builder, nil)
+
 	// Mock runner that returns stream-json output
-	expectedOutput := "Response while drain is active"
-	streamJSON := makeStreamJSON(expectedOutput, "test-session-456")
+	streamJSON := makeStreamJSON("response", "test-session-789")
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
 		return &mockRunner{
 			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
+				// Verify broker is held during query execution
+				if broker.Holder() != "observer" {
+					t.Errorf("expected broker holder to be 'observer', got %q", broker.Holder())
+				}
 				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
 			},
 		}
 	})
 
-	// Observer should work even when broker is held by drain
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Verify broker is not held before query
+	if broker.IsHeld() {
+		t.Error("broker should not be held before Ask")
+	}
 
-	result, err := obs.Ask(ctx, "What is happening?")
-
+	_, err := obs.Ask(context.Background(), "What is happening?")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != expectedOutput {
-		t.Errorf("expected %q, got %q", expectedOutput, result)
+
+	// Verify broker is released after query
+	if broker.IsHeld() {
+		t.Error("broker should be released after Ask")
 	}
 }
 

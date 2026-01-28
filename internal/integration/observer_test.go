@@ -3,6 +3,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,8 +139,9 @@ func TestObserverBasicQuery(t *testing.T) {
 	}
 }
 
-// TestObserverRunsIndependentlyOfDrain tests that observer works while drain holds the broker.
-func TestObserverRunsIndependentlyOfDrain(t *testing.T) {
+// TestObserverReturnsBusyWhenDrainIsActive tests that observer returns ErrBusy
+// when drain holds the session broker.
+func TestObserverReturnsBusyWhenDrainIsActive(t *testing.T) {
 	env := newObserverTestEnv(t)
 	defer env.cleanup()
 
@@ -157,16 +159,13 @@ func TestObserverRunsIndependentlyOfDrain(t *testing.T) {
 	}
 	defer env.broker.Release()
 
-	// Observer should work even while drain holds the broker
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Observer should return ErrBusy when drain holds the broker
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	response, err := obs.Ask(ctx, "test question")
-	if err != nil {
-		t.Fatalf("unexpected error while drain is active: %v", err)
-	}
-	if response == "" {
-		t.Error("expected response while drain is active")
+	_, err = obs.Ask(ctx, "test question")
+	if !errors.Is(err, observer.ErrBusy) {
+		t.Errorf("expected observer.ErrBusy, got %v", err)
 	}
 }
 

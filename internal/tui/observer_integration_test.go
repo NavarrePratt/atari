@@ -368,9 +368,9 @@ func TestObserver_NilObserver_ReturnsNotInitializedError(t *testing.T) {
 	}
 }
 
-// TestObserver_WorksWhileDrainIsActive verifies that observer can respond
-// to queries even when the drain session is actively holding the broker.
-func TestObserver_WorksWhileDrainIsActive(t *testing.T) {
+// TestObserver_ShowsBusyWhenDrainIsActive verifies that the observer pane
+// properly displays an error when drain holds the session broker.
+func TestObserver_ShowsBusyWhenDrainIsActive(t *testing.T) {
 	env := newObserverTestEnv(t)
 
 	// Acquire the broker to simulate drain holding it
@@ -401,29 +401,20 @@ func TestObserver_WorksWhileDrainIsActive(t *testing.T) {
 	// Create pane with the observer
 	pane := env.newPaneWithObserver(obs)
 
-	// Simulate a successful response even though drain holds the broker
-	// Observer should work independently of drain
+	// Simulate the ErrBusy response that observer returns when drain holds the broker
 	resultMsg := observerResultMsg{
-		response: "Observer is working fine while drain is active!",
-		err:      nil,
+		response: "",
+		err:      observer.ErrBusy,
 	}
 	newPane, _ := pane.Update(resultMsg)
 	pane = newPane
 
-	// Should have response, no error
-	if pane.errorMsg != "" {
-		t.Errorf("unexpected error: %q", pane.errorMsg)
+	// Should have error indicating drain is busy
+	if pane.errorMsg == "" {
+		t.Error("expected error message when drain is active")
 	}
-	// Check history for the response (assistant messages are appended to history)
-	foundResponse := false
-	for _, msg := range pane.history {
-		if msg.role == roleAssistant && msg.content == "Observer is working fine while drain is active!" {
-			foundResponse = true
-			break
-		}
-	}
-	if !foundResponse {
-		t.Error("expected response in history")
+	if !strings.Contains(pane.errorMsg, "busy") {
+		t.Errorf("expected error to contain 'busy', got %q", pane.errorMsg)
 	}
 }
 
