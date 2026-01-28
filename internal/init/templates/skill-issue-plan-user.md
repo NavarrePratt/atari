@@ -1,3 +1,8 @@
+---
+name: issue-plan-user
+description: Plan issues by interviewing the user with probing questions. Best when you want direct user input to refine requirements before implementation.
+---
+
 # User Interview Planning
 
 Plan work by interviewing the user in-depth about their plans using probing, non-obvious questions.

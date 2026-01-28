@@ -1,3 +1,8 @@
+---
+name: issue-plan-hybrid
+description: Plan issues by combining user interview with Codex technical review. Iterates until consensus. Best for important work requiring both user input and AI validation.
+---
+
 # Hybrid Planning (User Interview + Codex Review)
 
 Plan work by combining user interview with Codex technical review. Adapts depth based on complexity.

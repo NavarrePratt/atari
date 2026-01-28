@@ -1,3 +1,8 @@
+---
+name: issue-plan-codex
+description: Plan issues using AI debate between Claude (opus) and Codex (gpt-5.2). Best for complex or architectural work requiring deep analysis and multi-round debate.
+---
+
 # Planning Issues (Codex)
 
 Plan and create issues for complex work requiring thorough discovery and multi-round collaborative debate.

@@ -1,3 +1,8 @@
+---
+name: issue-create
+description: Quickly create a single issue from conversation context. Lightweight alternative to issue-plan for capturing one piece of work without full planning.
+---
+
 # Quick Bead Creation
 
 Create a single issue from the current conversation context. This is a lightweight alternative to issue-plan for when you need to quickly capture one piece of work.

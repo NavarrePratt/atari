@@ -1,3 +1,8 @@
+---
+name: issue-plan
+description: Plan issues using AI debate between Claude (haiku) and Codex (mini). Best for standard multi-step work requiring discovery and collaborative refinement.
+---
+
 # Planning Issues
 
 Plan and create issues for multi-step work requiring discovery and collaborative debate.
