@@ -184,6 +184,170 @@ func TestControllerStop(t *testing.T) {
 	})
 }
 
+func TestControllerForceStop(t *testing.T) {
+	t.Run("force stop from idle", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+		mockClient.ReadyResponse = []brclient.Bead{}
+
+		wq := workqueue.New(cfg, mockClient)
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		ctx := context.Background()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Run(ctx)
+		}()
+
+		time.Sleep(20 * time.Millisecond)
+		c.ForceStop()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for controller to stop")
+		}
+
+		if c.State() != StateStopped {
+			t.Errorf("expected state %s, got %s", StateStopped, c.State())
+		}
+	})
+
+	t.Run("force stop cancels context", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+		mockClient.ReadyResponse = []brclient.Bead{}
+
+		wq := workqueue.New(cfg, mockClient)
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		ctx := context.Background()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Run(ctx)
+		}()
+
+		time.Sleep(20 * time.Millisecond)
+
+		// Force stop should cancel context and send stop signal
+		c.ForceStop()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for controller to stop")
+		}
+	})
+}
+
+func TestControllerGracefulStopSignal(t *testing.T) {
+	t.Run("graceful stop signal is sent correctly", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+		mockClient.ReadyResponse = []brclient.Bead{}
+
+		wq := workqueue.New(cfg, mockClient)
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		// Verify channel starts empty
+		select {
+		case <-c.gracefulStopSignal:
+			t.Error("expected graceful stop signal channel to be empty initially")
+		default:
+			// Good - channel is empty
+		}
+
+		// Send graceful stop signal (via Stop())
+		c.Stop()
+
+		// Verify signal was sent
+		select {
+		case <-c.gracefulStopSignal:
+			// Good - signal received
+		default:
+			t.Error("expected graceful stop signal to be sent")
+		}
+	})
+
+	t.Run("graceful stop from idle transitions to stopping", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+		mockClient.ReadyResponse = []brclient.Bead{}
+
+		wq := workqueue.New(cfg, mockClient)
+		router := events.NewRouter(100)
+		defer router.Close()
+
+		c := New(cfg, wq, router, mockClient, nil, nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Run(ctx)
+		}()
+
+		// Wait for controller to start
+		time.Sleep(30 * time.Millisecond)
+
+		// Request graceful stop
+		c.Stop()
+
+		// Wait for shutdown
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for controller to stop")
+		}
+
+		if c.State() != StateStopped {
+			t.Errorf("expected state %s after graceful stop from idle, got %s", StateStopped, c.State())
+		}
+	})
+
+	t.Run("multiple graceful stop signals are deduplicated", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+		mockClient.ReadyResponse = []brclient.Bead{}
+
+		wq := workqueue.New(cfg, mockClient)
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		// Send multiple graceful stop signals - should not panic
+		c.Stop()
+		c.Stop()
+		c.Stop()
+
+		// Verify only one signal is buffered
+		select {
+		case <-c.gracefulStopSignal:
+			// Good - first signal
+		default:
+			t.Error("expected at least one signal")
+		}
+
+		// Channel should now be empty
+		select {
+		case <-c.gracefulStopSignal:
+			t.Error("expected only one signal to be buffered")
+		default:
+			// Good - no more signals
+		}
+	})
+}
+
 func TestControllerContextCancellation(t *testing.T) {
 	cfg := testConfig()
 	mockClient := brclient.NewMockClient()
@@ -393,10 +557,26 @@ func TestControllerMultipleSignals(t *testing.T) {
 		wq := workqueue.New(cfg, mockClient)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
-		// Send multiple stop signals
+		// Send multiple stop signals (graceful)
 		c.Stop()
 		c.Stop()
 		c.Stop()
+
+		// Should not panic
+	})
+
+	t.Run("multiple force stop signals are deduplicated", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+		mockClient.ReadyResponse = []brclient.Bead{}
+
+		wq := workqueue.New(cfg, mockClient)
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		// Send multiple force stop signals
+		c.ForceStop()
+		c.ForceStop()
+		c.ForceStop()
 
 		// Should not panic
 	})

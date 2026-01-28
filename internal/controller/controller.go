@@ -77,6 +77,7 @@ type Controller struct {
 	gracefulPauseSignal chan struct{}
 	resumeSignal        chan struct{}
 	stopSignal          chan struct{}
+	gracefulStopSignal  chan struct{}
 
 	// Statistics (protected by statsMu)
 	statsMu      sync.Mutex
@@ -128,6 +129,7 @@ func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, brCli
 		gracefulPauseSignal: make(chan struct{}, 1),
 		resumeSignal:        make(chan struct{}, 1),
 		stopSignal:          make(chan struct{}, 1),
+		gracefulStopSignal:  make(chan struct{}, 1),
 	}
 
 	// Apply options
@@ -185,7 +187,17 @@ func (c *Controller) Run(ctx context.Context) error {
 		case <-c.ctx.Done():
 			return c.shutdown("context cancelled")
 		case <-c.stopSignal:
-			return c.shutdown("stop requested")
+			return c.shutdown("force stop requested")
+		case <-c.gracefulStopSignal:
+			// Graceful stop from idle state - can stop immediately
+			if c.getState() == StateIdle || c.getState() == StatePaused {
+				return c.shutdown("graceful stop requested")
+			}
+			// Put signal back for after bead completion
+			select {
+			case c.gracefulStopSignal <- struct{}{}:
+			default:
+			}
 		default:
 		}
 
@@ -220,6 +232,11 @@ func (c *Controller) runIdle() {
 		return
 	case <-c.stopSignal:
 		c.setState(StateStopping)
+		return
+	case <-c.gracefulStopSignal:
+		// When idle, graceful stop acts like regular stop
+		c.setState(StateStopping)
+		c.logger.Info("stopping while idle (graceful)")
 		return
 	case <-c.ctx.Done():
 		return
@@ -454,6 +471,10 @@ func (c *Controller) runWorkingOnBead(bead *workqueue.Bead) {
 	select {
 	case <-c.stopSignal:
 		c.setState(StateStopping)
+		return
+	case <-c.gracefulStopSignal:
+		c.setState(StateStopping)
+		c.logger.Info("stopping after iteration (graceful)")
 		return
 	case <-c.pauseSignal:
 		c.setState(StatePaused)
@@ -913,16 +934,36 @@ func (c *Controller) runPaused() {
 		c.logger.Info("resumed")
 	case <-c.stopSignal:
 		c.setState(StateStopping)
+	case <-c.gracefulStopSignal:
+		c.setState(StateStopping)
+		c.logger.Info("stopping from paused (graceful)")
 	case <-c.ctx.Done():
 		c.setState(StateStopping)
 	}
 }
 
-// runStopping waits for any active session to complete.
+// runStopping waits for any active session to complete and emits the stop event.
 func (c *Controller) runStopping() {
 	// Wait for any in-flight work
 	c.wg.Wait()
+
+	// Stop BD activity watcher if running
+	if c.bdWatcher != nil && c.bdWatcher.Running() {
+		if err := c.bdWatcher.Stop(); err != nil {
+			c.logger.Warn("failed to stop bd activity watcher", "error", err)
+		} else {
+			c.logger.Info("bd activity watcher stopped")
+		}
+	}
+
+	// Emit stop event
+	c.emit(&events.DrainStopEvent{
+		BaseEvent: events.NewInternalEvent(events.EventDrainStop),
+		Reason:    "graceful stop completed",
+	})
+
 	c.setState(StateStopped)
+	c.logger.Info("shutdown complete")
 }
 
 // shutdown performs graceful shutdown.
@@ -951,11 +992,24 @@ func (c *Controller) shutdown(reason string) error {
 	return nil
 }
 
-// Stop requests graceful shutdown. It returns immediately; use Run's
-// return to wait for shutdown completion.
+// Stop requests graceful shutdown. The controller will wait for the current
+// bead to complete before stopping. It returns immediately; use Run's return
+// to wait for shutdown completion.
 func (c *Controller) Stop() {
 	select {
+	case c.gracefulStopSignal <- struct{}{}:
+		c.logger.Info("graceful stop requested (will wait for current bead)")
+	default:
+		// Signal already pending
+	}
+}
+
+// ForceStop requests immediate shutdown, cancelling the current session.
+// It returns immediately; use Run's return to wait for shutdown completion.
+func (c *Controller) ForceStop() {
+	select {
 	case c.stopSignal <- struct{}{}:
+		c.logger.Info("force stop requested (immediate)")
 	default:
 		// Signal already pending
 	}

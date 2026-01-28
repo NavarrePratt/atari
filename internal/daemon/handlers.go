@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/npratt/atari/internal/controller"
 )
 
 // handleRequest dispatches the request to the appropriate handler.
@@ -88,18 +90,31 @@ func (d *Daemon) handleStop(req *Request) Response {
 		}
 	}
 
-	d.controller.Stop()
+	if force {
+		// Force immediate shutdown
+		d.controller.ForceStop()
+	} else {
+		// Graceful shutdown - wait for current bead to complete
+		d.controller.Stop()
 
-	// Schedule daemon shutdown via stop channel
+		// Schedule auto-force after timeout
+		gracefulTimeout := d.config.Shutdown.GracefulTimeout
+		go func() {
+			time.Sleep(gracefulTimeout)
+			// Check if we're still stopping (not already stopped)
+			state := d.controller.State()
+			if state != controller.StateStopped {
+				d.logger.Info("graceful timeout reached, forcing stop",
+					"timeout", gracefulTimeout,
+					"state", state)
+				d.controller.ForceStop()
+			}
+		}()
+	}
+
+	// Schedule daemon shutdown via stop channel (gives controller time to stop)
 	go func() {
-		if force {
-			// Force immediate shutdown
-			time.Sleep(50 * time.Millisecond)
-		} else {
-			// Allow some time for graceful shutdown
-			time.Sleep(100 * time.Millisecond)
-		}
-		// Signal the daemon to stop
+		time.Sleep(100 * time.Millisecond)
 		select {
 		case d.stopCh <- struct{}{}:
 		default:

@@ -704,7 +704,14 @@ Use --daemon to run in the background.`,
 	// Stop command
 	stopCmd := &cobra.Command{
 		Use:   "stop",
-		Short: "Stop the daemon",
+		Short: "Stop the daemon after current bead completes",
+		Long: `Stop the daemon gracefully, waiting for the current bead to complete.
+
+By default, the daemon will wait for the current Claude session to finish
+before shutting down. If the session takes longer than the graceful timeout
+(default 60s), it will be forcefully terminated.
+
+Use --force to stop immediately without waiting for bead completion.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := getDaemonClient()
 			if err != nil {
@@ -725,7 +732,7 @@ Use --daemon to run in the background.`,
 		},
 	}
 
-	stopCmd.Flags().Bool(FlagForce, false, "Stop immediately without waiting for current bead")
+	stopCmd.Flags().Bool(FlagForce, false, "Stop immediately, killing current session")
 	stopCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = viper.BindPFlag(f.Name, f)
 	})

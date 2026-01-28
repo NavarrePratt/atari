@@ -14,6 +14,7 @@ type Config struct {
 	Observer    ObserverConfig    `yaml:"observer" mapstructure:"observer"`
 	Graph       GraphConfig       `yaml:"graph" mapstructure:"graph"`
 	FollowUp    FollowUpConfig    `yaml:"follow_up" mapstructure:"follow_up"`
+	Shutdown    ShutdownConfig    `yaml:"shutdown" mapstructure:"shutdown"`
 	Prompt     string `yaml:"prompt" mapstructure:"prompt"`
 	PromptFile string `yaml:"prompt_file" mapstructure:"prompt_file"` // Path to prompt template file (takes priority over Prompt)
 }
@@ -87,6 +88,11 @@ type GraphConfig struct {
 type FollowUpConfig struct {
 	Enabled  bool `yaml:"enabled" mapstructure:"enabled"`     // Enable follow-up sessions (default: true)
 	MaxTurns int  `yaml:"max_turns" mapstructure:"max_turns"` // Max turns for follow-up session (default: 5)
+}
+
+// ShutdownConfig holds settings for graceful shutdown behavior.
+type ShutdownConfig struct {
+	GracefulTimeout time.Duration `yaml:"graceful_timeout" mapstructure:"graceful_timeout"` // Timeout before force stop (default: 60s)
 }
 
 // DefaultFollowUpPrompt is the prompt sent to follow-up sessions to verify and close beads.
@@ -197,6 +203,9 @@ func Default() *Config {
 		FollowUp: FollowUpConfig{
 			Enabled:  true,
 			MaxTurns: 5,
+		},
+		Shutdown: ShutdownConfig{
+			GracefulTimeout: 60 * time.Second,
 		},
 		Prompt: DefaultPrompt,
 	}
