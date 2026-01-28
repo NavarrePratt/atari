@@ -465,7 +465,7 @@ func (p ObserverPane) View() string {
 	var sections []string
 
 	// Section 1: Chat history (takes most of the space)
-	historyHeight := p.height - observerInputHeight - 3 // input + status + padding
+	historyHeight := p.height - observerInputHeight - 1 // status bar
 	if historyHeight < 1 {
 		historyHeight = 1
 	}
@@ -533,8 +533,8 @@ func (p *ObserverPane) SetSize(width, height int) {
 	p.height = height
 	p.input.SetWidth(safeWidth(width - 4))
 
-	// Update viewport size
-	historyHeight := height - observerInputHeight - 3
+	// Update viewport size: total - input (3 lines) - status bar (1 line)
+	historyHeight := height - observerInputHeight - 1
 	if historyHeight < 1 {
 		historyHeight = 1
 	}
