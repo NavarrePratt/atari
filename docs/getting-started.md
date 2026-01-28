@@ -199,6 +199,6 @@ atari stop
 - [Configuration Reference](config/configuration.md) - All configuration options
 - [TUI Guide](tui.md) - Terminal UI features and keybinds
 
-### Creating Well-Planned Work
+### Creating well-planned work
 
-For best results, beads should be well-scoped and properly sequenced. See the [Workflow Guide](workflow.md) for planning workflows using `/issue-plan-user` and related skills.
+Beads work best when they're well-scoped and properly sequenced. See the [Workflow Guide](workflow.md) for planning workflows using `/issue-plan-user` and related skills.

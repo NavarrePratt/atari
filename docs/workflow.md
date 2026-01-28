@@ -2,7 +2,7 @@
 
 This guide covers the recommended workflow for using atari: planning in one terminal, automation in another.
 
-## The Two-Terminal Workflow
+## The two-terminal workflow
 
 The most effective way to use atari separates planning from execution:
 
@@ -30,7 +30,7 @@ Terminal 1: Planning                    Terminal 2: Automation
 
 The `/issue-plan-user` skill conducts a structured interview to flesh out your requirements before creating beads.
 
-### What It Does
+### What it does
 
 1. **Asks clarifying questions** about your goals, constraints, and preferences
 2. **Explores the codebase** to understand existing patterns
@@ -38,7 +38,7 @@ The `/issue-plan-user` skill conducts a structured interview to flesh out your r
 4. **Creates beads** after you approve the plan
 5. **Sets up dependencies** so beads execute in the right order
 
-### When to Use It
+### When to use it
 
 Use `/issue-plan-user` when you have a feature or task in mind but haven't fully specified the details. The interview process helps surface requirements you might not have considered.
 
@@ -51,7 +51,7 @@ Use `/issue-plan-user` when you have a feature or task in mind but haven't fully
 - Use `/issue-create` for single, well-defined tasks: "Fix the typo in README.md"
 - Always use a planning skill rather than `br create` directly - skills ensure beads have proper verification instructions that atari needs
 
-### Example Session
+### Example session
 
 ```
 Terminal 1 (Claude Code):
@@ -89,7 +89,7 @@ Claude: Created 5 beads with dependencies:
         bd-102 -> bd-101 -> bd-103 -> bd-104 -> bd-105
 ```
 
-### Other Planning Skills
+### Other planning skills
 
 | Skill | Use Case |
 |-------|----------|
@@ -101,7 +101,7 @@ Claude: Created 5 beads with dependencies:
 
 For most planning work, start with `/issue-plan-user` or `/issue-plan-hybrid`. They catch requirements gaps early through direct user input.
 
-## How Planning Skills Create Beads
+## How planning skills create beads
 
 **Always use a planning skill** (`/issue-plan-user`, `/issue-plan`, `/issue-plan-hybrid`, `/issue-plan-codex`, or `/issue-create`) rather than running `br create` directly. Planning skills ensure beads include:
 
@@ -111,7 +111,7 @@ For most planning work, start with `/issue-plan-user` or `/issue-plan-hybrid`. T
 
 Without these, atari cannot properly verify that work is complete before closing beads.
 
-### What Planning Skills Generate
+### What planning skills generate
 
 The planning skills use `br create` internally to create beads with:
 
@@ -120,7 +120,7 @@ The planning skills use `br create` internally to create beads with:
 - **Verification commands**: Specific lint/test commands for your project
 - **Deferred status**: Prevents pickup until dependencies are set
 
-### Deferred Status for Batch Creation
+### Deferred status for batch creation
 
 When creating multiple beads, they start in `deferred` status:
 
@@ -136,7 +136,7 @@ br update bd-102 --status open
 
 This prevents atari from picking up beads before the plan is complete.
 
-### Dependencies Between Beads
+### Dependencies between beads
 
 Dependencies ensure beads execute in the correct order:
 
@@ -147,7 +147,7 @@ br dep add bd-103 bd-102 --type blocks
 
 The planning skill sets these automatically based on file-level dependencies and logical ordering.
 
-### Publishing Beads
+### Publishing beads
 
 After planning is complete:
 
@@ -172,7 +172,7 @@ workqueue:
   label: "automated"
 ```
 
-## Running Atari
+## Running atari
 
 ### Starting the TUI
 
@@ -187,7 +187,7 @@ The TUI shows:
 - Active bead and progress
 - Live event feed from Claude sessions
 
-### Basic Controls
+### Basic controls
 
 | Key | Action |
 |-----|--------|
@@ -197,7 +197,7 @@ The TUI shows:
 
 See the [TUI Guide](tui.md) for the full keybind reference.
 
-### What Happens When a Bead Completes
+### What happens when a bead completes
 
 1. Claude commits changes using `/commit`
 2. Claude closes the bead with `br close --reason "..."`
@@ -205,7 +205,7 @@ See the [TUI Guide](tui.md) for the full keybind reference.
 4. If another bead is ready, a new Claude session starts
 5. If no beads are ready, atari idles until work appears
 
-### Pausing and Resuming
+### Pausing and resuming
 
 **Pause** when you need to:
 - Plan more work without race conditions
@@ -228,7 +228,7 @@ Atari finishes the current bead, then waits.
 atari resume
 ```
 
-## Important Limitation: Single Worker
+## Important limitation: single worker
 
 Atari processes **one bead at a time**. There is no parallel execution.
 
@@ -250,7 +250,7 @@ This means:
 - Use dependencies to ensure logical ordering
 - Monitor progress in the TUI
 
-## Putting It Together
+## Putting it together
 
 A typical session:
 
@@ -281,4 +281,4 @@ atari start
 # More beads created, atari picks them up automatically
 ```
 
-This workflow lets you plan at your own pace while automation handles implementation.
+You plan, atari implements.

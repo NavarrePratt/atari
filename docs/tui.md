@@ -4,7 +4,7 @@ This guide covers the Atari TUI: its layout, panes, navigation, and keybinds.
 
 ## Overview
 
-The TUI provides real-time monitoring of drain activity with three interactive panes:
+The TUI shows drain activity across three panes:
 
 - **Events pane**: Live feed of Claude activity, tool calls, and results
 - **Observer pane**: Q&A about what's happening (uses a separate Claude session)
@@ -149,7 +149,7 @@ Press `Enter` again for fullscreen modal, or `Esc` to return to graph.
 - **B**: Graph fullscreen
 - **Esc**: Exit fullscreen
 
-In fullscreen mode, the selected pane expands to fill the terminal while maintaining the header with status information.
+In fullscreen mode, the selected pane fills the terminal. The header stays visible.
 
 ### Closing Panes
 
