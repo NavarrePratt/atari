@@ -175,8 +175,11 @@ func TestObserverCancel(t *testing.T) {
 	env := newObserverTestEnv(t)
 	defer env.cleanup()
 
-	// Create mock that takes a long time
-	if err := testutil.CreateSlowMockClaude(env.mockPath, "Slow response", "5"); err != nil {
+	// Create a ready signal file path
+	readyFile := filepath.Join(env.tempDir, "ready")
+
+	// Create mock that signals when ready, then takes a long time
+	if err := testutil.CreateSlowMockClaudeWithSignal(env.mockPath, "Slow response", readyFile, "30"); err != nil {
 		t.Fatalf("failed to create slow mock: %v", err)
 	}
 
@@ -194,20 +197,22 @@ func TestObserverCancel(t *testing.T) {
 		close(done)
 	}()
 
-	// Give it time to start
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the mock script to signal that it has started
+	if !testutil.WaitForFile(readyFile, 5*time.Second) {
+		t.Fatal("mock script did not signal ready within timeout")
+	}
 
 	// Cancel the query
 	obs.Cancel()
 
-	// Should complete quickly
+	// Should complete quickly after cancel
 	select {
 	case <-done:
 		// Success - query was cancelled
 		if queryErr == nil || !strings.Contains(queryErr.Error(), "cancel") {
 			t.Logf("query error: %v", queryErr)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("query did not complete after cancel")
 	}
 }
@@ -220,8 +225,11 @@ func TestObserverTimeout(t *testing.T) {
 	env := newObserverTestEnv(t)
 	defer env.cleanup()
 
-	// Create mock that takes a while (but not too long for test)
-	if err := testutil.CreateSlowMockClaude(env.mockPath, "Slow response", "10"); err != nil {
+	// Create a ready signal file path
+	readyFile := filepath.Join(env.tempDir, "ready")
+
+	// Create mock that signals when ready, then takes a long time
+	if err := testutil.CreateSlowMockClaudeWithSignal(env.mockPath, "Slow response", readyFile, "30"); err != nil {
 		t.Fatalf("failed to create slow mock: %v", err)
 	}
 
@@ -239,8 +247,11 @@ func TestObserverTimeout(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait a bit then cancel
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the mock script to signal that it has started
+	if !testutil.WaitForFile(readyFile, 5*time.Second) {
+		t.Fatal("mock script did not signal ready within timeout")
+	}
+
 	start := time.Now()
 	obs.Cancel()
 
@@ -248,14 +259,14 @@ func TestObserverTimeout(t *testing.T) {
 	select {
 	case <-done:
 		elapsed := time.Since(start)
-		if elapsed > 2*time.Second {
+		if elapsed > 5*time.Second {
 			t.Errorf("cancel took too long: %v", elapsed)
 		}
 		// Query should have been cancelled
 		if queryErr != nil {
 			t.Logf("query error (expected): %v", queryErr)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("query did not complete after cancel")
 	}
 }

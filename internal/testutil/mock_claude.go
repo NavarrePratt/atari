@@ -4,6 +4,7 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // MockClaudeScript generates a mock claude script for observer testing.
@@ -150,4 +151,37 @@ func CreateSlowMockClaude(path, response string, delaySeconds string) error {
 func CreateFailingMockClaudeForObserver(path, errorMsg string) error {
 	script := &MockClaudeScript{FailWithError: errorMsg}
 	return script.Write(path)
+}
+
+// CreateSlowMockClaudeWithSignal creates a mock that signals when ready then delays.
+// The readyFile is created immediately when the script starts, allowing tests to
+// synchronize before calling Cancel(). This avoids timing-based flakiness.
+func CreateSlowMockClaudeWithSignal(path, response, readyFile, delaySeconds string) error {
+	script := `#!/bin/bash
+# Signal that the script has started
+touch "` + readyFile + `"
+
+# Use exec to replace bash with sleep so signals are handled directly.
+# Without exec, killing bash might not properly terminate the sleep child.
+exec sleep ` + delaySeconds + `
+
+# Output stream-json events (unreachable after exec, but kept for completeness)
+echo '{"type":"system","subtype":"init","model":"haiku","tools":[]}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"` + response + `"}]}}'
+echo '{"type":"result","result":"` + response + `","session_id":"mock-slow-session","num_turns":1}'
+`
+	return os.WriteFile(path, []byte(script), 0755)
+}
+
+// WaitForFile polls for the existence of a file, returning true when found.
+// Returns false if the timeout is reached before the file appears.
+func WaitForFile(path string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }
