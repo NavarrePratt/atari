@@ -201,33 +201,13 @@ func TestWatcher_InitialLoad(t *testing.T) {
 	}
 	defer func() { _ = watcher.Stop() }()
 
-	// Should get 2 BeadChangedEvents for initial load
-	var received []*events.BeadChangedEvent
-	timeout := time.After(500 * time.Millisecond)
-	for len(received) < 2 {
-		select {
-		case e := <-sub:
-			if changed, ok := e.(*events.BeadChangedEvent); ok {
-				received = append(received, changed)
-			}
-		case <-timeout:
-			t.Fatalf("timeout waiting for events, got %d", len(received))
-		}
-	}
-
-	// Verify events
-	ids := make(map[string]bool)
-	for _, e := range received {
-		ids[e.BeadID] = true
-		if e.OldState != nil {
-			t.Errorf("expected OldState to be nil for initial load, got %+v", e.OldState)
-		}
-		if e.NewState == nil {
-			t.Error("expected NewState to be non-nil for initial load")
-		}
-	}
-	if !ids["bd-001"] || !ids["bd-002"] {
-		t.Errorf("expected events for bd-001 and bd-002, got %v", ids)
+	// With silent initialization, pre-existing beads should NOT emit events
+	timeout := time.After(300 * time.Millisecond)
+	select {
+	case e := <-sub:
+		t.Errorf("expected no events for pre-existing beads, got %T: %+v", e, e)
+	case <-timeout:
+		// Expected: no events received
 	}
 }
 
@@ -256,23 +236,16 @@ func TestWatcher_FileChange(t *testing.T) {
 	}
 	defer func() { _ = watcher.Stop() }()
 
-	// Wait for initial load event
-	timeout := time.After(500 * time.Millisecond)
-	select {
-	case <-sub:
-		// Got initial event
-	case <-timeout:
-		t.Fatal("timeout waiting for initial event")
-	}
+	// Wait for silent initialization to complete
+	time.Sleep(200 * time.Millisecond)
 
 	// Add a new bead
-	time.Sleep(150 * time.Millisecond) // Wait for debounce
 	appendJSONLFile(t, jsonlPath, map[string]interface{}{
 		"id": "bd-002", "title": "New issue", "status": "open", "priority": 2, "issue_type": "task",
 	})
 
 	// Wait for change event
-	timeout = time.After(500 * time.Millisecond)
+	timeout := time.After(500 * time.Millisecond)
 	select {
 	case e := <-sub:
 		changed, ok := e.(*events.BeadChangedEvent)
@@ -318,22 +291,16 @@ func TestWatcher_FileModification(t *testing.T) {
 	}
 	defer func() { _ = watcher.Stop() }()
 
-	// Wait for initial load
-	timeout := time.After(500 * time.Millisecond)
-	select {
-	case <-sub:
-	case <-timeout:
-		t.Fatal("timeout waiting for initial event")
-	}
+	// Wait for silent initialization to complete
+	time.Sleep(200 * time.Millisecond)
 
 	// Modify the bead status
-	time.Sleep(150 * time.Millisecond)
 	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
 		{"id": "bd-001", "title": "Test issue", "status": "in_progress", "priority": 1, "issue_type": "task"},
 	})
 
 	// Wait for change event
-	timeout = time.After(500 * time.Millisecond)
+	timeout := time.After(500 * time.Millisecond)
 	select {
 	case e := <-sub:
 		changed, ok := e.(*events.BeadChangedEvent)
@@ -380,27 +347,16 @@ func TestWatcher_FileTruncation(t *testing.T) {
 	}
 	defer func() { _ = watcher.Stop() }()
 
-	// Drain initial events
-	timeout := time.After(500 * time.Millisecond)
-	drained := 0
-drainLoop:
-	for drained < 2 {
-		select {
-		case <-sub:
-			drained++
-		case <-timeout:
-			break drainLoop
-		}
-	}
+	// Wait for silent initialization to complete
+	time.Sleep(200 * time.Millisecond)
 
 	// Truncate file (simulate br sync)
-	time.Sleep(150 * time.Millisecond)
 	writeJSONLFile(t, jsonlPath, []map[string]interface{}{
 		{"id": "bd-001", "title": "Issue 1", "status": "closed", "priority": 1, "issue_type": "task"},
 	})
 
 	// Should get events for modified bd-001 and deleted bd-002
-	timeout = time.After(500 * time.Millisecond)
+	timeout := time.After(500 * time.Millisecond)
 	var changes []*events.BeadChangedEvent
 collectLoop:
 	for len(changes) < 2 {

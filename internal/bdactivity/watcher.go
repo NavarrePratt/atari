@@ -47,6 +47,11 @@ type Watcher struct {
 
 	// beadState tracks the last known state of each bead for diff detection.
 	beadState map[string]*events.BeadState
+
+	// initialized tracks whether baseline state has been loaded.
+	initialized atomic.Bool
+	// fileExistedAtStart caches whether the JSONL file existed when Start() was called.
+	fileExistedAtStart bool
 }
 
 // New creates a new BD Activity Watcher that monitors the JSONL file.
@@ -80,9 +85,14 @@ func (w *Watcher) Start(ctx context.Context) error {
 		return fmt.Errorf("watcher already running")
 	}
 
+	// Check if file exists before starting - used for silent initialization
+	_, err := os.Stat(w.jsonlPath)
+	w.fileExistedAtStart = err == nil
+
 	w.ctx, w.cancel = context.WithCancel(ctx)
 	w.done = make(chan struct{})
 	w.running.Store(true)
+	w.initialized.Store(false)
 	w.beadState = make(map[string]*events.BeadState)
 
 	go w.runLoop()
@@ -207,9 +217,18 @@ func (w *Watcher) loadAndDiff() error {
 	}
 
 	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Silent initialization: if file existed at start, seed state without emitting events
+	if !w.initialized.Load() && w.fileExistedAtStart {
+		w.beadState = newState
+		w.initialized.Store(true)
+		return nil
+	}
+
 	oldState := w.beadState
 	w.beadState = newState
-	w.mu.Unlock()
+	w.initialized.Store(true)
 
 	// Find changes
 	now := time.Now()
