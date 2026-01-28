@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -465,14 +466,15 @@ func (m model) renderVerticalSplit() string {
 
 // renderSharedHeader renders the header that spans all panes.
 func (m model) renderSharedHeader(w int) string {
-	// Line 1: Status and cost
-	status := m.renderStatus()
+	// Line 1: Status, working directory, and cost
 	cost := styles.Cost.Render(fmt.Sprintf("$%.4f", m.stats.TotalCost))
+	costWidth := lipgloss.Width(cost)
+	status := m.renderStatusWithWorkDir(w, costWidth)
 
 	statusLine := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		status,
-		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-lipgloss.Width(cost))),
+		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-costWidth)),
 		cost,
 	)
 
@@ -612,14 +614,15 @@ func (m model) renderGraphPane(width, height int) string {
 
 // renderHeaderForWidth renders the header for a specific width.
 func (m model) renderHeaderForWidth(w int) string {
-	// Line 1: Status and cost
-	status := m.renderStatus()
+	// Line 1: Status, working directory, and cost
 	cost := styles.Cost.Render(fmt.Sprintf("$%.4f", m.stats.TotalCost))
+	costWidth := lipgloss.Width(cost)
+	status := m.renderStatusWithWorkDir(w, costWidth)
 
 	statusLine := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		status,
-		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-lipgloss.Width(cost))),
+		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-costWidth)),
 		cost,
 	)
 
@@ -718,14 +721,15 @@ func (m model) renderTooSmall() string {
 func (m model) renderHeader() string {
 	w := safeWidth(m.width - 4) // Account for container borders
 
-	// Line 1: Status and cost
-	status := m.renderStatus()
+	// Line 1: Status, working directory, and cost
 	cost := styles.Cost.Render(fmt.Sprintf("$%.4f", m.stats.TotalCost))
+	costWidth := lipgloss.Width(cost)
+	status := m.renderStatusWithWorkDir(w, costWidth)
 
 	statusLine := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		status,
-		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-lipgloss.Width(cost))),
+		strings.Repeat(" ", max(1, w-lipgloss.Width(status)-costWidth)),
 		cost,
 	)
 
@@ -771,7 +775,15 @@ func (m model) renderHeader() string {
 // renderStatus renders the status indicator with appropriate styling.
 // If an epic filter is active, appends "(epic: bd-xxx)" suffix.
 // If an active top-level item exists, appends "(top-level: bd-xxx - Title)" suffix.
+// This version does not include working directory (for backwards compatibility).
 func (m model) renderStatus() string {
+	return m.renderStatusWithWorkDir(0, 0)
+}
+
+// renderStatusWithWorkDir renders the status with optional working directory.
+// If totalWidth and costWidth are provided (non-zero), attempts to append the
+// working directory with width-aware truncation.
+func (m model) renderStatusWithWorkDir(totalWidth, costWidth int) string {
 	status := strings.ToUpper(m.status)
 	var style lipgloss.Style
 
@@ -792,14 +804,119 @@ func (m model) renderStatus() string {
 	if m.epicID != "" {
 		result += styles.Footer.Render(fmt.Sprintf(" (epic: %s)", m.epicID))
 	} else if m.activeTopLevelID != "" {
-		// Only show top-level if no epic filter is active
 		topLevelText := m.activeTopLevelID
 		if m.activeTopLevelTitle != "" {
 			topLevelText = fmt.Sprintf("%s - %s", m.activeTopLevelID, m.activeTopLevelTitle)
 		}
 		result += styles.Footer.Render(fmt.Sprintf(" (top-level: %s)", topLevelText))
 	}
-	return result
+
+	// Skip working directory if no width info or no working directory
+	if totalWidth == 0 || m.workingDirectory == "" {
+		return result
+	}
+
+	// Compute available space for working directory
+	// Leave at least 1 space between status+workdir and cost
+	statusWidth := lipgloss.Width(result)
+	availableForWorkDir := totalWidth - statusWidth - costWidth - 1
+
+	// Need at least 5 chars for minimal display like " ..." + separator
+	if availableForWorkDir < 5 {
+		return result
+	}
+
+	// Try to fit the full path (with leading space)
+	fullPath := " " + m.workingDirectory
+	if lipgloss.Width(fullPath) <= availableForWorkDir {
+		return result + styles.Footer.Render(fullPath)
+	}
+
+	// Truncate with "..." prefix showing as much of the path end as possible
+	truncated := truncatePathForWidth(m.workingDirectory, availableForWorkDir-1) // -1 for leading space
+	if truncated == "" {
+		return result
+	}
+
+	return result + styles.Footer.Render(" "+truncated)
+}
+
+// truncatePathForWidth truncates a path to fit within maxWidth using "..." prefix.
+// Shows as much of the path's trailing components as possible.
+// Returns empty string if even minimal display won't fit.
+func truncatePathForWidth(path string, maxWidth int) string {
+	if maxWidth < 4 { // "..." requires at least 3 chars
+		return ""
+	}
+
+	// Full path fits without truncation
+	if lipgloss.Width(path) <= maxWidth {
+		return path
+	}
+
+	// Use system path separator for display
+	sep := string(filepath.Separator)
+	ellipsis := "..."
+
+	// Split path into components
+	// Normalize to forward slashes for splitting, then use system separator for display
+	normalized := filepath.ToSlash(path)
+	parts := strings.Split(normalized, "/")
+
+	// Filter out empty parts (from leading slash or double slashes)
+	var nonEmpty []string
+	for _, p := range parts {
+		if p != "" {
+			nonEmpty = append(nonEmpty, p)
+		}
+	}
+
+	if len(nonEmpty) == 0 {
+		return ""
+	}
+
+	// Try progressively shorter suffixes: last N components
+	for i := 1; i <= len(nonEmpty); i++ {
+		suffix := strings.Join(nonEmpty[len(nonEmpty)-i:], sep)
+		display := ellipsis + sep + suffix
+		if lipgloss.Width(display) <= maxWidth {
+			continue // Keep trying to show more
+		}
+		// This is too long, use the previous length
+		if i == 1 {
+			// Even the last component with ellipsis doesn't fit
+			// Try just showing truncated last component
+			lastPart := nonEmpty[len(nonEmpty)-1]
+			return truncateStringForWidth(ellipsis+sep+lastPart, maxWidth)
+		}
+		// Use i-1 components
+		suffix = strings.Join(nonEmpty[len(nonEmpty)-i+1:], sep)
+		return ellipsis + sep + suffix
+	}
+
+	// All components fit with ellipsis (shouldn't reach here if full path didn't fit)
+	suffix := strings.Join(nonEmpty, sep)
+	return ellipsis + sep + suffix
+}
+
+// truncateStringForWidth truncates a string to fit within maxWidth, adding "..." if needed.
+func truncateStringForWidth(s string, maxWidth int) string {
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	if maxWidth < 4 {
+		return ""
+	}
+
+	// Truncate from the end, keeping as much as possible
+	runes := []rune(s)
+	for i := len(runes); i > 0; i-- {
+		candidate := string(runes[:i]) + "..."
+		if lipgloss.Width(candidate) <= maxWidth {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // renderDivider renders a horizontal divider line.
