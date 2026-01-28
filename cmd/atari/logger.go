@@ -49,13 +49,6 @@ func SetupTUILogger(logDir string, level slog.Leveler, rotationCfg config.LogRot
 	}, nil
 }
 
-// SetupTUILoggerSimple creates a logger with default rotation settings.
-// This is a convenience wrapper for SetupTUILogger.
-func SetupTUILoggerSimple(logDir string, level slog.Leveler) (*TUILoggerResult, error) {
-	defaultCfg := config.Default().LogRotation
-	return SetupTUILogger(logDir, level, defaultCfg)
-}
-
 // SetupTUILoggerWithWriter creates a logger that writes to the given writer.
 // This is useful for testing where we want to capture the output.
 func SetupTUILoggerWithWriter(w io.Writer, level slog.Leveler) *slog.Logger {

@@ -55,9 +55,7 @@ type PathsConfig struct {
 
 // BDActivityConfig holds BD activity watcher settings.
 type BDActivityConfig struct {
-	Enabled           bool          `yaml:"enabled" mapstructure:"enabled"`
-	ReconnectDelay    time.Duration `yaml:"reconnect_delay" mapstructure:"reconnect_delay"`
-	MaxReconnectDelay time.Duration `yaml:"max_reconnect_delay" mapstructure:"max_reconnect_delay"`
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
 }
 
 // LogRotationConfig holds settings for log file rotation.
@@ -196,9 +194,7 @@ func Default() *Config {
 			PID:    ".atari/atari.pid",
 		},
 		BDActivity: BDActivityConfig{
-			Enabled:           true,
-			ReconnectDelay:    5 * time.Second,
-			MaxReconnectDelay: 5 * time.Minute,
+			Enabled: true,
 		},
 		LogRotation: LogRotationConfig{
 			MaxSizeMB:  100,

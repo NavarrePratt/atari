@@ -23,9 +23,7 @@ Config
 │   ├── Socket  // .atari/atari.sock
 │   └── PID     // .atari/atari.pid
 ├── BDActivity    // BD activity watcher settings
-│   ├── Enabled           // Enable watcher (default: true)
-│   ├── ReconnectDelay    // Initial reconnect delay (default: 5s)
-│   └── MaxReconnectDelay // Max reconnect delay (default: 5m)
+│   └── Enabled   // Enable watcher (default: true)
 └── Prompt        // Default session prompt
 ```
 

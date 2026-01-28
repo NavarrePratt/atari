@@ -5,9 +5,7 @@ Background execution with external control via Unix socket RPC.
 ## Purpose
 
 The daemon package provides:
-- Background process management with PID file tracking
-- flock-based locking to prevent concurrent daemon instances
-- Stale file cleanup for crash recovery
+- Background process management
 - Unix socket server for JSON-RPC control
 - RPC client for CLI commands
 - Daemonization (fork/setsid) for background mode
@@ -35,21 +33,11 @@ RPC client for CLI commands:
 - Provides Status(), Pause(), Resume(), Stop() methods
 - Handles connection errors and timeouts
 
-### PIDFile
-
-Manages the PID file with flock locking:
-- `Write()` - Create and lock PID file with current process ID
-- `Read()` - Read PID from file
-- `Remove()` - Release lock and remove file
-- `IsRunning()` - Check if daemon process is alive
-- `CleanupStale()` - Remove stale files after crash
-
 ## File Paths
 
 Default locations (in project directory):
 - Daemon info: `.atari/daemon.json`
 - Socket: `.atari/atari.sock`
-- PID file: `.atari/atari.pid` (legacy, now using daemon.json)
 
 ## Usage
 
@@ -98,7 +86,6 @@ if daemonize {
 | client.go | RPC client for CLI |
 | handlers.go | RPC command handlers |
 | protocol.go | JSON-RPC types |
-| pid.go | PID file management |
 | daemonize.go | Fork/setsid for background mode |
 | paths.go | Path resolution for daemon files |
 | integration_test.go | Full daemon integration tests |
@@ -108,9 +95,6 @@ if daemonize {
 | Feature | Status |
 |---------|--------|
 | Daemon struct | Done |
-| PID file management | Done |
-| flock locking | Done |
-| Stale detection | Done |
 | Unix socket server | Done |
 | RPC client | Done |
 | Daemonization | Done |

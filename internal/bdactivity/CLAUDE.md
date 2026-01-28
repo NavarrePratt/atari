@@ -35,7 +35,7 @@ if err := watcher.Stop(); err != nil {
 - Handles file truncation gracefully (br sync rewrites)
 - No dependency on bd binary
 
-### Parser
+### ParseJSONLLine
 
 Converts JSONL lines to BeadState for diff comparison.
 
@@ -50,11 +50,9 @@ if state == nil {
 }
 ```
 
-**Legacy ParseLine** is kept for backward compatibility with bd activity stream format.
-
 ## Event Types
 
-### BeadChangedEvent (new)
+### BeadChangedEvent
 
 Emitted when a bead's state changes in the JSONL file:
 
@@ -67,14 +65,6 @@ type BeadChangedEvent struct {
 }
 ```
 
-### Legacy Events (kept for backward compatibility)
-
-- BeadCreatedEvent
-- BeadStatusEvent
-- BeadClosedEvent
-- BeadUpdatedEvent
-- BeadCommentEvent
-
 ## Configuration
 
 From `config.BDActivityConfig`:
@@ -82,8 +72,6 @@ From `config.BDActivityConfig`:
 | Field | Default | Description |
 |-------|---------|-------------|
 | Enabled | true | Whether to run the watcher |
-| ReconnectDelay | 5s | (Legacy, unused in file watcher) |
-| MaxReconnectDelay | 5m | (Legacy, unused in file watcher) |
 
 ## Dependencies
 
@@ -134,8 +122,6 @@ err := watcher.Start(ctx)
 
 | File | Description |
 |------|-------------|
-| watcher.go | File watcher with fsnotify, diff-based event emission |
-| parser.go | JSONL parsing and legacy bd activity format support |
+| watcher.go | File watcher with fsnotify, diff-based event emission, JSONL parsing |
 | watcher_test.go | Watcher unit tests with file operations |
-| parser_test.go | Parser unit tests |
 | CLAUDE.md | This documentation |

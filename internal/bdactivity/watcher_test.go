@@ -17,9 +17,7 @@ import (
 
 func testConfig() *config.BDActivityConfig {
 	return &config.BDActivityConfig{
-		Enabled:           true,
-		ReconnectDelay:    10 * time.Millisecond,
-		MaxReconnectDelay: 50 * time.Millisecond,
+		Enabled: true,
 	}
 }
 

@@ -25,8 +25,7 @@ const (
 	FlagDaemon = "daemon"
 
 	// Stop command flags
-	FlagGraceful = "graceful"
-	FlagForce    = "force"
+	FlagForce = "force"
 
 	// Events command flags
 	FlagFollow = "follow"

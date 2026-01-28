@@ -48,7 +48,7 @@ cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { viper.BindPFlag(f.Name, f) 
 
 ## Graceful shutdown
 
-- Use `internal/shutdown.Gracefully()` pattern.
+- Use `internal/shutdown.RunWithGracefulShutdown()` pattern.
 - Handle SIGINT/SIGTERM to complete current bead before exit.
 - Persist state before shutdown for recovery.
 
@@ -56,7 +56,6 @@ cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { viper.BindPFlag(f.Name, f) 
 
 - Unix socket at `.atari/atari.sock` for IPC.
 - Simple JSON-RPC protocol for control commands.
-- PID file at `.atari/atari.pid` for daemon detection.
 
 ## Adding commands
 
