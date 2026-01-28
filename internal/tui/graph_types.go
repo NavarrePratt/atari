@@ -1,6 +1,8 @@
 // Package tui provides terminal user interface components for the atari daemon.
 package tui
 
+import "strings"
+
 // EdgeType indicates the relationship type between nodes.
 type EdgeType int
 
@@ -160,18 +162,33 @@ func (b *GraphBead) ToNode() GraphNode {
 
 // ExtractEdges extracts graph edges from the bead's dependencies.
 // Returns edges where this bead is the target (dependencies point TO this bead).
+// Falls back to Parent field if no parent-child dependency exists.
 func (b *GraphBead) ExtractEdges() []GraphEdge {
 	var edges []GraphEdge
+	hasParentEdge := false
 
 	for _, dep := range b.Dependencies {
 		edgeType := EdgeDependency
-		if dep.DependencyType == "parent-child" {
+		depType := strings.ToLower(dep.DependencyType)
+		if depType == "parent-child" || depType == "parent_child" {
 			edgeType = EdgeHierarchy
+			if dep.ID == b.Parent {
+				hasParentEdge = true
+			}
 		}
 		edges = append(edges, GraphEdge{
 			From: dep.ID,
 			To:   b.ID,
 			Type: edgeType,
+		})
+	}
+
+	// Fallback: use Parent field if no parent-child dependency found
+	if b.Parent != "" && !hasParentEdge {
+		edges = append(edges, GraphEdge{
+			From: b.Parent,
+			To:   b.ID,
+			Type: EdgeHierarchy,
 		})
 	}
 

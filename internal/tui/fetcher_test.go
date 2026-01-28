@@ -235,6 +235,108 @@ func TestGraphBead_ExtractEdges_Empty(t *testing.T) {
 	}
 }
 
+func TestGraphBead_ExtractEdges_CaseInsensitive(t *testing.T) {
+	tests := []struct {
+		name     string
+		depType  string
+		wantType EdgeType
+	}{
+		{"lowercase hyphen", "parent-child", EdgeHierarchy},
+		{"uppercase hyphen", "PARENT-CHILD", EdgeHierarchy},
+		{"mixed case hyphen", "Parent-Child", EdgeHierarchy},
+		{"lowercase underscore", "parent_child", EdgeHierarchy},
+		{"uppercase underscore", "PARENT_CHILD", EdgeHierarchy},
+		{"blocks type", "blocks", EdgeDependency},
+		{"empty type", "", EdgeDependency},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bead := GraphBead{
+				ID: "bd-task-001",
+				Dependencies: []BeadReference{
+					{ID: "bd-epic-001", DependencyType: tt.depType},
+				},
+			}
+
+			edges := bead.ExtractEdges()
+
+			if len(edges) != 1 {
+				t.Fatalf("got %d edges, want 1", len(edges))
+			}
+			if edges[0].Type != tt.wantType {
+				t.Errorf("edge type = %v, want %v", edges[0].Type, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestGraphBead_ExtractEdges_ParentFallback(t *testing.T) {
+	bead := GraphBead{
+		ID:           "bd-task-001",
+		Parent:       "bd-epic-001",
+		Dependencies: nil,
+	}
+
+	edges := bead.ExtractEdges()
+
+	if len(edges) != 1 {
+		t.Fatalf("got %d edges, want 1", len(edges))
+	}
+	if edges[0].From != "bd-epic-001" {
+		t.Errorf("edge.From = %q, want %q", edges[0].From, "bd-epic-001")
+	}
+	if edges[0].To != "bd-task-001" {
+		t.Errorf("edge.To = %q, want %q", edges[0].To, "bd-task-001")
+	}
+	if edges[0].Type != EdgeHierarchy {
+		t.Errorf("edge.Type = %v, want EdgeHierarchy", edges[0].Type)
+	}
+}
+
+func TestGraphBead_ExtractEdges_ParentFallbackWithBlocksDep(t *testing.T) {
+	bead := GraphBead{
+		ID:     "bd-task-001",
+		Parent: "bd-epic-001",
+		Dependencies: []BeadReference{
+			{ID: "bd-task-000", DependencyType: "blocks"},
+		},
+	}
+
+	edges := bead.ExtractEdges()
+
+	if len(edges) != 2 {
+		t.Fatalf("got %d edges, want 2", len(edges))
+	}
+	// First edge from blocks dependency
+	if edges[0].From != "bd-task-000" || edges[0].Type != EdgeDependency {
+		t.Errorf("edge[0] = {%s, %v}, want {bd-task-000, EdgeDependency}", edges[0].From, edges[0].Type)
+	}
+	// Second edge from Parent fallback
+	if edges[1].From != "bd-epic-001" || edges[1].Type != EdgeHierarchy {
+		t.Errorf("edge[1] = {%s, %v}, want {bd-epic-001, EdgeHierarchy}", edges[1].From, edges[1].Type)
+	}
+}
+
+func TestGraphBead_ExtractEdges_NoDuplicateParentEdge(t *testing.T) {
+	bead := GraphBead{
+		ID:     "bd-task-001",
+		Parent: "bd-epic-001",
+		Dependencies: []BeadReference{
+			{ID: "bd-epic-001", DependencyType: "parent-child"},
+		},
+	}
+
+	edges := bead.ExtractEdges()
+
+	if len(edges) != 1 {
+		t.Fatalf("got %d edges, want 1 (no duplicate)", len(edges))
+	}
+	if edges[0].From != "bd-epic-001" || edges[0].Type != EdgeHierarchy {
+		t.Errorf("edge = {%s, %v}, want {bd-epic-001, EdgeHierarchy}", edges[0].From, edges[0].Type)
+	}
+}
+
 func TestToNodesAndEdges(t *testing.T) {
 	beads := []GraphBead{
 		{
