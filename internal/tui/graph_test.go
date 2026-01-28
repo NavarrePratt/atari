@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -733,6 +734,69 @@ func TestGraph_NodeDimensions(t *testing.T) {
 			}
 			if h != tt.wantH {
 				t.Errorf("height = %d, want %d", h, tt.wantH)
+			}
+		})
+	}
+}
+
+// TestGraph_VisibleItemCountByDensity verifies that visible item count equals viewport height
+// regardless of density setting. Since nodeHeight is always 1, items per screen equals height.
+func TestGraph_VisibleItemCountByDensity(t *testing.T) {
+	tests := []struct {
+		name           string
+		density        string
+		itemCount      int
+		viewportHeight int
+		wantVisible    int
+	}{
+		{"compact 5 items height 3", "compact", 5, 3, 3},
+		{"standard 5 items height 3", "standard", 5, 3, 3},
+		{"detailed 5 items height 3", "detailed", 5, 3, 3},
+		{"compact 10 items height 5", "compact", 10, 5, 5},
+		{"standard 10 items height 5", "standard", 10, 5, 5},
+		{"detailed 10 items height 5", "detailed", 10, 5, 5},
+		{"compact 3 items height 10", "compact", 3, 10, 3},
+		{"standard 3 items height 10", "standard", 3, 10, 3},
+		{"detailed 3 items height 10", "detailed", 3, 10, 3},
+		{"compact 1 item height 5", "compact", 1, 5, 1},
+		{"standard 0 items height 5", "standard", 0, 5, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.GraphConfig{Density: tt.density}
+
+			beads := make([]GraphBead, tt.itemCount)
+			for i := range beads {
+				beads[i] = GraphBead{
+					ID:        fmt.Sprintf("bd-%03d", i+1),
+					Title:     fmt.Sprintf("Task %d", i+1),
+					Status:    "open",
+					IssueType: "task",
+				}
+			}
+
+			fetcher := &mockFetcher{activeBeads: beads}
+			g := NewGraph(cfg, fetcher, "horizontal")
+			if err := g.Refresh(context.Background()); err != nil {
+				t.Fatalf("Refresh failed: %v", err)
+			}
+
+			g.SetViewport(80, tt.viewportHeight)
+			output := g.Render(80, tt.viewportHeight)
+
+			// Count lines containing bead IDs (actual rendered items)
+			lines := strings.Split(output, "\n")
+			gotVisible := 0
+			for _, line := range lines {
+				if strings.Contains(line, "bd-") {
+					gotVisible++
+				}
+			}
+
+			if gotVisible != tt.wantVisible {
+				t.Errorf("visible items = %d, want %d (density=%s, items=%d, height=%d)",
+					gotVisible, tt.wantVisible, tt.density, tt.itemCount, tt.viewportHeight)
 			}
 		})
 	}
