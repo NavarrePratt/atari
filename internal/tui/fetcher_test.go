@@ -1186,3 +1186,337 @@ func TestBDFetcher_EnrichBeadsWithDetails_WaitsForGoroutinesOnCancel(t *testing.
 	}
 }
 
+// End-to-end enrichment flow tests
+// These tests exercise the complete enrichment pipeline through FetchActive,
+// using realistic fixtures that match actual br list vs br show output.
+
+func TestBDFetcher_FetchActive_EnrichmentFlow(t *testing.T) {
+	// Test the complete enrichment flow:
+	// 1. br list returns unenriched data (no dependencies array)
+	// 2. br show returns enriched data for each bead
+	// 3. FetchActive returns beads with dependencies populated
+	// 4. Hierarchy edges can be extracted from the enriched beads
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("br", []string{"list", "--json"}, []byte(testutil.GraphListActiveJSON))
+	testutil.SetupMockEnrichment(runner, map[string]string{
+		"bd-epic-001": testutil.GraphShowBeadEpic001JSON,
+		"bd-task-001": testutil.GraphShowBeadTask001JSON,
+		"bd-task-002": testutil.GraphShowBeadTask002JSON,
+	})
+
+	fetcher := NewBDFetcher(runner)
+	beads, err := fetcher.FetchActive(context.Background())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 3 beads (epic + 2 tasks)
+	if len(beads) != 3 {
+		t.Fatalf("got %d beads, want 3", len(beads))
+	}
+
+	// Verify enrichment populated dependencies
+	beadMap := make(map[string]GraphBead)
+	for _, b := range beads {
+		beadMap[b.ID] = b
+	}
+
+	// bd-task-001 should have parent-child dependency on bd-epic-001
+	task1 := beadMap["bd-task-001"]
+	if len(task1.Dependencies) == 0 {
+		t.Error("bd-task-001 should have dependencies after enrichment")
+	} else {
+		found := false
+		for _, dep := range task1.Dependencies {
+			if dep.ID == "bd-epic-001" && dep.DependencyType == "parent-child" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("bd-task-001 should have parent-child dependency on bd-epic-001")
+		}
+	}
+
+	// bd-task-002 should have both parent-child and blocks dependencies
+	task2 := beadMap["bd-task-002"]
+	if len(task2.Dependencies) < 2 {
+		t.Errorf("bd-task-002 should have 2 dependencies, got %d", len(task2.Dependencies))
+	} else {
+		hasParent := false
+		hasBlocks := false
+		for _, dep := range task2.Dependencies {
+			if dep.ID == "bd-epic-001" && dep.DependencyType == "parent-child" {
+				hasParent = true
+			}
+			if dep.ID == "bd-task-001" && dep.DependencyType == "blocks" {
+				hasBlocks = true
+			}
+		}
+		if !hasParent {
+			t.Error("bd-task-002 should have parent-child dependency on bd-epic-001")
+		}
+		if !hasBlocks {
+			t.Error("bd-task-002 should have blocks dependency on bd-task-001")
+		}
+	}
+
+	// Verify hierarchy edges can be extracted
+	nodes, edges := ToNodesAndEdges(beads)
+
+	if len(nodes) != 3 {
+		t.Errorf("got %d nodes, want 3", len(nodes))
+	}
+
+	// Count hierarchy and dependency edges
+	var hierarchyCount, dependencyCount int
+	for _, edge := range edges {
+		switch edge.Type {
+		case EdgeHierarchy:
+			hierarchyCount++
+		case EdgeDependency:
+			dependencyCount++
+		}
+	}
+
+	// Should have hierarchy edges from epic to tasks
+	if hierarchyCount < 2 {
+		t.Errorf("got %d hierarchy edges, want at least 2", hierarchyCount)
+	}
+
+	// Should have dependency edge from task-001 to task-002
+	if dependencyCount < 1 {
+		t.Errorf("got %d dependency edges, want at least 1", dependencyCount)
+	}
+}
+
+func TestBDFetcher_FetchActive_PartialEnrichmentFailure(t *testing.T) {
+	// Test partial enrichment failure:
+	// - br list returns 3 beads
+	// - br show fails for 1 bead, succeeds for 2
+	// - 2 beads have dependencies, 1 uses basic data
+	// - Graph is still usable with partial hierarchy
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("br", []string{"list", "--json"}, []byte(testutil.GraphListActiveJSON))
+
+	// Set up enrichment to succeed for epic and task-001, fail for task-002
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
+			beadID := args[1]
+			switch beadID {
+			case "bd-epic-001":
+				return []byte(testutil.GraphShowBeadEpic001JSON), nil, true
+			case "bd-task-001":
+				return []byte(testutil.GraphShowBeadTask001JSON), nil, true
+			case "bd-task-002":
+				return nil, errors.New("bead not found"), true
+			}
+		}
+		return nil, nil, false
+	}
+
+	fetcher := NewBDFetcher(runner)
+	beads, err := fetcher.FetchActive(context.Background())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 3 beads
+	if len(beads) != 3 {
+		t.Fatalf("got %d beads, want 3", len(beads))
+	}
+
+	beadMap := make(map[string]GraphBead)
+	for _, b := range beads {
+		beadMap[b.ID] = b
+	}
+
+	// task-001 should be enriched (has dependencies)
+	task1 := beadMap["bd-task-001"]
+	if len(task1.Dependencies) == 0 {
+		t.Error("bd-task-001 should have dependencies (enrichment succeeded)")
+	}
+
+	// task-002 should retain basic data (enrichment failed)
+	task2 := beadMap["bd-task-002"]
+	if len(task2.Dependencies) != 0 {
+		t.Errorf("bd-task-002 should have no dependencies (enrichment failed), got %d", len(task2.Dependencies))
+	}
+	// But it should still have basic data from br list
+	if task2.Title != "Add session management" {
+		t.Errorf("bd-task-002 should retain basic data, got title %q", task2.Title)
+	}
+
+	// Verify partial hierarchy is visible
+	nodes, edges := ToNodesAndEdges(beads)
+
+	if len(nodes) != 3 {
+		t.Errorf("got %d nodes, want 3", len(nodes))
+	}
+
+	// Should have at least 1 hierarchy edge (from enriched task-001)
+	var hierarchyCount int
+	for _, edge := range edges {
+		if edge.Type == EdgeHierarchy {
+			hierarchyCount++
+		}
+	}
+	if hierarchyCount == 0 {
+		t.Error("expected at least 1 hierarchy edge from partially enriched data")
+	}
+}
+
+func TestBDFetcher_FetchActive_TotalEnrichmentFailure(t *testing.T) {
+	// Test total enrichment failure:
+	// - br list returns beads
+	// - br show fails for ALL beads
+	// - WARN logged with failure count
+	// - Graph still displays (flat, but functional)
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("br", []string{"list", "--json"}, []byte(testutil.GraphListActiveJSON))
+
+	// Fail all enrichment attempts
+	runner.DynamicResponse = func(ctx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
+			return nil, errors.New("connection refused"), true
+		}
+		return nil, nil, false
+	}
+
+	// Capture log output to verify WARN
+	var logBuf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(oldLogger)
+
+	fetcher := NewBDFetcher(runner)
+	beads, err := fetcher.FetchActive(context.Background())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should still have 3 beads (basic data from br list)
+	if len(beads) != 3 {
+		t.Fatalf("got %d beads, want 3", len(beads))
+	}
+
+	// All beads should have no dependencies (enrichment failed)
+	for _, b := range beads {
+		if len(b.Dependencies) != 0 {
+			t.Errorf("bead %s should have no dependencies (all enrichment failed), got %d", b.ID, len(b.Dependencies))
+		}
+	}
+
+	// Verify WARN logged for partial failure
+	logOutput := logBuf.String()
+	if !containsLogEntry(logOutput, "WARN", "enrichment partially failed") {
+		t.Error("expected WARN log for total enrichment failure")
+	}
+
+	// Verify graph is still functional (flat, but displayable)
+	nodes, edges := ToNodesAndEdges(beads)
+
+	if len(nodes) != 3 {
+		t.Errorf("got %d nodes, want 3", len(nodes))
+	}
+
+	// No edges since enrichment failed
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges with failed enrichment, got %d", len(edges))
+	}
+}
+
+func TestBDFetcher_FetchActive_ContextCancellationMidEnrichment(t *testing.T) {
+	// Test context cancellation during enrichment:
+	// - br list returns many beads (more than maxConcurrentFetches)
+	// - Cancel context after first br show
+	// - Returns error promptly (semaphore acquire fails)
+	// - No goroutine leaks
+
+	// Create a list response with 10 beads to exceed maxConcurrentFetches (5)
+	manyBeadsJSON := `[`
+	for i := 0; i < 10; i++ {
+		if i > 0 {
+			manyBeadsJSON += `,`
+		}
+		manyBeadsJSON += fmt.Sprintf(`{"id": "bd-%03d", "title": "Task %d", "status": "open", "priority": 2, "issue_type": "task"}`, i, i)
+	}
+	manyBeadsJSON += `]`
+
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("br", []string{"list", "--json"}, []byte(manyBeadsJSON))
+
+	var showCallCount int64
+	var goroutinesStarted int64
+	var goroutinesFinished int64
+	ctx, cancel := context.WithCancel(context.Background())
+
+	runner.DynamicResponse = func(dynCtx context.Context, name string, args []string) ([]byte, error, bool) {
+		if name == "br" && len(args) >= 3 && args[0] == "show" && args[2] == "--json" {
+			atomic.AddInt64(&goroutinesStarted, 1)
+			defer atomic.AddInt64(&goroutinesFinished, 1)
+
+			callNum := atomic.AddInt64(&showCallCount, 1)
+
+			// Cancel after first call starts
+			if callNum == 1 {
+				// Simulate some work then cancel
+				time.Sleep(10 * time.Millisecond)
+				cancel()
+			}
+
+			// Check if context is cancelled
+			select {
+			case <-dynCtx.Done():
+				return nil, dynCtx.Err(), true
+			case <-time.After(100 * time.Millisecond):
+				beadID := args[1]
+				return []byte(fmt.Sprintf(`[{"id": "%s", "title": "Enriched", "status": "open"}]`, beadID)), nil, true
+			}
+		}
+		return nil, nil, false
+	}
+
+	fetcher := NewBDFetcher(runner)
+
+	done := make(chan struct{})
+	var fetchErr error
+
+	go func() {
+		_, fetchErr = fetcher.FetchActive(ctx)
+		close(done)
+	}()
+
+	// Should complete promptly (within 2 seconds)
+	select {
+	case <-done:
+		// Expected
+	case <-time.After(3 * time.Second):
+		t.Fatal("FetchActive did not return promptly after context cancellation")
+	}
+
+	// Should return context.Canceled error
+	if fetchErr == nil {
+		t.Error("expected error for cancelled context, got nil")
+	} else if !errors.Is(fetchErr, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got %v", fetchErr)
+	}
+
+	// Give goroutines time to finish
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify no goroutine leaks
+	started := atomic.LoadInt64(&goroutinesStarted)
+	finished := atomic.LoadInt64(&goroutinesFinished)
+
+	if started != finished {
+		t.Errorf("goroutine leak: started=%d, finished=%d", started, finished)
+	}
+}
+
