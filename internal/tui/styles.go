@@ -34,10 +34,6 @@ var styles = struct {
 	// Focus indicators
 	FocusedBorder   lipgloss.Style
 	UnfocusedBorder lipgloss.Style
-
-	// Observer-specific focus indicators (distinct cyan theme)
-	ObserverFocusedBorder   lipgloss.Style
-	ObserverUnfocusedBorder lipgloss.Style
 }{
 	// Layout styles
 	Container: lipgloss.NewStyle().
@@ -105,15 +101,6 @@ var styles = struct {
 	UnfocusedBorder: lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("240")), // Dimmed gray for unfocused
-
-	// Observer-specific focus indicators (distinct cyan/teal theme)
-	ObserverFocusedBorder: lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("37")), // Cyan for focused observer
-
-	ObserverUnfocusedBorder: lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("30")), // Dark cyan for unfocused observer
 }
 
 // graphStyles contains styles specific to graph rendering.

@@ -703,17 +703,7 @@ func (m model) renderEventsForSize(w, visibleLines int) string {
 
 // containerStyleForFocus returns the appropriate container style based on
 // whether the specified pane is currently focused.
-// Observer pane uses distinct cyan-themed borders for visual distinction.
 func (m model) containerStyleForFocus(pane FocusedPane) lipgloss.Style {
-	// Observer pane uses distinct cyan-themed borders
-	if pane == FocusObserver {
-		if m.focusedPane == pane {
-			return styles.ObserverFocusedBorder
-		}
-		return styles.ObserverUnfocusedBorder
-	}
-
-	// Default focus indicators for other panes
 	if m.focusedPane == pane {
 		return styles.FocusedBorder
 	}
