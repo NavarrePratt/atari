@@ -235,7 +235,7 @@ func (m *model) toggleObserver() {
 		m.graphPane.SetFocused(false)
 	} else {
 		m.observerPane.SetFocused(false)
-		m.observerPane.ClearResponse()
+		m.observerPane.Reset()
 		// Move focus to an open pane
 		if m.eventsOpen {
 			m.focusedPane = FocusEvents

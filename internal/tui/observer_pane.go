@@ -602,6 +602,15 @@ func (p *ObserverPane) ClearResponse() {
 	p.updateViewportContent()
 }
 
+// Reset clears the pane state and resets the underlying observer session.
+// Call this when closing the panel to ensure reopening starts fresh.
+func (p *ObserverPane) Reset() {
+	p.ClearResponse()
+	if p.observer != nil {
+		p.observer.Reset()
+	}
+}
+
 // truncateString truncates a string to maxLen with ellipsis.
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
