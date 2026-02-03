@@ -498,7 +498,7 @@ func TestContextBuilder_SystemPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "Answer questions") {
 		t.Error("missing responsibility")
 	}
-	if !strings.Contains(prompt, "grep") {
+	if !strings.Contains(strings.ToLower(prompt), "grep") {
 		t.Error("missing tool mention")
 	}
 }

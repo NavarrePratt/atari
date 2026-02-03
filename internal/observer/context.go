@@ -110,7 +110,7 @@ Your role:
 - Suggest when manual intervention might be needed
 - Explain Claude's decision-making based on visible events
 
-You have access to tools. If you need more details about an event, you can use grep to look it up in the log file.
+You have read-only access to Glob, Grep, and Read tools for inspecting files and logs. Bash is not available - use the Read tool for file contents and Grep for searching logs.
 `
 }
 

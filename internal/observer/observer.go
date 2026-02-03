@@ -221,6 +221,9 @@ func (o *Observer) buildArgs(prompt string) []string {
 	}
 	o.mu.Unlock()
 
+	// Restrict to read-only tools for safe concurrent operation
+	args = append(args, "--allowedTools", "Glob,Grep,Read")
+
 	// Add model if specified
 	if o.config != nil && o.config.Model != "" {
 		args = append(args, "--model", o.config.Model)
