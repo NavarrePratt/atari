@@ -78,7 +78,7 @@ func TestNew_WithGraphFetcher(t *testing.T) {
 func TestNew_WithObserver(t *testing.T) {
 	eventChan := make(chan events.Event)
 	// Create a minimal observer (nil dependencies are ok for this test)
-	obs := observer.NewObserver(nil, nil, nil, nil)
+	obs := observer.NewObserver(nil, nil, nil)
 
 	tui := New(eventChan, WithObserver(obs))
 
@@ -277,7 +277,7 @@ func TestTUI_FullConfiguration(t *testing.T) {
 	client := brclient.NewMockClient()
 	fetcher := NewBDFetcher(client)
 	stats := &mockStatsGetter{}
-	obs := observer.NewObserver(nil, nil, nil, nil)
+	obs := observer.NewObserver(nil, nil, nil)
 
 	tui := New(eventChan,
 		WithOnPause(func() {}),
@@ -317,7 +317,7 @@ func TestNewModel_FullConfiguration(t *testing.T) {
 	client := brclient.NewMockClient()
 	fetcher := NewBDFetcher(client)
 	stats := &mockStatsGetter{}
-	obs := observer.NewObserver(nil, nil, nil, nil)
+	obs := observer.NewObserver(nil, nil, nil)
 
 	m := newModel(
 		eventChan,

@@ -55,22 +55,18 @@ func TestNewObserver(t *testing.T) {
 		Enabled: true,
 		Model:   "haiku",
 	}
-	broker := NewSessionBroker()
 
 	// Create a minimal log reader and context builder
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	if obs == nil {
 		t.Fatal("expected non-nil observer")
 	}
 	if obs.config != cfg {
 		t.Error("expected config to be set")
-	}
-	if obs.broker != broker {
-		t.Error("expected broker to be set")
 	}
 	if obs.builder != builder {
 		t.Error("expected builder to be set")
@@ -91,11 +87,10 @@ func makeStreamJSON(text, sessionID string) string {
 
 func TestObserver_Ask_Success(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	// Mock runner that returns stream-json output
 	expectedOutput := "This is the answer to your question."
@@ -135,87 +130,12 @@ func TestObserver_Ask_Success(t *testing.T) {
 	}
 }
 
-func TestObserver_Ask_ReturnsBusyWhenDrainHoldsBroker(t *testing.T) {
-	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
-	logReader := NewLogReader("/tmp/test.log")
-	builder := NewContextBuilder(logReader, cfg)
-
-	// Acquire the broker to simulate drain holding it
-	err := broker.Acquire(context.Background(), "drain", time.Second)
-	if err != nil {
-		t.Fatalf("failed to acquire broker: %v", err)
-	}
-	defer broker.Release()
-
-	obs := NewObserver(cfg, broker, builder, nil)
-
-	// Mock runner should never be called since broker acquisition fails
-	runnerCalled := false
-	obs.SetRunnerFactory(func() runner.ProcessRunner {
-		runnerCalled = true
-		return &mockRunner{}
-	})
-
-	// Observer should return ErrBusy when broker is held by drain
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	_, err = obs.Ask(ctx, "What is happening?")
-
-	if !errors.Is(err, ErrBusy) {
-		t.Errorf("expected ErrBusy, got %v", err)
-	}
-	if runnerCalled {
-		t.Error("runner should not be called when broker acquisition fails")
-	}
-}
-
-func TestObserver_Ask_AcquiresAndReleasesBroker(t *testing.T) {
-	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
-	logReader := NewLogReader("/tmp/test.log")
-	builder := NewContextBuilder(logReader, cfg)
-
-	obs := NewObserver(cfg, broker, builder, nil)
-
-	// Mock runner that returns stream-json output
-	streamJSON := makeStreamJSON("response", "test-session-789")
-	obs.SetRunnerFactory(func() runner.ProcessRunner {
-		return &mockRunner{
-			startFn: func(ctx context.Context, name string, args ...string) (io.ReadCloser, io.ReadCloser, error) {
-				// Verify broker is held during query execution
-				if broker.Holder() != "observer" {
-					t.Errorf("expected broker holder to be 'observer', got %q", broker.Holder())
-				}
-				return io.NopCloser(strings.NewReader(streamJSON)), io.NopCloser(strings.NewReader("")), nil
-			},
-		}
-	})
-
-	// Verify broker is not held before query
-	if broker.IsHeld() {
-		t.Error("broker should not be held before Ask")
-	}
-
-	_, err := obs.Ask(context.Background(), "What is happening?")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify broker is released after query
-	if broker.IsHeld() {
-		t.Error("broker should be released after Ask")
-	}
-}
-
 func TestObserver_Ask_OutputTruncation(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	// Create stream-json with text larger than maxOutputBytes
 	largeText := strings.Repeat("a", maxOutputBytes+1000)
@@ -244,11 +164,10 @@ func TestObserver_Ask_OutputTruncation(t *testing.T) {
 
 func TestObserver_Cancel(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	killCalled := false
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
@@ -293,11 +212,10 @@ func TestObserver_Cancel(t *testing.T) {
 
 func TestObserver_Reset(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	// Set a session ID
 	obs.mu.Lock()
@@ -348,11 +266,10 @@ func TestObserver_BuildArgs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.ObserverConfig{Model: tt.model}
-			broker := NewSessionBroker()
 			logReader := NewLogReader("/tmp/test.log")
 			builder := NewContextBuilder(logReader, cfg)
 
-			obs := NewObserver(cfg, broker, builder, nil)
+			obs := NewObserver(cfg, builder, nil)
 			obs.mu.Lock()
 			obs.sessionID = tt.sessionID
 			obs.mu.Unlock()
@@ -378,7 +295,6 @@ func TestObserver_BuildArgs(t *testing.T) {
 
 func TestObserver_WithStateProvider(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
@@ -389,7 +305,7 @@ func TestObserver_WithStateProvider(t *testing.T) {
 		},
 	}
 
-	obs := NewObserver(cfg, broker, builder, provider)
+	obs := NewObserver(cfg, builder, provider)
 
 	// Mock runner to verify context is passed
 	var capturedPrompt string
@@ -489,11 +405,10 @@ func TestLimitedWriter(t *testing.T) {
 
 func TestObserver_HistoryTracking(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	// Set up mock runner that returns different stream-json responses
 	responseNum := 0
@@ -549,11 +464,10 @@ func TestObserver_HistoryTracking(t *testing.T) {
 
 func TestObserver_ResetClearsHistory(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	// Set up mock runner with stream-json
 	streamJSON := makeStreamJSON("response", "test-session")
@@ -590,11 +504,10 @@ func TestObserver_ResetClearsHistory(t *testing.T) {
 
 func TestObserver_HistoryNotRecordedOnError(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	// Set up mock runner that fails
 	obs.SetRunnerFactory(func() runner.ProcessRunner {
@@ -621,11 +534,10 @@ func TestObserver_HistoryNotRecordedOnError(t *testing.T) {
 
 func TestObserver_SessionIDExtraction(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	expectedSessionID := "abc123-def456-ghi789"
 	streamJSON := makeStreamJSON("test response", expectedSessionID)
@@ -655,7 +567,6 @@ func TestObserver_SessionIDExtraction(t *testing.T) {
 
 func TestObserver_SessionIDMinLengthValidation(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
@@ -688,7 +599,7 @@ func TestObserver_SessionIDMinLengthValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			obs := NewObserver(cfg, broker, builder, nil)
+			obs := NewObserver(cfg, builder, nil)
 			streamJSON := makeStreamJSON("test response", tt.sessionID)
 
 			obs.SetRunnerFactory(func() runner.ProcessRunner {
@@ -723,11 +634,10 @@ func TestObserver_SessionIDMinLengthValidation(t *testing.T) {
 
 func TestObserver_ResumeOnSubsequentQuery(t *testing.T) {
 	cfg := &config.ObserverConfig{Model: "haiku"}
-	broker := NewSessionBroker()
 	logReader := NewLogReader("/tmp/test.log")
 	builder := NewContextBuilder(logReader, cfg)
 
-	obs := NewObserver(cfg, broker, builder, nil)
+	obs := NewObserver(cfg, builder, nil)
 
 	sessionID := "session-for-resume-test"
 	queryCount := 0

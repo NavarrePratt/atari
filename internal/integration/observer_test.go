@@ -3,7 +3,6 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,16 +16,15 @@ import (
 
 // observerTestEnv holds the test environment for observer integration tests.
 type observerTestEnv struct {
-	t          *testing.T
-	tempDir    string
-	mockPath   string
-	logPath    string
-	oldPath    string
-	cfg        *config.ObserverConfig
-	broker     *observer.SessionBroker
-	logReader  *observer.LogReader
-	builder    *observer.ContextBuilder
-	obs        *observer.Observer
+	t         *testing.T
+	tempDir   string
+	mockPath  string
+	logPath   string
+	oldPath   string
+	cfg       *config.ObserverConfig
+	logReader *observer.LogReader
+	builder   *observer.ContextBuilder
+	obs       *observer.Observer
 }
 
 // newObserverTestEnv creates a test environment for observer tests.
@@ -59,7 +57,6 @@ func newObserverTestEnv(t *testing.T) *observerTestEnv {
 		Layout:       "horizontal",
 	}
 
-	broker := observer.NewSessionBroker()
 	logReader := observer.NewLogReader(logPath)
 	builder := observer.NewContextBuilder(logReader, cfg)
 
@@ -70,7 +67,6 @@ func newObserverTestEnv(t *testing.T) *observerTestEnv {
 		logPath:   logPath,
 		oldPath:   oldPath,
 		cfg:       cfg,
-		broker:    broker,
 		logReader: logReader,
 		builder:   builder,
 	}
@@ -84,7 +80,7 @@ func (e *observerTestEnv) cleanup() {
 
 // createObserver creates an observer instance for testing.
 func (e *observerTestEnv) createObserver(stateProvider observer.DrainStateProvider) *observer.Observer {
-	e.obs = observer.NewObserver(e.cfg, e.broker, e.builder, stateProvider)
+	e.obs = observer.NewObserver(e.cfg, e.builder, stateProvider)
 	return e.obs
 }
 
@@ -136,36 +132,6 @@ func TestObserverBasicQuery(t *testing.T) {
 
 	if !strings.Contains(response, "test response") {
 		t.Errorf("expected response to contain mock output, got: %s", response)
-	}
-}
-
-// TestObserverReturnsBusyWhenDrainIsActive tests that observer returns ErrBusy
-// when drain holds the session broker.
-func TestObserverReturnsBusyWhenDrainIsActive(t *testing.T) {
-	env := newObserverTestEnv(t)
-	defer env.cleanup()
-
-	// Create empty log (context builder handles this gracefully)
-	if err := testutil.WriteLogFixture(env.logPath, testutil.EmptyLogEvents()); err != nil {
-		t.Fatalf("failed to create empty log: %v", err)
-	}
-
-	obs := env.createObserver(nil)
-
-	// Acquire the broker (simulating drain holding it)
-	err := env.broker.Acquire(context.Background(), "drain", time.Second)
-	if err != nil {
-		t.Fatalf("failed to acquire broker: %v", err)
-	}
-	defer env.broker.Release()
-
-	// Observer should return ErrBusy when drain holds the broker
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	_, err = obs.Ask(ctx, "test question")
-	if !errors.Is(err, observer.ErrBusy) {
-		t.Errorf("expected observer.ErrBusy, got %v", err)
 	}
 }
 

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -14,19 +13,15 @@ import (
 
 // observerTestEnv provides an isolated test environment for observer pane integration tests.
 type observerTestEnv struct {
-	t      *testing.T
-	broker *observer.SessionBroker
+	t *testing.T
 }
 
 // newObserverTestEnv creates a new test environment for observer pane tests.
 func newObserverTestEnv(t *testing.T) *observerTestEnv {
 	t.Helper()
 
-	broker := observer.NewSessionBroker()
-
 	return &observerTestEnv{
-		t:      t,
-		broker: broker,
+		t: t,
 	}
 }
 
@@ -368,56 +363,6 @@ func TestObserver_NilObserver_ReturnsNotInitializedError(t *testing.T) {
 	}
 }
 
-// TestObserver_ShowsBusyWhenDrainIsActive verifies that the observer pane
-// properly displays an error when drain holds the session broker.
-func TestObserver_ShowsBusyWhenDrainIsActive(t *testing.T) {
-	env := newObserverTestEnv(t)
-
-	// Acquire the broker to simulate drain holding it
-	ctx := context.Background()
-	err := env.broker.Acquire(ctx, "drain", 1*time.Second)
-	if err != nil {
-		t.Fatalf("failed to acquire broker: %v", err)
-	}
-	defer env.broker.Release()
-
-	// Verify broker is held by drain
-	if !env.broker.IsHeld() {
-		t.Fatal("broker should be held")
-	}
-	if env.broker.Holder() != "drain" {
-		t.Errorf("expected holder 'drain', got %q", env.broker.Holder())
-	}
-
-	// Create observer with the busy broker
-	cfg := &config.ObserverConfig{
-		Enabled: true,
-	}
-	logReader := observer.NewLogReader("/tmp/test.log")
-	builder := observer.NewContextBuilder(logReader, cfg)
-	stateProvider := &fakeStateProvider{}
-	obs := observer.NewObserver(cfg, env.broker, builder, stateProvider)
-
-	// Create pane with the observer
-	pane := env.newPaneWithObserver(obs)
-
-	// Simulate the ErrBusy response that observer returns when drain holds the broker
-	resultMsg := observerResultMsg{
-		response: "",
-		err:      observer.ErrBusy,
-	}
-	newPane, _ := pane.Update(resultMsg)
-	pane = newPane
-
-	// Should have error indicating drain is busy
-	if pane.errorMsg == "" {
-		t.Error("expected error message when drain is active")
-	}
-	if !strings.Contains(pane.errorMsg, "busy") {
-		t.Errorf("expected error to contain 'busy', got %q", pane.errorMsg)
-	}
-}
-
 // TestObserver_LoadingStateDuringQuery verifies that the loading state
 // is properly managed while a query is in progress.
 func TestObserver_LoadingStateDuringQuery(t *testing.T) {
@@ -521,7 +466,7 @@ func TestObserver_CancelQuery(t *testing.T) {
 	logReader := observer.NewLogReader("/tmp/test.log")
 	builder := observer.NewContextBuilder(logReader, cfg)
 	stateProvider := &fakeStateProvider{}
-	obs := observer.NewObserver(cfg, env.broker, builder, stateProvider)
+	obs := observer.NewObserver(cfg, builder, stateProvider)
 
 	// Create pane with real observer
 	pane := env.newPaneWithObserver(obs)

@@ -27,7 +27,6 @@ type Exchange struct {
 // Observer handles interactive Q&A queries using Claude CLI.
 type Observer struct {
     config        *config.ObserverConfig
-    broker        *SessionBroker
     builder       *ContextBuilder
     stateProvider DrainStateProvider
     runnerFactory func() runner.ProcessRunner
@@ -40,7 +39,7 @@ type Observer struct {
 }
 
 // Public API
-func NewObserver(cfg *config.ObserverConfig, broker *SessionBroker, builder *ContextBuilder, stateProvider DrainStateProvider) *Observer
+func NewObserver(cfg *config.ObserverConfig, builder *ContextBuilder, stateProvider DrainStateProvider) *Observer
 func (o *Observer) Ask(ctx context.Context, question string) (string, error)
 func (o *Observer) Cancel()   // Cancel in-progress query
 func (o *Observer) Reset()    // Clear session and history for fresh start
@@ -58,38 +57,6 @@ func (o *Observer) SetRunnerFactory(factory func() runner.ProcessRunner)  // For
 - `ErrCancelled`: Query cancelled by user
 - `ErrQueryTimeout`: Query exceeded timeout
 - `ErrNoContext`: Failed to build context
-- `ErrBusy`: Session broker held by drain (observer uses 5-second timeout)
-
-### SessionBroker (broker.go)
-
-Coordinates access to Claude CLI between drain and observer sessions.
-
-```go
-// SessionBroker coordinates access to the Claude CLI process.
-// Only one Claude process can run at a time.
-type SessionBroker struct {
-    mu     sync.RWMutex
-    holder string        // "drain", "observer", or "" if unlocked
-    sem    chan struct{} // semaphore channel
-}
-
-// Public API
-func NewSessionBroker() *SessionBroker
-func (b *SessionBroker) Acquire(ctx context.Context, holder string, timeout time.Duration) error
-func (b *SessionBroker) TryAcquire(holder string) bool
-func (b *SessionBroker) Release()
-func (b *SessionBroker) Holder() string
-func (b *SessionBroker) IsHeld() bool
-```
-
-**Key behaviors:**
-- Thread-safe semaphore-based coordination
-- Context cancellation support
-- Configurable timeout on acquisition
-- Safe to call Release multiple times
-- Holder tracking for debugging
-
-**Coordination:** Observer acquires the session broker before running queries. If drain holds the broker, observer returns ErrBusy after a 5-second timeout to avoid blocking drain sessions.
 
 ### ContextBuilder (context.go)
 
@@ -190,7 +157,6 @@ type ObserverConfig struct {
 ### Unit Tests
 
 - `observer_test.go`: Observer construction, Ask, Cancel, Reset, argument building
-- `broker_test.go`: SessionBroker Acquire, TryAcquire, Release, concurrent access
 - `context_test.go`: ContextBuilder sections, event formatting, truncation
 - `logreader_test.go`: LogReader parsing, filtering, rotation detection
 
@@ -202,13 +168,11 @@ type ObserverConfig struct {
 
 ## Design Notes
 
-1. **Broker serialization**: Observer acquires session broker with 5-second timeout to prevent conflicts with drain
-2. **Drain priority**: Observer returns ErrBusy when drain holds the broker, avoiding wait
-3. **Session continuity**: Uses `--resume` for follow-up questions
-4. **Memory-based history**: Conversation history stored in Observer struct
-5. **Output truncation**: 100KB limit prevents runaway responses
-6. **Log-based context**: Reads from existing `.atari/atari.log` file
-7. **Event summarization**: Truncates text to fit context limits
+1. **Session continuity**: Uses `--resume` for follow-up questions
+2. **Memory-based history**: Conversation history stored in Observer struct
+3. **Output truncation**: 100KB limit prevents runaway responses
+4. **Log-based context**: Reads from existing `.atari/atari.log` file
+5. **Event summarization**: Truncates text to fit context limits
 
 ## Usage Example
 
@@ -216,10 +180,9 @@ type ObserverConfig struct {
 // Create components
 logReader := observer.NewLogReader(".atari/atari.log")
 builder := observer.NewContextBuilder(logReader, cfg.Observer)
-broker := observer.NewSessionBroker()
 
 // Create observer with drain state provider
-obs := observer.NewObserver(cfg.Observer, broker, builder, drainStateProvider)
+obs := observer.NewObserver(cfg.Observer, builder, drainStateProvider)
 
 // Ask a question
 response, err := obs.Ask(ctx, "What is Claude doing right now?")

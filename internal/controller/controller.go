@@ -53,9 +53,6 @@ type Controller struct {
 	bdWatcher     *bdactivity.Watcher
 	processRunner runner.ProcessRunner
 
-	// Session broker for coordinating Claude process access (optional)
-	broker *observer.SessionBroker
-
 	// State sink for persistence (optional)
 	stateSink *events.StateSink
 
@@ -96,13 +93,6 @@ type Controller struct {
 
 // ControllerOption configures a Controller.
 type ControllerOption func(*Controller)
-
-// WithBroker sets the session broker for coordinating Claude process access.
-func WithBroker(broker *observer.SessionBroker) ControllerOption {
-	return func(c *Controller) {
-		c.broker = broker
-	}
-}
 
 // WithStateSink sets the state sink for persistence.
 func WithStateSink(sink *events.StateSink) ControllerOption {
@@ -822,14 +812,6 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		Title:     bead.Title,
 	})
 
-	// Acquire session broker if configured (for observer coordination)
-	if c.broker != nil {
-		if err := c.broker.Acquire(c.ctx, "drain", 30*time.Second); err != nil {
-			return nil, fmt.Errorf("acquire session broker: %w", err)
-		}
-		defer c.broker.Release()
-	}
-
 	// Track if we're attempting to resume
 	attemptingResume := c.getStoredSessionID(bead.ID) != ""
 
@@ -1268,11 +1250,6 @@ func (c *Controller) GetDrainState() observer.DrainState {
 	return state
 }
 
-// Broker returns the session broker, if configured.
-func (c *Controller) Broker() *observer.SessionBroker {
-	return c.broker
-}
-
 // GetBeadState returns the workqueue state for a bead.
 // Implements tui.BeadStateGetter interface.
 // Returns:
@@ -1366,14 +1343,6 @@ func (c *Controller) runFollowUpSession(bead *workqueue.Bead) (bool, *SessionRes
 		BeadID:    bead.ID,
 		Title:     bead.Title + " (follow-up)",
 	})
-
-	// Acquire session broker if configured
-	if c.broker != nil {
-		if err := c.broker.Acquire(c.ctx, "follow-up", 30*time.Second); err != nil {
-			return false, nil, fmt.Errorf("acquire session broker: %w", err)
-		}
-		defer c.broker.Release()
-	}
 
 	if err := sess.Start(c.ctx, prompt); err != nil {
 		return false, nil, fmt.Errorf("start follow-up session: %w", err)

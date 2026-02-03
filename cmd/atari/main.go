@@ -459,12 +459,8 @@ Use --daemon to run in the background.`,
 				slog.SetDefault(ctrlLogger)
 			}
 
-			// Create session broker for coordinating Claude process access
-			broker := observer.NewSessionBroker()
-
-			// Create controller with appropriate logger, broker, and state sink
+			// Create controller with appropriate logger and state sink
 			ctrl := controller.New(cfg, wq, router, brClient, processRunner, ctrlLogger,
-				controller.WithBroker(broker),
 				controller.WithStateSink(stateSink))
 
 			// TUI mode: run TUI in foreground with controller in background
@@ -480,7 +476,7 @@ Use --daemon to run in the background.`,
 				if cfg.Observer.Enabled {
 					logReader := observer.NewLogReader(cfg.Paths.Log)
 					contextBuilder := observer.NewContextBuilder(logReader, &cfg.Observer)
-					obs = observer.NewObserver(&cfg.Observer, broker, contextBuilder, ctrl)
+					obs = observer.NewObserver(&cfg.Observer, contextBuilder, ctrl)
 				}
 
 				// Get working directory for TUI status line

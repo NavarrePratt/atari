@@ -35,10 +35,6 @@ const (
 	// defaultQueryTimeout is the default timeout for observer queries.
 	defaultQueryTimeout = 60 * time.Second
 
-	// brokerAcquireTimeout is the timeout for acquiring the session broker.
-	// Short timeout so observer returns quickly when drain is active.
-	brokerAcquireTimeout = 5 * time.Second
-
 	// maxOutputBytes is the maximum output size before truncation (100KB).
 	maxOutputBytes = 100 * 1024
 
@@ -59,10 +55,6 @@ var (
 
 	// ErrNoContext is returned when context building fails.
 	ErrNoContext = errors.New("observer: failed to build context")
-
-	// ErrBusy is returned when the session broker is held by drain.
-	// The observer uses a short timeout to avoid blocking drain sessions.
-	ErrBusy = errors.New("observer: busy - drain session is active")
 )
 
 // DrainStateProvider provides current drain state for context building.
@@ -79,7 +71,6 @@ type Exchange struct {
 // Observer handles interactive Q&A queries using Claude CLI.
 type Observer struct {
 	config        *config.ObserverConfig
-	broker        *SessionBroker
 	builder       *ContextBuilder
 	stateProvider DrainStateProvider
 	runnerFactory func() runner.ProcessRunner
@@ -94,13 +85,11 @@ type Observer struct {
 // NewObserver creates a new Observer with the given configuration.
 func NewObserver(
 	cfg *config.ObserverConfig,
-	broker *SessionBroker,
 	builder *ContextBuilder,
 	stateProvider DrainStateProvider,
 ) *Observer {
 	return &Observer{
 		config:        cfg,
-		broker:        broker,
 		builder:       builder,
 		stateProvider: stateProvider,
 		runnerFactory: func() runner.ProcessRunner {
@@ -110,20 +99,8 @@ func NewObserver(
 }
 
 // Ask executes a query and returns the response.
-// It acquires the session broker to prevent conflicts with drain sessions,
-// builds context, and runs claude CLI.
+// It builds context and runs claude CLI.
 func (o *Observer) Ask(ctx context.Context, question string) (string, error) {
-	// Acquire session broker with short timeout to avoid blocking drain
-	if o.broker != nil {
-		if err := o.broker.Acquire(ctx, "observer", brokerAcquireTimeout); err != nil {
-			if errors.Is(err, ErrTimeout) {
-				return "", ErrBusy
-			}
-			return "", fmt.Errorf("acquire session broker: %w", err)
-		}
-		defer o.broker.Release()
-	}
-
 	// Build context with conversation history
 	state := DrainState{}
 	if o.stateProvider != nil {
