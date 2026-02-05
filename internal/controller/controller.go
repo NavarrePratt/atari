@@ -357,6 +357,28 @@ func (c *Controller) getActiveTopLevelTitle(id string) string {
 	return bead.Title
 }
 
+// getBeadParent fetches the parent ID for a bead.
+// Returns empty string on error or if no parent exists.
+func (c *Controller) getBeadParent(beadID string) string {
+	if c.brClient == nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bead, err := c.brClient.Show(ctx, beadID)
+	if err != nil {
+		c.logger.Warn("failed to get bead parent", "bead_id", beadID, "error", err)
+		return ""
+	}
+	if bead == nil {
+		return ""
+	}
+
+	return bead.Parent
+}
+
 // restoreActiveTopLevel restores the active top-level from persisted state.
 // It verifies the restored top-level still has ready descendants before using it.
 func (c *Controller) restoreActiveTopLevel() {
@@ -846,12 +868,16 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 		return nil, fmt.Errorf("load prompt: %w", err)
 	}
 
+	// Fetch bead parent for prompt expansion
+	beadParent := c.getBeadParent(bead.ID)
+
 	// Expand template variables
 	vars := config.PromptVars{
 		BeadID:          bead.ID,
 		BeadTitle:       bead.Title,
 		BeadDescription: bead.Description,
 		Label:           c.config.WorkQueue.Label,
+		BeadParent:      beadParent,
 	}
 	prompt := config.ExpandPrompt(promptTemplate, vars)
 
@@ -1660,12 +1686,16 @@ func (c *Controller) runFollowUpSession(bead *workqueue.Bead) (bool, *SessionRes
 
 	sess := session.New(&followUpConfig, c.router)
 
+	// Fetch bead parent for prompt expansion
+	beadParent := c.getBeadParent(bead.ID)
+
 	// Expand follow-up prompt with bead context
 	vars := config.PromptVars{
 		BeadID:          bead.ID,
 		BeadTitle:       bead.Title,
 		BeadDescription: bead.Description,
 		Label:           c.config.WorkQueue.Label,
+		BeadParent:      beadParent,
 	}
 	prompt := config.ExpandPrompt(config.DefaultFollowUpPrompt, vars)
 
