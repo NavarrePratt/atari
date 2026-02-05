@@ -35,6 +35,8 @@ type State struct {
 	StalledBeadTitle string    `json:"stalled_bead_title,omitempty"`
 	StallReason      string    `json:"stall_reason,omitempty"`
 	StalledAt        time.Time `json:"stalled_at,omitempty"`
+	StallType        string    `json:"stall_type,omitempty"`        // "abandoned" or "review"
+	CreatedBeads     []string  `json:"created_beads,omitempty"`     // bead IDs created during session (for review stalls)
 }
 
 // DefaultMinSaveDelay is the minimum time between saves.
@@ -188,6 +190,8 @@ func (s *StateSink) handleEvent(event Event) {
 		s.state.StalledBeadTitle = e.Title
 		s.state.StallReason = e.Reason
 		s.state.StalledAt = e.Timestamp()
+		s.state.StallType = e.StallType
+		s.state.CreatedBeads = e.CreatedBeads
 		s.dirty = true
 
 	case *StallClearedEvent:
@@ -195,6 +199,8 @@ func (s *StateSink) handleEvent(event Event) {
 		s.state.StalledBeadTitle = ""
 		s.state.StallReason = ""
 		s.state.StalledAt = time.Time{}
+		s.state.StallType = ""
+		s.state.CreatedBeads = nil
 		s.dirty = true
 	}
 

@@ -158,9 +158,11 @@ type DrainStateChangedEvent struct {
 // This persists stall context so it survives restarts.
 type StallEvent struct {
 	BaseEvent
-	BeadID string `json:"bead_id"`
-	Title  string `json:"title"`
-	Reason string `json:"reason"`
+	BeadID       string   `json:"bead_id"`
+	Title        string   `json:"title"`
+	Reason       string   `json:"reason"`
+	StallType    string   `json:"stall_type,omitempty"`    // "abandoned" or "review"
+	CreatedBeads []string `json:"created_beads,omitempty"` // bead IDs created during session (for review stalls)
 }
 
 // StallClearedEvent is emitted when stall context is cleared (on retry or resume).

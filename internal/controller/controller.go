@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,21 @@ const (
 	StateStalled  State = "stalled"
 	StateStopping State = "stopping"
 	StateStopped  State = "stopped"
+)
+
+// Stall type constants.
+const (
+	StallTypeAbandoned = "abandoned"
+	StallTypeReview    = "review"
+)
+
+// Actor identification for filtering bead creations.
+const atariDrainActor = "atari-drain"
+
+// Debounce settings for bead creation detection.
+const (
+	creationDebounceInterval = 300 * time.Millisecond
+	creationDebounceMax      = 5 * time.Second
 )
 
 // agentStateMap maps controller states to bd agent states.
@@ -67,11 +83,18 @@ type Controller struct {
 	beadMu           sync.RWMutex
 
 	// Stalled state context (protected by stallMu)
-	stalledBeadID    string
-	stalledBeadTitle string
-	stallReason      string
-	stalledAt        time.Time
-	stallMu          sync.RWMutex
+	stalledBeadID       string
+	stalledBeadTitle    string
+	stallReason         string
+	stalledAt           time.Time
+	stallType           string   // "abandoned" or "review"
+	stalledCreatedBeads []string // bead IDs created during session (for review stalls)
+	stallMu             sync.RWMutex
+
+	// Created beads tracking (protected by createdBeadsMu)
+	createdBeadsDuringSession []string
+	createdBeadsMu            sync.Mutex
+	beadEventChan             <-chan events.Event
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -413,12 +436,37 @@ func (c *Controller) restoreActiveTopLevel() {
 // restoreStallContext restores stall context from persisted state.
 // If a stalled bead exists in state, verifies it still exists and restores the stalled state.
 // If the bead no longer exists, clears the stall from state.
+// For review stalls (which have no specific bead), restores directly without verification.
 func (c *Controller) restoreStallContext() {
 	if c.stateSink == nil {
 		return
 	}
 
 	state := c.stateSink.State()
+
+	// Check if this is a review stall (no bead ID but has stall type)
+	if state.StallType == StallTypeReview {
+		// Restore review stall context to controller memory
+		c.stallMu.Lock()
+		c.stalledBeadID = ""
+		c.stalledBeadTitle = ""
+		c.stallReason = state.StallReason
+		c.stalledAt = state.StalledAt
+		c.stallType = state.StallType
+		c.stalledCreatedBeads = state.CreatedBeads
+		c.stallMu.Unlock()
+
+		// Set state to stalled (bypass setState to avoid re-emitting state change event)
+		c.stateMu.Lock()
+		c.state = StateStalled
+		c.stateMu.Unlock()
+
+		c.logger.Info("restored review stall context from state",
+			"reason", state.StallReason,
+			"created_beads", state.CreatedBeads)
+		return
+	}
+
 	if state.StalledBeadID == "" {
 		return
 	}
@@ -442,6 +490,8 @@ func (c *Controller) restoreStallContext() {
 	c.stalledBeadTitle = state.StalledBeadTitle
 	c.stallReason = state.StallReason
 	c.stalledAt = state.StalledAt
+	c.stallType = state.StallType
+	c.stalledCreatedBeads = state.CreatedBeads
 	c.stallMu.Unlock()
 
 	// Set state to stalled (bypass setState to avoid re-emitting state change event)
@@ -452,7 +502,8 @@ func (c *Controller) restoreStallContext() {
 	c.logger.Info("restored stall context from state",
 		"bead_id", state.StalledBeadID,
 		"title", state.StalledBeadTitle,
-		"reason", state.StallReason)
+		"reason", state.StallReason,
+		"stall_type", state.StallType)
 }
 
 // verifyTopLevelHasReadyWork checks if a top-level item still has eligible ready descendants.
@@ -626,6 +677,15 @@ func (c *Controller) handleBeadClosed(bead *workqueue.Bead, result *SessionResul
 		TotalCostUSD: result.TotalCostUSD,
 		SessionID:    result.SessionID,
 	})
+
+	// Wait for debounce to catch any final events
+	c.waitForCreationDebounce()
+
+	createdBeads := c.getCreatedBeads()
+	if len(createdBeads) > 0 {
+		reason := fmt.Sprintf("new bead(s) created for review: %s", strings.Join(createdBeads, ", "))
+		c.triggerReviewStall(createdBeads, reason)
+	}
 }
 
 // handleFollowUp manages the follow-up session when the main session didn't close the bead.
@@ -671,6 +731,15 @@ func (c *Controller) handleFollowUpSuccess(bead *workqueue.Bead, mainResult, fol
 		DurationMs:   duration.Milliseconds(),
 		TotalCostUSD: totalCost,
 	})
+
+	// Wait for debounce to catch any final events
+	c.waitForCreationDebounce()
+
+	createdBeads := c.getCreatedBeads()
+	if len(createdBeads) > 0 {
+		reason := fmt.Sprintf("new bead(s) created for review: %s", strings.Join(createdBeads, ", "))
+		c.triggerReviewStall(createdBeads, reason)
+	}
 }
 
 // handleFollowUpResetToOpen records outcome when follow-up reset the bead to open.
@@ -851,6 +920,11 @@ func (c *Controller) runSession(bead *workqueue.Bead) (*SessionResult, error) {
 	c.currentTurnMu.Lock()
 	c.currentTurnCount = 0
 	c.currentTurnMu.Unlock()
+
+	// Subscribe to bead events and track created beads during session
+	c.clearCreatedBeads()
+	c.subscribeToBeadEvents()
+	defer c.unsubscribeFromBeadEvents()
 
 	sess := session.New(c.config, c.router)
 
@@ -1310,6 +1384,7 @@ func (c *Controller) triggerStall(beadID, beadTitle, reason string) {
 	c.stalledBeadTitle = beadTitle
 	c.stallReason = reason
 	c.stalledAt = time.Now()
+	c.stallType = StallTypeAbandoned
 	c.stallMu.Unlock()
 
 	// Emit stall event for persistence
@@ -1318,6 +1393,7 @@ func (c *Controller) triggerStall(beadID, beadTitle, reason string) {
 		BeadID:    beadID,
 		Title:     beadTitle,
 		Reason:    reason,
+		StallType: StallTypeAbandoned,
 	})
 
 	c.setState(StateStalled)
@@ -1356,6 +1432,8 @@ func (c *Controller) clearStall(action string) {
 	c.stalledBeadTitle = ""
 	c.stallReason = ""
 	c.stalledAt = time.Time{}
+	c.stallType = ""
+	c.stalledCreatedBeads = nil
 	c.stallMu.Unlock()
 
 	// Emit stall cleared event for persistence
@@ -1370,10 +1448,12 @@ func (c *Controller) clearStall(action string) {
 
 // StallInfo contains information about a stalled bead.
 type StallInfo struct {
-	BeadID    string
-	BeadTitle string
-	Reason    string
-	StalledAt time.Time
+	BeadID       string
+	BeadTitle    string
+	Reason       string
+	StalledAt    time.Time
+	StallType    string   // "abandoned" or "review"
+	CreatedBeads []string // bead IDs created during session (for review stalls)
 }
 
 // getStallInfo returns the current stall info (thread-safe).
@@ -1381,15 +1461,17 @@ func (c *Controller) getStallInfo() *StallInfo {
 	c.stallMu.RLock()
 	defer c.stallMu.RUnlock()
 
-	if c.stalledBeadID == "" {
+	if c.stalledBeadID == "" && c.stallType != StallTypeReview {
 		return nil
 	}
 
 	return &StallInfo{
-		BeadID:    c.stalledBeadID,
-		BeadTitle: c.stalledBeadTitle,
-		Reason:    c.stallReason,
-		StalledAt: c.stalledAt,
+		BeadID:       c.stalledBeadID,
+		BeadTitle:    c.stalledBeadTitle,
+		Reason:       c.stallReason,
+		StalledAt:    c.stalledAt,
+		StallType:    c.stallType,
+		CreatedBeads: c.stalledCreatedBeads,
 	}
 }
 
@@ -1468,12 +1550,29 @@ func (c *Controller) runStalled() {
 	}
 
 	// Use a ticker to periodically check if the stalled bead was deleted externally
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	// Only applicable for abandoned stalls (review stalls have no bead to check)
+	var ticker *time.Ticker
+	if stallInfo.StallType != StallTypeReview {
+		ticker = time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+	}
+
+	// Create a channel for ticker events (nil if review stall)
+	var tickerC <-chan time.Time
+	if ticker != nil {
+		tickerC = ticker.C
+	}
 
 	select {
 	case <-c.retrySignal:
-		// Retry: clear stall and go back to idle (bead will be retried)
+		// Review stalls: just clear and continue (no history to reset)
+		if stallInfo.StallType == StallTypeReview {
+			c.logger.Info("resuming from review stall")
+			c.clearStall("resume")
+			c.setState(StateIdle)
+			return
+		}
+		// Abandoned stalls: clear stall and go back to idle (bead will be retried)
 		c.logger.Info("retrying stalled bead",
 			"bead_id", stallInfo.BeadID)
 		// Reset the failure history for this bead so it can be retried
@@ -1482,7 +1581,14 @@ func (c *Controller) runStalled() {
 		c.setState(StateIdle)
 
 	case <-c.resumeSignal:
-		// Resume: mark bead as skipped, clear stall, go to idle
+		// Review stalls: just clear and continue (no history to mutate)
+		if stallInfo.StallType == StallTypeReview {
+			c.logger.Info("resuming from review stall")
+			c.clearStall("resume")
+			c.setState(StateIdle)
+			return
+		}
+		// Abandoned stalls: mark bead as skipped, clear stall, go to idle
 		c.logger.Info("resuming from stall, skipping bead",
 			"bead_id", stallInfo.BeadID)
 		c.workQueue.RecordSkipped(stallInfo.BeadID)
@@ -1505,9 +1611,10 @@ func (c *Controller) runStalled() {
 		// Ignore graceful pause while stalled
 		c.logger.Warn("graceful pause signal ignored while stalled")
 
-	case <-ticker.C:
+	case <-tickerC:
 		// Periodic check: if the stalled bead was deleted, auto-clear
-		if !c.beadExists(stallInfo.BeadID) {
+		// Only applies to abandoned stalls (review stalls have no bead to check)
+		if stallInfo.StallType != StallTypeReview && !c.beadExists(stallInfo.BeadID) {
 			c.logger.Info("stalled bead was deleted externally, auto-clearing",
 				"bead_id", stallInfo.BeadID)
 			c.clearStall("auto_cleared")
@@ -1888,4 +1995,95 @@ func (c *Controller) closeEligibleEpics(triggeringBeadID string) {
 			CloseReason:      "All child issues completed",
 		})
 	}
+}
+
+// subscribeToBeadEvents subscribes to bead change events for tracking creations.
+func (c *Controller) subscribeToBeadEvents() {
+	if c.router == nil {
+		return
+	}
+	c.beadEventChan = c.router.SubscribeBuffered(100)
+	go c.watchBeadCreations()
+}
+
+// unsubscribeFromBeadEvents unsubscribes from bead change events.
+func (c *Controller) unsubscribeFromBeadEvents() {
+	if c.router != nil && c.beadEventChan != nil {
+		c.router.Unsubscribe(c.beadEventChan)
+		c.beadEventChan = nil
+	}
+}
+
+// watchBeadCreations monitors bead change events for new beads created by atari-drain.
+func (c *Controller) watchBeadCreations() {
+	for evt := range c.beadEventChan {
+		if c.getState() != StateWorking {
+			continue
+		}
+		beadEvt, ok := evt.(*events.BeadChangedEvent)
+		if !ok {
+			continue
+		}
+		// New bead: OldState is nil
+		if beadEvt.OldState != nil {
+			continue
+		}
+		// Filter by actor
+		if beadEvt.NewState == nil || beadEvt.NewState.CreatedBy != atariDrainActor {
+			continue
+		}
+		c.addCreatedBead(beadEvt.BeadID)
+	}
+}
+
+// clearCreatedBeads clears the list of created beads for a new session.
+func (c *Controller) clearCreatedBeads() {
+	c.createdBeadsMu.Lock()
+	c.createdBeadsDuringSession = nil
+	c.createdBeadsMu.Unlock()
+}
+
+// addCreatedBead adds a bead ID to the list of created beads.
+func (c *Controller) addCreatedBead(beadID string) {
+	c.createdBeadsMu.Lock()
+	c.createdBeadsDuringSession = append(c.createdBeadsDuringSession, beadID)
+	c.createdBeadsMu.Unlock()
+	c.logger.Info("detected bead creation during session", "bead_id", beadID)
+}
+
+// getCreatedBeads returns a copy of the created beads list.
+func (c *Controller) getCreatedBeads() []string {
+	c.createdBeadsMu.Lock()
+	defer c.createdBeadsMu.Unlock()
+	return append([]string{}, c.createdBeadsDuringSession...)
+}
+
+// waitForCreationDebounce waits for a short period to catch any final events.
+func (c *Controller) waitForCreationDebounce() {
+	time.Sleep(creationDebounceInterval)
+}
+
+// triggerReviewStall sets up a review stall state for created beads.
+// Unlike abandoned stalls, review stalls do NOT update bead status.
+func (c *Controller) triggerReviewStall(beadIDs []string, reason string) {
+	c.stallMu.Lock()
+	c.stalledBeadID = ""    // Review stalls have no single bead
+	c.stalledBeadTitle = ""
+	c.stallReason = reason
+	c.stalledAt = time.Now()
+	c.stallType = StallTypeReview
+	c.stalledCreatedBeads = beadIDs
+	c.stallMu.Unlock()
+
+	c.emit(&events.StallEvent{
+		BaseEvent:    events.NewInternalEvent(events.EventDrainStall),
+		BeadID:       "",
+		Title:        "",
+		Reason:       reason,
+		StallType:    StallTypeReview,
+		CreatedBeads: beadIDs,
+	})
+
+	c.setState(StateStalled)
+	c.logger.Warn("review stall triggered", "created_beads", beadIDs, "reason", reason)
 }
