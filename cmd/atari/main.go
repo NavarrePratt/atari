@@ -426,7 +426,7 @@ Use --daemon to run in the background.`,
 			processRunner := runner.NewExecProcessRunner()
 
 			// Create work queue
-			wq := workqueue.New(cfg, brClient)
+			wq := workqueue.New(cfg, brClient, logger)
 
 			// Wire crash recovery state into workqueue
 			// StateSink loaded state from disk during Start(). Now we need to:

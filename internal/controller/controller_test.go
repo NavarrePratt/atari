@@ -28,7 +28,7 @@ func TestControllerStates(t *testing.T) {
 	t.Run("initial state is idle", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		if c.State() != StateIdle {
@@ -39,7 +39,7 @@ func TestControllerStates(t *testing.T) {
 	t.Run("state transitions are thread-safe", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		var wg sync.WaitGroup
@@ -69,7 +69,7 @@ func TestControllerPauseResume(t *testing.T) {
 		// Return empty beads so controller stays in idle
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		router := events.NewRouter(10)
 		defer router.Close()
 
@@ -117,7 +117,7 @@ func TestControllerStop(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		ctx := context.Background()
@@ -149,7 +149,7 @@ func TestControllerStop(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		ctx := context.Background()
@@ -190,7 +190,7 @@ func TestControllerForceStop(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		ctx := context.Background()
@@ -222,7 +222,7 @@ func TestControllerForceStop(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		ctx := context.Background()
@@ -254,7 +254,7 @@ func TestControllerGracefulStopSignal(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Verify channel starts empty
@@ -282,7 +282,7 @@ func TestControllerGracefulStopSignal(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		router := events.NewRouter(100)
 		defer router.Close()
 
@@ -322,7 +322,7 @@ func TestControllerGracefulStopSignal(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Send multiple graceful stop signals - should not panic
@@ -353,7 +353,7 @@ func TestControllerContextCancellation(t *testing.T) {
 	mockClient := brclient.NewMockClient()
 	mockClient.ReadyResponse = []brclient.Bead{}
 
-	wq := workqueue.New(cfg, mockClient)
+	wq := workqueue.New(cfg, mockClient, nil)
 	c := New(cfg, wq, nil, mockClient, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -383,7 +383,7 @@ func TestControllerContextCancellation(t *testing.T) {
 func TestControllerStats(t *testing.T) {
 	cfg := testConfig()
 	mockClient := brclient.NewMockClient()
-	wq := workqueue.New(cfg, mockClient)
+	wq := workqueue.New(cfg, mockClient, nil)
 	c := New(cfg, wq, nil, mockClient, nil, nil)
 
 	stats := c.Stats()
@@ -399,7 +399,7 @@ func TestControllerCurrentTurns(t *testing.T) {
 	t.Run("initial value is 0", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		if c.CurrentTurns() != 0 {
@@ -410,7 +410,7 @@ func TestControllerCurrentTurns(t *testing.T) {
 	t.Run("thread-safe access", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		var wg sync.WaitGroup
@@ -432,7 +432,7 @@ func TestControllerEventEmission(t *testing.T) {
 	mockClient := brclient.NewMockClient()
 	mockClient.ReadyResponse = []brclient.Bead{}
 
-	wq := workqueue.New(cfg, mockClient)
+	wq := workqueue.New(cfg, mockClient, nil)
 	router := events.NewRouter(100)
 	defer router.Close()
 
@@ -494,7 +494,7 @@ func TestControllerWorkQueueError(t *testing.T) {
 	mockClient := brclient.NewMockClient()
 	mockClient.ReadyError = errors.New("connection refused")
 
-	wq := workqueue.New(cfg, mockClient)
+	wq := workqueue.New(cfg, mockClient, nil)
 	router := events.NewRouter(100)
 	defer router.Close()
 
@@ -538,7 +538,7 @@ func TestControllerMultipleSignals(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Send multiple pause signals before starting
@@ -554,7 +554,7 @@ func TestControllerMultipleSignals(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Send multiple stop signals (graceful)
@@ -570,7 +570,7 @@ func TestControllerMultipleSignals(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Send multiple force stop signals
@@ -587,7 +587,7 @@ func TestControllerEmitsDrainStateChangedEvent(t *testing.T) {
 	mockClient := brclient.NewMockClient()
 	mockClient.ReadyResponse = []brclient.Bead{}
 
-	wq := workqueue.New(cfg, mockClient)
+	wq := workqueue.New(cfg, mockClient, nil)
 	router := events.NewRouter(100)
 	defer router.Close()
 
@@ -697,7 +697,7 @@ func TestControllerResetBeadToOpen(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		err := c.resetBeadToOpen("test-bead", "test notes")
@@ -727,7 +727,7 @@ func TestControllerResetBeadToOpen(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.UpdateStatusError = errors.New("br unavailable")
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		err := c.resetBeadToOpen("test-bead", "test notes")
@@ -738,7 +738,7 @@ func TestControllerResetBeadToOpen(t *testing.T) {
 
 	t.Run("requires command runner", func(t *testing.T) {
 		cfg := testConfig()
-		wq := workqueue.New(cfg, nil)
+		wq := workqueue.New(cfg, nil, nil)
 		c := New(cfg, wq, nil, nil, nil, nil)
 
 		err := c.resetBeadToOpen("test-bead", "test notes")
@@ -754,7 +754,7 @@ func TestControllerGetBeadStatus(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowResponse("test-bead", &brclient.Bead{ID: "test-bead", Status: "open"})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		status := c.getBeadStatus("test-bead")
@@ -768,7 +768,7 @@ func TestControllerGetBeadStatus(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowResponse("test-bead", &brclient.Bead{ID: "test-bead", Status: "closed"})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		status := c.getBeadStatus("test-bead")
@@ -782,7 +782,7 @@ func TestControllerGetBeadStatus(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowError("test-bead", errors.New("br unavailable"))
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		status := c.getBeadStatus("test-bead")
@@ -796,7 +796,7 @@ func TestControllerGetBeadStatus(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		// No response configured means nil bead returned
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		status := c.getBeadStatus("test-bead")
@@ -807,7 +807,7 @@ func TestControllerGetBeadStatus(t *testing.T) {
 
 	t.Run("requires command runner", func(t *testing.T) {
 		cfg := testConfig()
-		wq := workqueue.New(cfg, nil)
+		wq := workqueue.New(cfg, nil, nil)
 		c := New(cfg, wq, nil, nil, nil, nil)
 
 		status := c.getBeadStatus("test-bead")
@@ -833,7 +833,7 @@ func TestControllerFollowUpConfig(t *testing.T) {
 		cfg.FollowUp.Enabled = false
 
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 		c.ctx = context.Background()
 
@@ -858,7 +858,7 @@ func TestControllerGracefulPause(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Verify channel starts empty
@@ -886,7 +886,7 @@ func TestControllerGracefulPause(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		router := events.NewRouter(100)
 		defer router.Close()
 
@@ -922,7 +922,7 @@ func TestControllerGracefulPause(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Send multiple graceful pause signals - should not panic
@@ -952,7 +952,7 @@ func TestControllerGracefulPause(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		// Simulate state after completing an iteration
@@ -977,7 +977,7 @@ func TestControllerSessionResume(t *testing.T) {
 	t.Run("getStoredSessionID returns empty for new bead", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		sessionID := c.getStoredSessionID("new-bead")
@@ -989,7 +989,7 @@ func TestControllerSessionResume(t *testing.T) {
 	t.Run("getStoredSessionID returns ID from history", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 
 		// Pre-populate history with session ID
 		history := map[string]*workqueue.BeadHistory{
@@ -1012,7 +1012,7 @@ func TestControllerSessionResume(t *testing.T) {
 	t.Run("getStoredSessionID returns empty for history without session ID", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 
 		// Pre-populate history without session ID
 		history := map[string]*workqueue.BeadHistory{
@@ -1038,7 +1038,7 @@ func TestControllerValidateEpic(t *testing.T) {
 		cfg.WorkQueue.Epic = "" // No epic configured
 
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 		c.ctx = context.Background()
 
@@ -1062,7 +1062,7 @@ func TestControllerValidateEpic(t *testing.T) {
 			ID: "bd-epic-123", Title: "Test Epic", IssueType: "epic",
 		})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 		c.ctx = context.Background()
 
@@ -1087,7 +1087,7 @@ func TestControllerValidateEpic(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowError("bd-nonexistent", errors.New("issue not found"))
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 		c.ctx = context.Background()
 
@@ -1107,7 +1107,7 @@ func TestControllerValidateEpic(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		// No response configured - returns nil
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 		c.ctx = context.Background()
 
@@ -1129,7 +1129,7 @@ func TestControllerValidateEpic(t *testing.T) {
 			ID: "bd-task-456", Title: "A Task", IssueType: "task",
 		})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 		c.ctx = context.Background()
 
@@ -1146,7 +1146,7 @@ func TestControllerValidateEpic(t *testing.T) {
 		cfg := testConfig()
 		cfg.WorkQueue.Epic = "bd-epic-123"
 
-		wq := workqueue.New(cfg, nil)
+		wq := workqueue.New(cfg, nil, nil)
 		c := New(cfg, wq, nil, nil, nil, nil)
 		c.ctx = context.Background()
 
@@ -1168,7 +1168,7 @@ func TestControllerRunWithInvalidEpic(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowError("bd-nonexistent", errors.New("issue not found"))
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1192,7 +1192,7 @@ func TestControllerRunWithInvalidEpic(t *testing.T) {
 			ID: "bd-task-456", Title: "A Task", IssueType: "task",
 		})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1217,7 +1217,7 @@ func TestControllerRunWithInvalidEpic(t *testing.T) {
 		})
 		mockClient.ReadyResponse = []brclient.Bead{}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1251,7 +1251,7 @@ func TestControllerIsBeadClosed(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowResponse("test-bead", &brclient.Bead{ID: "test-bead", Status: "closed"})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		if !c.isBeadClosed("test-bead") {
@@ -1264,7 +1264,7 @@ func TestControllerIsBeadClosed(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowResponse("test-bead", &brclient.Bead{ID: "test-bead", Status: "completed"})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		if !c.isBeadClosed("test-bead") {
@@ -1277,7 +1277,7 @@ func TestControllerIsBeadClosed(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowResponse("test-bead", &brclient.Bead{ID: "test-bead", Status: "open"})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		if c.isBeadClosed("test-bead") {
@@ -1290,7 +1290,7 @@ func TestControllerIsBeadClosed(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowResponse("test-bead", &brclient.Bead{ID: "test-bead", Status: "in_progress"})
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		if c.isBeadClosed("test-bead") {
@@ -1303,7 +1303,7 @@ func TestControllerIsBeadClosed(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.SetShowError("test-bead", errors.New("br unavailable"))
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		if c.isBeadClosed("test-bead") {
@@ -1325,7 +1325,7 @@ func TestVerifyTopLevelHasReadyWork(t *testing.T) {
 			{ID: "task-001", Parent: "epic-001"},
 		}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		result := c.verifyTopLevelHasReadyWork("epic-001")
@@ -1356,7 +1356,7 @@ func TestVerifyTopLevelHasReadyWork(t *testing.T) {
 			{ID: "task-001", Parent: "epic-001"},
 		}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		// Mark the only descendant as abandoned
 		wq.SetHistory(map[string]*workqueue.BeadHistory{
 			"task-001": {ID: "task-001", Status: workqueue.HistoryAbandoned},
@@ -1382,7 +1382,7 @@ func TestVerifyTopLevelHasReadyWork(t *testing.T) {
 			{ID: "task-001", Parent: "epic-001"},
 		}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		// Mark the only descendant as skipped
 		wq.SetHistory(map[string]*workqueue.BeadHistory{
 			"task-001": {ID: "task-001", Status: workqueue.HistorySkipped},
@@ -1411,7 +1411,7 @@ func TestVerifyTopLevelHasReadyWork(t *testing.T) {
 			{ID: "task-001", Parent: "epic-001"},
 		}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		// Mark the only descendant at max failures
 		wq.SetHistory(map[string]*workqueue.BeadHistory{
 			"task-001": {
@@ -1444,7 +1444,7 @@ func TestVerifyTopLevelHasReadyWork(t *testing.T) {
 			{ID: "task-002", Parent: "epic-001"},
 		}
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		// Mark one descendant as abandoned, but leave the other eligible
 		wq.SetHistory(map[string]*workqueue.BeadHistory{
 			"task-001": {ID: "task-001", Status: workqueue.HistoryAbandoned},
@@ -1463,7 +1463,7 @@ func TestVerifyTopLevelHasReadyWork(t *testing.T) {
 		mockClient := brclient.NewMockClient()
 		mockClient.ReadyError = errors.New("connection refused")
 
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		result := c.verifyTopLevelHasReadyWork("epic-001")
@@ -1477,7 +1477,7 @@ func TestControllerStatsThreadSafety(t *testing.T) {
 	t.Run("incrementIteration is thread-safe", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		var wg sync.WaitGroup
@@ -1498,7 +1498,7 @@ func TestControllerStatsThreadSafety(t *testing.T) {
 	t.Run("accumulateCost is thread-safe", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		var wg sync.WaitGroup
@@ -1521,7 +1521,7 @@ func TestControllerStatsThreadSafety(t *testing.T) {
 	t.Run("setStartTime is thread-safe", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		var wg sync.WaitGroup
@@ -1539,7 +1539,7 @@ func TestControllerStatsThreadSafety(t *testing.T) {
 	t.Run("getStatsSnapshot is thread-safe", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		c.setStartTime(time.Now())
@@ -1565,7 +1565,7 @@ func TestControllerStatsThreadSafety(t *testing.T) {
 	t.Run("concurrent Stats() and modifications", func(t *testing.T) {
 		cfg := testConfig()
 		mockClient := brclient.NewMockClient()
-		wq := workqueue.New(cfg, mockClient)
+		wq := workqueue.New(cfg, mockClient, nil)
 		c := New(cfg, wq, nil, mockClient, nil, nil)
 
 		c.setStartTime(time.Now())

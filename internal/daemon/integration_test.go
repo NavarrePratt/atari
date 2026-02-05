@@ -48,7 +48,7 @@ func newTestDaemonEnv(t *testing.T) *testDaemonEnv {
 	mockClient.ReadyResponse = []brclient.Bead{}
 
 	router := events.NewRouter(1000)
-	wq := workqueue.New(cfg, mockClient)
+	wq := workqueue.New(cfg, mockClient, nil)
 	ctrl := controller.New(cfg, wq, router, mockClient, nil, nil)
 
 	d := New(cfg, ctrl, nil)

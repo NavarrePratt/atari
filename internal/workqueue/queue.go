@@ -64,15 +64,21 @@ type Manager struct {
 	client         brclient.WorkQueueClient
 	history        map[string]*BeadHistory
 	activeTopLevel string // Runtime state: currently active top-level item ID
+	logger         *slog.Logger
 	mu             sync.RWMutex
 }
 
 // New creates a Manager with the given config and br client.
-func New(cfg *config.Config, client brclient.WorkQueueClient) *Manager {
+// If logger is nil, slog.Default() is used.
+func New(cfg *config.Config, client brclient.WorkQueueClient, logger *slog.Logger) *Manager {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Manager{
 		config:  cfg,
 		client:  client,
 		history: make(map[string]*BeadHistory),
+		logger:  logger,
 	}
 }
 
@@ -215,6 +221,12 @@ func (m *Manager) filterEligible(beads []Bead, epicDescendants map[string]bool) 
 		if history.Status == HistoryFailed {
 			// Check if we've hit max failures
 			if m.config.Backoff.MaxFailures > 0 && history.Attempts >= m.config.Backoff.MaxFailures {
+				// Log only on first skip (status hasn't been marked abandoned yet)
+				m.logger.Warn("bead hit max failures, skipping",
+					"bead_id", bead.ID,
+					"attempts", history.Attempts,
+					"max_failures", m.config.Backoff.MaxFailures,
+					"last_error", history.LastError)
 				result.skippedMaxFailed++
 				continue
 			}

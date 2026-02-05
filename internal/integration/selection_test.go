@@ -154,7 +154,7 @@ func TestTopLevelSelection_MultiEpicPriority(t *testing.T) {
 		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -225,7 +225,7 @@ func TestTopLevelSelection_StandaloneBeads(t *testing.T) {
 		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -312,7 +312,7 @@ func TestTopLevelSelection_ExhaustionAndSwitching(t *testing.T) {
 	}
 	_ = listIteration
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -398,7 +398,7 @@ func TestTopLevelSelection_EagerSwitch(t *testing.T) {
 		}
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -469,7 +469,7 @@ func TestTopLevelSelection_StatePersistence(t *testing.T) {
 		t.Fatalf("failed to start state sink: %v", err)
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil,
 		controller.WithStateSink(env.stateSink))
 
@@ -534,7 +534,7 @@ func TestTopLevelSelection_EpicFlagPrecedence(t *testing.T) {
 		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -585,7 +585,7 @@ func TestTopLevelSelection_NoWork(t *testing.T) {
 	// Empty work queue
 	env.brClient.ReadyResponse = nil
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -643,7 +643,7 @@ func TestTopLevelSelection_IterationEventIncludesTopLevel(t *testing.T) {
 		return &brclient.Bead{Status: "closed"}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -232,7 +232,7 @@ func TestFullDrainCycle(t *testing.T) {
 		return []brclient.Bead{bead}, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -307,7 +307,7 @@ func TestDrainWithMultipleBeads(t *testing.T) {
 		return nil, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -356,7 +356,7 @@ func TestDrainWithFailedBead(t *testing.T) {
 	bead := singleBead("bd-fail-001", "Failing bead")
 	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -403,7 +403,7 @@ func TestGracefulShutdown(t *testing.T) {
 	bead := singleBead("bd-shutdown-001", "Shutdown test")
 	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx := context.Background()
@@ -470,7 +470,7 @@ func TestBackoffProgression(t *testing.T) {
 	bead := singleBead("bd-backoff-001", "Backoff test")
 	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -525,7 +525,7 @@ func TestContextCancellation(t *testing.T) {
 	bead := singleBead("bd-cancel-001", "Cancel test")
 	env.brClient.ReadyResponse = []brclient.Bead{bead}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -566,7 +566,7 @@ func TestPauseResumeDuringDrain(t *testing.T) {
 	// Always return empty beads to keep controller in idle state
 	env.brClient.ReadyResponse = nil
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx := context.Background()
@@ -752,7 +752,7 @@ func TestGracefulPauseDuringSession(t *testing.T) {
 		return b, nil, true
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -826,7 +826,7 @@ func TestSessionResumeWithStoredID(t *testing.T) {
 	env.brClient.ReadyResponse = []brclient.Bead{bead}
 	env.brClient.SetShowResponse(beadID, &brclient.Bead{Status: "closed"})
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 
 	// Pre-populate history with session ID (simulating previous graceful pause)
 	history := map[string]*events.BeadHistory{
@@ -916,7 +916,7 @@ exit 0
 	env.brClient.ReadyResponse = []brclient.Bead{bead}
 	env.brClient.SetShowResponse(beadID, &brclient.Bead{Status: "closed"})
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 
 	// Pre-populate history with stale session ID
 	history := map[string]*events.BeadHistory{
@@ -1001,7 +1001,7 @@ func TestEpicAutoClosureOnLastChildComplete(t *testing.T) {
 		{ID: epicID, Title: "Test Epic", DependentCount: 2},
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1086,7 +1086,7 @@ func TestEpicAutoClosureSingleChild(t *testing.T) {
 		{ID: epicID, Title: "Single Child Epic", DependentCount: 1},
 	}
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1149,7 +1149,7 @@ func TestNoEpicClosureWhenNoneEligible(t *testing.T) {
 	// No epics eligible - return empty
 	env.brClient.CloseEligibleResult = nil
 
-	wq := workqueue.New(env.cfg, env.brClient)
+	wq := workqueue.New(env.cfg, env.brClient, nil)
 	ctrl := controller.New(env.cfg, wq, env.router, env.brClient, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

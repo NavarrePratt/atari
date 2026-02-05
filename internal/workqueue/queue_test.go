@@ -42,7 +42,7 @@ func TestPoll_ReturnsBeads(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err != nil {
@@ -77,7 +77,7 @@ func TestPoll_SingleBead(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err != nil {
@@ -96,7 +96,7 @@ func TestPoll_EmptyArray(t *testing.T) {
 	mock.ReadyResponse = []brclient.Bead{}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err != nil {
@@ -112,7 +112,7 @@ func TestPoll_EmptyOutput(t *testing.T) {
 	mock.ReadyResponse = nil
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err != nil {
@@ -131,7 +131,7 @@ func TestPoll_WithLabelFilter(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.WorkQueue.Label = "automated"
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err != nil {
@@ -156,7 +156,7 @@ func TestPoll_CommandError(t *testing.T) {
 	mock.ReadyError = errors.New("command not found")
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err == nil {
@@ -172,7 +172,7 @@ func TestPoll_CanceledContext(t *testing.T) {
 	mock.ReadyError = context.Canceled
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -267,7 +267,7 @@ func TestNew_CreateManager(t *testing.T) {
 	mock := newMockClient()
 	cfg := config.Default()
 
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 	if m == nil {
 		t.Fatal("expected non-nil Manager")
 	}
@@ -284,7 +284,7 @@ func TestNew_CreateManager(t *testing.T) {
 
 func TestCalculateBackoff_FirstAttempt(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	backoff := m.calculateBackoff(1)
 	if backoff != 0 {
@@ -303,7 +303,7 @@ func TestCalculateBackoff_ExponentialGrowth(t *testing.T) {
 	cfg.Backoff.Multiplier = 2.0
 	cfg.Backoff.Max = 1 * time.Hour
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	backoff := m.calculateBackoff(2)
 	if backoff != 1*time.Minute {
@@ -327,7 +327,7 @@ func TestCalculateBackoff_MaxCap(t *testing.T) {
 	cfg.Backoff.Multiplier = 2.0
 	cfg.Backoff.Max = 10 * time.Minute
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	backoff := m.calculateBackoff(10)
 	if backoff != 10*time.Minute {
@@ -337,7 +337,7 @@ func TestCalculateBackoff_MaxCap(t *testing.T) {
 
 func TestFilterEligible_NewBeads(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1},
@@ -352,7 +352,7 @@ func TestFilterEligible_NewBeads(t *testing.T) {
 
 func TestFilterEligible_ExcludesEpics(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1, IssueType: "task"},
@@ -380,7 +380,7 @@ func TestFilterEligible_ExcludesEpics(t *testing.T) {
 
 func TestFilterEligible_ExcludesCompleted(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 
@@ -400,7 +400,7 @@ func TestFilterEligible_ExcludesCompleted(t *testing.T) {
 
 func TestFilterEligible_ExcludesAbandoned(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryAbandoned}
 
@@ -422,7 +422,7 @@ func TestFilterEligible_ExcludesInBackoff(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Hour
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -449,7 +449,7 @@ func TestFilterEligible_IncludesAfterBackoff(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Millisecond
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -474,7 +474,7 @@ func TestFilterEligible_ExcludesMaxFailures(t *testing.T) {
 	cfg.Backoff.MaxFailures = 3
 	cfg.Backoff.Initial = 1 * time.Millisecond
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -505,7 +505,7 @@ func TestNext_ReturnsHighestPriority(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, reason, err := m.Next(context.Background())
 	if err != nil {
@@ -530,7 +530,7 @@ func TestNext_SamePriorityOldestFirst(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, _, err := m.Next(context.Background())
 	if err != nil {
@@ -549,7 +549,7 @@ func TestNext_NoBeadsAvailable(t *testing.T) {
 	mock.ReadyResponse = []brclient.Bead{}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, reason, err := m.Next(context.Background())
 	if err != nil {
@@ -570,7 +570,7 @@ func TestNext_AllBeadsFiltered(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 
@@ -596,7 +596,7 @@ func TestNext_AllBeadsInBackoff_ReturnsReasonBackoff(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Hour
 
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -627,7 +627,7 @@ func TestNext_AllBeadsMaxFailure_ReturnsReasonMaxFailure(t *testing.T) {
 	cfg.Backoff.MaxFailures = 3
 	cfg.Backoff.Initial = 1 * time.Millisecond
 
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -659,7 +659,7 @@ func TestNext_MixedBackoffAndMaxFailure_ReturnsReasonBackoff(t *testing.T) {
 	cfg.Backoff.MaxFailures = 3
 	cfg.Backoff.Initial = 1 * time.Hour
 
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	// One bead in backoff
 	m.history["bd-001"] = &BeadHistory{
@@ -697,7 +697,7 @@ func TestNext_MarksAsWorking(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, _, err := m.Next(context.Background())
 	if err != nil {
@@ -728,7 +728,7 @@ func TestNext_IncrementsAttempts(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Millisecond
 
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -753,7 +753,7 @@ func TestNext_IncrementsAttempts(t *testing.T) {
 
 func TestRecordSuccess(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.RecordSuccess("bd-001")
 
@@ -768,7 +768,7 @@ func TestRecordSuccess(t *testing.T) {
 
 func TestRecordSuccess_ExistingHistory(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:       "bd-001",
@@ -789,7 +789,7 @@ func TestRecordSuccess_ExistingHistory(t *testing.T) {
 
 func TestRecordFailure(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	testErr := errors.New("test failed")
 	m.RecordFailure("bd-001", testErr)
@@ -810,7 +810,7 @@ func TestRecordFailure_TriggersAbandoned(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.MaxFailures = 3
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:       "bd-001",
@@ -830,7 +830,7 @@ func TestRecordFailure_NotAbandonedBelowMax(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.MaxFailures = 3
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:       "bd-001",
@@ -848,7 +848,7 @@ func TestRecordFailure_NotAbandonedBelowMax(t *testing.T) {
 
 func TestStats_Empty(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	stats := m.Stats()
 	if stats.TotalSeen != 0 {
@@ -863,7 +863,7 @@ func TestStats_Counts(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.Initial = 1 * time.Hour
 
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 	m.history["bd-002"] = &BeadHistory{ID: "bd-002", Status: HistoryCompleted}
@@ -901,7 +901,7 @@ func TestStats_Counts(t *testing.T) {
 
 func TestHistory_ReturnsCopy(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 
@@ -923,7 +923,7 @@ func TestHistory_ReturnsCopy(t *testing.T) {
 
 func TestSetHistory_RestoresState(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	persisted := map[string]*BeadHistory{
 		"bd-001": {ID: "bd-001", Status: HistoryCompleted, Attempts: 1},
@@ -945,7 +945,7 @@ func TestSetHistory_RestoresState(t *testing.T) {
 
 func TestSetHistory_CopiesInput(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	input := map[string]*BeadHistory{
 		"bd-001": {ID: "bd-001", Status: HistoryCompleted},
@@ -967,7 +967,7 @@ func TestPoll_WithUnassignedFilter(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.WorkQueue.UnassignedOnly = true
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err != nil {
@@ -995,7 +995,7 @@ func TestPoll_WithLabelAndUnassigned(t *testing.T) {
 	cfg := config.Default()
 	cfg.WorkQueue.Label = "automated"
 	cfg.WorkQueue.UnassignedOnly = true
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.Poll(context.Background())
 	if err != nil {
@@ -1014,7 +1014,7 @@ func TestPoll_WithLabelAndUnassigned(t *testing.T) {
 func TestFilterEligible_ExcludesLabels(t *testing.T) {
 	cfg := config.Default()
 	cfg.WorkQueue.ExcludeLabels = []string{"manual", "blocked"}
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1, Labels: []string{"automated"}},
@@ -1042,7 +1042,7 @@ func TestFilterEligible_ExcludesLabels(t *testing.T) {
 
 func TestFilterEligible_NoExcludeLabels(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	beads := []Bead{
 		{ID: "bd-001", Priority: 1, Labels: []string{"manual"}},
@@ -1058,7 +1058,7 @@ func TestFilterEligible_NoExcludeLabels(t *testing.T) {
 func TestHasExcludedLabel(t *testing.T) {
 	cfg := config.Default()
 	cfg.WorkQueue.ExcludeLabels = []string{"manual", "blocked"}
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	tests := []struct {
 		name     string
@@ -1085,7 +1085,7 @@ func TestHasExcludedLabel(t *testing.T) {
 
 func TestHasExcludedLabel_EmptyExcludeList(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	if m.hasExcludedLabel([]string{"manual", "blocked"}) {
 		t.Error("expected false when exclude list is empty")
@@ -1172,7 +1172,7 @@ func TestBuildDescendantSet_EmptyBeads(t *testing.T) {
 
 func TestFilterEligible_WithEpicDescendants(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	beads := []Bead{
 		{ID: "task-001", Priority: 1, IssueType: "task"},
@@ -1201,7 +1201,7 @@ func TestFilterEligible_WithEpicDescendants(t *testing.T) {
 
 func TestFilterEligible_WithNilDescendants(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	beads := []Bead{
 		{ID: "task-001", Priority: 1, IssueType: "task"},
@@ -1217,7 +1217,7 @@ func TestFilterEligible_WithNilDescendants(t *testing.T) {
 
 func TestFilterEligible_EpicDescendantsEmptyResult(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	beads := []Bead{
 		{ID: "task-001", Priority: 1, IssueType: "task"},
@@ -1251,7 +1251,7 @@ func TestNext_WithEpicFilter(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.WorkQueue.Epic = "epic-001"
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, _, err := m.Next(context.Background())
 	if err != nil {
@@ -1279,7 +1279,7 @@ func TestNext_WithEpicFilter_NoEligibleBeads(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.WorkQueue.Epic = "epic-001"
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, _, err := m.Next(context.Background())
 	if err != nil {
@@ -1298,7 +1298,7 @@ func TestNext_WithoutEpicFilter(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, _, err := m.Next(context.Background())
 	if err != nil {
@@ -1487,7 +1487,7 @@ func TestNextTopLevel_SelectsFromActiveTopLevel(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	m.SetActiveTopLevel("epic-001")
 
@@ -1526,7 +1526,7 @@ func TestNextTopLevel_SwitchesWhenExhausted(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	m.SetActiveTopLevel("epic-001")
 
@@ -1552,7 +1552,7 @@ func TestNextTopLevel_NoBeads(t *testing.T) {
 	mock.ReadyResponse = []brclient.Bead{}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	bead, reason, err := m.NextTopLevel(context.Background())
 	if err != nil {
@@ -1568,7 +1568,7 @@ func TestNextTopLevel_NoBeads(t *testing.T) {
 
 func TestActiveTopLevel_GetSet(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	if m.ActiveTopLevel() != "" {
 		t.Errorf("expected empty active top-level, got %s", m.ActiveTopLevel())
@@ -1593,7 +1593,7 @@ func TestFetchAllBeads(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.fetchAllBeads(context.Background())
 	if err != nil {
@@ -1612,7 +1612,7 @@ func TestFetchAllBeads_Empty(t *testing.T) {
 	mock.ListResponse = nil
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	beads, err := m.fetchAllBeads(context.Background())
 	if err != nil {
@@ -1628,7 +1628,7 @@ func TestFetchAllBeads_Error(t *testing.T) {
 	mock.ListError = errors.New("command failed")
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	_, err := m.fetchAllBeads(context.Background())
 	if err == nil {
@@ -1638,7 +1638,7 @@ func TestFetchAllBeads_Error(t *testing.T) {
 
 func TestFilterEligible_ExcludesSkipped(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistorySkipped}
 
@@ -1658,7 +1658,7 @@ func TestFilterEligible_ExcludesSkipped(t *testing.T) {
 
 func TestRecordSkipped(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.RecordSkipped("bd-001")
 
@@ -1673,7 +1673,7 @@ func TestRecordSkipped(t *testing.T) {
 
 func TestRecordSkipped_ExistingHistory(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:       "bd-001",
@@ -1694,7 +1694,7 @@ func TestRecordSkipped_ExistingHistory(t *testing.T) {
 
 func TestResetBead(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -1726,7 +1726,7 @@ func TestResetBead(t *testing.T) {
 
 func TestResetBead_NoExistingHistory(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.ResetBead("bd-001")
 
@@ -1737,7 +1737,7 @@ func TestResetBead_NoExistingHistory(t *testing.T) {
 
 func TestResetBead_AbandonedBead(t *testing.T) {
 	cfg := config.Default()
-	m := New(cfg, newMockClient())
+	m := New(cfg, newMockClient(), nil)
 
 	m.history["bd-001"] = &BeadHistory{
 		ID:          "bd-001",
@@ -1773,7 +1773,7 @@ func TestHasEligibleReadyDescendants_Basic(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
 	if err != nil {
@@ -1789,7 +1789,7 @@ func TestHasEligibleReadyDescendants_NoReadyBeads(t *testing.T) {
 	mock.ReadyResponse = []brclient.Bead{}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
 	if err != nil {
@@ -1814,7 +1814,7 @@ func TestHasEligibleReadyDescendants_NoDescendants(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
 	if err != nil {
@@ -1838,7 +1838,7 @@ func TestHasEligibleReadyDescendants_AllAbandoned(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	// Mark the only descendant as abandoned
 	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistoryAbandoned}
@@ -1865,7 +1865,7 @@ func TestHasEligibleReadyDescendants_AllSkipped(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	// Mark the only descendant as skipped
 	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistorySkipped}
@@ -1894,7 +1894,7 @@ func TestHasEligibleReadyDescendants_AllMaxFailures(t *testing.T) {
 	cfg := config.Default()
 	cfg.Backoff.MaxFailures = 3
 	cfg.Backoff.Initial = 1 * time.Millisecond
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	// Mark the only descendant at max failures
 	m.history["task-001"] = &BeadHistory{
@@ -1928,7 +1928,7 @@ func TestHasEligibleReadyDescendants_SomeEligible(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	// Mark one descendant as abandoned, but leave the other eligible
 	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistoryAbandoned}
@@ -1955,7 +1955,7 @@ func TestHasEligibleReadyDescendants_SkipsEpics(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
 	if err != nil {
@@ -1980,7 +1980,7 @@ func TestHasEligibleReadyDescendants_NestedDescendants(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
 	if err != nil {
@@ -1996,7 +1996,7 @@ func TestHasEligibleReadyDescendants_PollError(t *testing.T) {
 	mock.ReadyError = errors.New("connection refused")
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	_, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
 	if err == nil {
@@ -2013,7 +2013,7 @@ func TestHasEligibleReadyDescendants_ListError(t *testing.T) {
 	mock.ListError = errors.New("connection refused")
 
 	cfg := config.Default()
-	m := New(cfg, mock)
+	m := New(cfg, mock, nil)
 
 	_, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
 	if err == nil {

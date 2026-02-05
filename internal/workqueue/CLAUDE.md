@@ -9,7 +9,7 @@ Manages work discovery by polling `bd ready` with exponential backoff for failed
 Discovers available work and tracks bead processing history.
 
 ```go
-mgr := workqueue.New(cfg, runner)
+mgr := workqueue.New(cfg, client, logger)  // logger can be nil for default
 
 // Get next eligible bead (highest priority, not in backoff)
 // Returns (*Bead, SelectionReason, error)

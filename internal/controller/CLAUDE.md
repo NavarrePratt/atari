@@ -98,7 +98,7 @@ Tests use mock command runner and short intervals:
 cfg := testConfig()  // 10ms poll interval
 runner := testutil.NewMockRunner()
 runner.SetResponse("bd", []string{"ready", "--json"}, []byte("[]"))
-wq := workqueue.New(cfg, runner)
+wq := workqueue.New(cfg, runner, nil)  // nil logger for default
 c := New(cfg, wq, router, runner, nil, nil)  // nil processRunner, nil logger
 ```
 
