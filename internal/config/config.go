@@ -141,10 +141,23 @@ All checks must pass before closing. If verification fails, fix the issues befor
 
 ## 4. Track Discoveries
 If you find bugs, TODOs, or related work during implementation:
-- Create new issue with /issue-create or "br create"
-- Link to current work: "br dep add <new-id> {{.BeadID}} --type discovered-from"
-- Describe problems for investigation, not implementation instructions
-This maintains context and traceability for future work.
+
+1. Create new issue with deferred status and atari-drain actor:
+   br create "Title" --status deferred --actor "atari-drain" --description "..." --json
+   Parse the JSON output to get the id field for subsequent commands.
+
+2. If {{.BeadParent}} is not empty, add to same parent:
+   br dep add <new-id> {{.BeadParent}} --type parent-child
+
+3. Set dependencies based on relationship:
+   - Unrelated issue: use discovered-from only:
+     br dep add <new-id> {{.BeadID}} --type discovered-from
+   - Bug blocking current work (current bead cannot complete until new bead is fixed):
+     br dep add {{.BeadID}} <new-id> --type blocks
+
+4. The new bead stays deferred for human review before being published.
+
+This maintains context and prevents premature pickup by atari.
 
 ## 5. Complete the Task
 Close the bead before ending your session:

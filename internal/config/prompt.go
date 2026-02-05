@@ -12,6 +12,7 @@ type PromptVars struct {
 	BeadTitle       string
 	BeadDescription string
 	Label           string
+	BeadParent      string // Parent epic/task ID if any
 }
 
 // LoadPrompt returns the prompt template string based on configuration priority:
@@ -35,7 +36,7 @@ func (c *Config) LoadPrompt() (string, error) {
 
 // ExpandPrompt performs variable substitution on a prompt template.
 // Uses single-pass replacement to avoid template injection risks.
-// Supported variables: {{.BeadID}}, {{.BeadTitle}}, {{.BeadDescription}}, {{.Label}}
+// Supported variables: {{.BeadID}}, {{.BeadTitle}}, {{.BeadDescription}}, {{.Label}}, {{.BeadParent}}
 func ExpandPrompt(template string, vars PromptVars) string {
 	// Use Replacer for single-pass replacement to prevent injection
 	// (e.g., if BeadID contains "{{.BeadTitle}}", it won't be expanded)
@@ -44,6 +45,7 @@ func ExpandPrompt(template string, vars PromptVars) string {
 		"{{.BeadTitle}}", vars.BeadTitle,
 		"{{.BeadDescription}}", vars.BeadDescription,
 		"{{.Label}}", vars.Label,
+		"{{.BeadParent}}", vars.BeadParent,
 	)
 	return r.Replace(template)
 }
