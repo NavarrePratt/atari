@@ -27,6 +27,32 @@ const (
 	HistoryAbandoned = events.HistoryAbandoned
 )
 
+// SelectionReason indicates why a bead selection returned the result it did.
+type SelectionReason int
+
+const (
+	ReasonSuccess    SelectionReason = iota // Bead selected successfully
+	ReasonNoReady                           // No ready beads available
+	ReasonBackoff                           // All ready beads in backoff
+	ReasonMaxFailure                        // All ready beads hit max failures
+)
+
+// String returns a human-readable description of the selection reason.
+func (r SelectionReason) String() string {
+	switch r {
+	case ReasonSuccess:
+		return "success"
+	case ReasonNoReady:
+		return "no ready beads"
+	case ReasonBackoff:
+		return "all beads in backoff"
+	case ReasonMaxFailure:
+		return "all beads hit max failures"
+	default:
+		return "unknown"
+	}
+}
+
 // Bead is an alias to brclient.Bead for backward compatibility.
 type Bead = brclient.Bead
 
@@ -71,14 +97,15 @@ func (m *Manager) Poll(ctx context.Context) ([]Bead, error) {
 
 // Next polls for available work, filters by history, and returns the
 // highest-priority eligible bead. Returns nil if no work is available
-// or all beads are in backoff.
-func (m *Manager) Next(ctx context.Context) (*Bead, error) {
+// or all beads are in backoff. The SelectionReason indicates why no bead
+// was selected when the result is nil.
+func (m *Manager) Next(ctx context.Context) (*Bead, SelectionReason, error) {
 	beads, err := m.Poll(ctx)
 	if err != nil {
-		return nil, err
+		return nil, ReasonNoReady, err
 	}
 	if len(beads) == 0 {
-		return nil, nil
+		return nil, ReasonNoReady, nil
 	}
 
 	// If epic filter is configured, fetch descendants to filter by
@@ -86,24 +113,24 @@ func (m *Manager) Next(ctx context.Context) (*Bead, error) {
 	if m.config.WorkQueue.Epic != "" {
 		epicDescendants, err = m.fetchDescendants(ctx, m.config.WorkQueue.Epic)
 		if err != nil {
-			return nil, fmt.Errorf("fetch epic descendants: %w", err)
+			return nil, ReasonNoReady, fmt.Errorf("fetch epic descendants: %w", err)
 		}
 	}
 
-	eligible := m.filterEligible(beads, epicDescendants)
-	if len(eligible) == 0 {
-		return nil, nil
+	result := m.filterEligible(beads, epicDescendants)
+	if len(result.eligible) == 0 {
+		return nil, result.reason(), nil
 	}
 
 	// Sort by priority (lower = higher priority), then by created_at
-	sort.Slice(eligible, func(i, j int) bool {
-		if eligible[i].Priority != eligible[j].Priority {
-			return eligible[i].Priority < eligible[j].Priority
+	sort.Slice(result.eligible, func(i, j int) bool {
+		if result.eligible[i].Priority != result.eligible[j].Priority {
+			return result.eligible[i].Priority < result.eligible[j].Priority
 		}
-		return eligible[i].CreatedAt.Before(eligible[j].CreatedAt)
+		return result.eligible[i].CreatedAt.Before(result.eligible[j].CreatedAt)
 	})
 
-	selected := eligible[0]
+	selected := result.eligible[0]
 
 	// Mark as working and increment attempts
 	m.mu.Lock()
@@ -115,16 +142,43 @@ func (m *Manager) Next(ctx context.Context) (*Bead, error) {
 	m.history[selected.ID].LastAttempt = time.Now()
 	m.mu.Unlock()
 
-	return &selected, nil
+	return &selected, ReasonSuccess, nil
+}
+
+// filterResult holds the result of filtering beads along with skip reason counts.
+type filterResult struct {
+	eligible         []Bead
+	skippedBackoff   int
+	skippedMaxFailed int
+}
+
+// reason computes the SelectionReason from the filter result.
+// Returns ReasonSuccess if there are eligible beads.
+// Otherwise returns the most specific reason for why all beads were filtered.
+func (r *filterResult) reason() SelectionReason {
+	if len(r.eligible) > 0 {
+		return ReasonSuccess
+	}
+	// Prioritize max failure over backoff as the reason
+	if r.skippedMaxFailed > 0 && r.skippedBackoff == 0 {
+		return ReasonMaxFailure
+	}
+	if r.skippedBackoff > 0 {
+		return ReasonBackoff
+	}
+	// No beads were skipped due to backoff or max failures,
+	// so there simply weren't any ready beads (or all were filtered by other criteria)
+	return ReasonNoReady
 }
 
 // filterEligible returns beads that are not completed, abandoned, in backoff, or have excluded labels.
 // If epicDescendants is non-nil, only beads in that set are considered.
-func (m *Manager) filterEligible(beads []Bead, epicDescendants map[string]bool) []Bead {
+// Also tracks skip reasons to determine why selection failed.
+func (m *Manager) filterEligible(beads []Bead, epicDescendants map[string]bool) filterResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var eligible []Bead
+	var result filterResult
 	now := time.Now()
 
 	for _, bead := range beads {
@@ -146,7 +200,7 @@ func (m *Manager) filterEligible(beads []Bead, epicDescendants map[string]bool) 
 		history := m.history[bead.ID]
 		if history == nil {
 			// Never seen before - eligible
-			eligible = append(eligible, bead)
+			result.eligible = append(result.eligible, bead)
 			continue
 		}
 
@@ -159,20 +213,21 @@ func (m *Manager) filterEligible(beads []Bead, epicDescendants map[string]bool) 
 		if history.Status == HistoryFailed {
 			// Check if we've hit max failures
 			if m.config.Backoff.MaxFailures > 0 && history.Attempts >= m.config.Backoff.MaxFailures {
-				// Would be abandoned - skip
+				result.skippedMaxFailed++
 				continue
 			}
 			// Check if still in backoff period
 			backoff := m.calculateBackoff(history.Attempts)
 			if now.Sub(history.LastAttempt) < backoff {
+				result.skippedBackoff++
 				continue
 			}
 		}
 
-		eligible = append(eligible, bead)
+		result.eligible = append(result.eligible, bead)
 	}
 
-	return eligible
+	return result
 }
 
 // calculateBackoff returns the backoff duration for a given number of attempts.
@@ -323,20 +378,22 @@ func selectBestTopLevel(topLevelItems []Bead, readyBeads []Bead, allBeads []Bead
 // 3. Filter beads to descendants of selected top-level item
 // 4. Apply existing filterEligible logic
 // 5. Return highest priority descendant
-func (m *Manager) NextTopLevel(ctx context.Context) (*Bead, error) {
+//
+// The SelectionReason indicates why no bead was selected when the result is nil.
+func (m *Manager) NextTopLevel(ctx context.Context) (*Bead, SelectionReason, error) {
 	// Get ready beads
 	readyBeads, err := m.Poll(ctx)
 	if err != nil {
-		return nil, err
+		return nil, ReasonNoReady, err
 	}
 	if len(readyBeads) == 0 {
-		return nil, nil
+		return nil, ReasonNoReady, nil
 	}
 
 	// Get all beads for hierarchy traversal
 	allBeads, err := m.fetchAllBeads(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("fetch all beads: %w", err)
+		return nil, ReasonNoReady, fmt.Errorf("fetch all beads: %w", err)
 	}
 
 	m.mu.Lock()
@@ -374,26 +431,26 @@ func (m *Manager) NextTopLevel(ctx context.Context) (*Bead, error) {
 
 // selectFromTopLevel filters ready beads to descendants of the given top-level
 // and returns the highest priority eligible bead.
-func (m *Manager) selectFromTopLevel(topLevelID string, readyBeads []Bead, allBeads []Bead) (*Bead, error) {
+func (m *Manager) selectFromTopLevel(topLevelID string, readyBeads []Bead, allBeads []Bead) (*Bead, SelectionReason, error) {
 	var epicDescendants map[string]bool
 	if topLevelID != "" {
 		epicDescendants = buildDescendantSet(topLevelID, allBeads)
 	}
 
-	eligible := m.filterEligible(readyBeads, epicDescendants)
-	if len(eligible) == 0 {
-		return nil, nil
+	result := m.filterEligible(readyBeads, epicDescendants)
+	if len(result.eligible) == 0 {
+		return nil, result.reason(), nil
 	}
 
 	// Sort by priority (lower = higher priority), then by created_at
-	sort.Slice(eligible, func(i, j int) bool {
-		if eligible[i].Priority != eligible[j].Priority {
-			return eligible[i].Priority < eligible[j].Priority
+	sort.Slice(result.eligible, func(i, j int) bool {
+		if result.eligible[i].Priority != result.eligible[j].Priority {
+			return result.eligible[i].Priority < result.eligible[j].Priority
 		}
-		return eligible[i].CreatedAt.Before(eligible[j].CreatedAt)
+		return result.eligible[i].CreatedAt.Before(result.eligible[j].CreatedAt)
 	})
 
-	selected := eligible[0]
+	selected := result.eligible[0]
 
 	// Mark as working and increment attempts
 	m.mu.Lock()
@@ -405,7 +462,7 @@ func (m *Manager) selectFromTopLevel(topLevelID string, readyBeads []Bead, allBe
 	m.history[selected.ID].LastAttempt = time.Now()
 	m.mu.Unlock()
 
-	return &selected, nil
+	return &selected, ReasonSuccess, nil
 }
 
 // ActiveTopLevel returns the currently active top-level item ID.

@@ -12,7 +12,13 @@ Discovers available work and tracks bead processing history.
 mgr := workqueue.New(cfg, runner)
 
 // Get next eligible bead (highest priority, not in backoff)
-bead, err := mgr.Next(ctx)
+// Returns (*Bead, SelectionReason, error)
+bead, reason, err := mgr.Next(ctx)
+
+// Check why no bead was selected
+if bead == nil && reason == workqueue.ReasonBackoff {
+    // All ready beads are in backoff period
+}
 
 // Record outcomes
 mgr.RecordSuccess(beadID)
@@ -25,6 +31,15 @@ stats := mgr.Stats()
 history := mgr.History()
 mgr.SetHistory(savedHistory)
 ```
+
+### SelectionReason
+
+Indicates why a bead selection returned the result it did:
+
+- `ReasonSuccess` - Bead selected successfully
+- `ReasonNoReady` - No ready beads available
+- `ReasonBackoff` - All ready beads in backoff period
+- `ReasonMaxFailure` - All ready beads hit max failures
 
 ### Bead
 

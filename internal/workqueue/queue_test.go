@@ -15,6 +15,25 @@ func newMockClient() *brclient.MockClient {
 	return brclient.NewMockClient()
 }
 
+func TestSelectionReason_String(t *testing.T) {
+	tests := []struct {
+		reason   SelectionReason
+		expected string
+	}{
+		{ReasonSuccess, "success"},
+		{ReasonNoReady, "no ready beads"},
+		{ReasonBackoff, "all beads in backoff"},
+		{ReasonMaxFailure, "all beads hit max failures"},
+		{SelectionReason(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		if got := tt.reason.String(); got != tt.expected {
+			t.Errorf("SelectionReason(%d).String() = %q, want %q", tt.reason, got, tt.expected)
+		}
+	}
+}
+
 func TestPoll_ReturnsBeads(t *testing.T) {
 	mock := newMockClient()
 	mock.ReadyResponse = []brclient.Bead{
@@ -325,9 +344,9 @@ func TestFilterEligible_NewBeads(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 2 {
-		t.Errorf("expected 2 eligible beads, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 2 {
+		t.Errorf("expected 2 eligible beads, got %d", len(result.eligible))
 	}
 }
 
@@ -341,21 +360,21 @@ func TestFilterEligible_ExcludesEpics(t *testing.T) {
 		{ID: "bd-003", Priority: 3, IssueType: "bug"},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 2 {
-		t.Errorf("expected 2 eligible beads (excluding epic), got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 2 {
+		t.Errorf("expected 2 eligible beads (excluding epic), got %d", len(result.eligible))
 	}
 
-	for _, b := range eligible {
+	for _, b := range result.eligible {
 		if b.IssueType == "epic" {
 			t.Errorf("epic should have been filtered out, but found %s", b.ID)
 		}
 	}
-	if eligible[0].ID != "bd-001" {
-		t.Errorf("expected bd-001, got %s", eligible[0].ID)
+	if result.eligible[0].ID != "bd-001" {
+		t.Errorf("expected bd-001, got %s", result.eligible[0].ID)
 	}
-	if eligible[1].ID != "bd-003" {
-		t.Errorf("expected bd-003, got %s", eligible[1].ID)
+	if result.eligible[1].ID != "bd-003" {
+		t.Errorf("expected bd-003, got %s", result.eligible[1].ID)
 	}
 }
 
@@ -370,12 +389,12 @@ func TestFilterEligible_ExcludesCompleted(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 1 {
-		t.Errorf("expected 1 eligible bead, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 1 {
+		t.Errorf("expected 1 eligible bead, got %d", len(result.eligible))
 	}
-	if eligible[0].ID != "bd-002" {
-		t.Errorf("expected bd-002, got %s", eligible[0].ID)
+	if result.eligible[0].ID != "bd-002" {
+		t.Errorf("expected bd-002, got %s", result.eligible[0].ID)
 	}
 }
 
@@ -390,12 +409,12 @@ func TestFilterEligible_ExcludesAbandoned(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 1 {
-		t.Errorf("expected 1 eligible bead, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 1 {
+		t.Errorf("expected 1 eligible bead, got %d", len(result.eligible))
 	}
-	if eligible[0].ID != "bd-002" {
-		t.Errorf("expected bd-002, got %s", eligible[0].ID)
+	if result.eligible[0].ID != "bd-002" {
+		t.Errorf("expected bd-002, got %s", result.eligible[0].ID)
 	}
 }
 
@@ -417,12 +436,12 @@ func TestFilterEligible_ExcludesInBackoff(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 1 {
-		t.Errorf("expected 1 eligible bead, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 1 {
+		t.Errorf("expected 1 eligible bead, got %d", len(result.eligible))
 	}
-	if eligible[0].ID != "bd-002" {
-		t.Errorf("expected bd-002, got %s", eligible[0].ID)
+	if result.eligible[0].ID != "bd-002" {
+		t.Errorf("expected bd-002, got %s", result.eligible[0].ID)
 	}
 }
 
@@ -444,9 +463,9 @@ func TestFilterEligible_IncludesAfterBackoff(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 2 {
-		t.Errorf("expected 2 eligible beads after backoff, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 2 {
+		t.Errorf("expected 2 eligible beads after backoff, got %d", len(result.eligible))
 	}
 }
 
@@ -469,12 +488,12 @@ func TestFilterEligible_ExcludesMaxFailures(t *testing.T) {
 		{ID: "bd-002", Priority: 2},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 1 {
-		t.Errorf("expected 1 eligible bead when max failures reached, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 1 {
+		t.Errorf("expected 1 eligible bead when max failures reached, got %d", len(result.eligible))
 	}
-	if eligible[0].ID != "bd-002" {
-		t.Errorf("expected bd-002, got %s", eligible[0].ID)
+	if result.eligible[0].ID != "bd-002" {
+		t.Errorf("expected bd-002, got %s", result.eligible[0].ID)
 	}
 }
 
@@ -488,7 +507,7 @@ func TestNext_ReturnsHighestPriority(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	bead, err := m.Next(context.Background())
+	bead, reason, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -497,6 +516,9 @@ func TestNext_ReturnsHighestPriority(t *testing.T) {
 	}
 	if bead.ID != "bd-001" {
 		t.Errorf("expected highest priority bd-001, got %s", bead.ID)
+	}
+	if reason != ReasonSuccess {
+		t.Errorf("expected ReasonSuccess, got %v", reason)
 	}
 }
 
@@ -510,7 +532,7 @@ func TestNext_SamePriorityOldestFirst(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	bead, err := m.Next(context.Background())
+	bead, _, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -529,12 +551,15 @@ func TestNext_NoBeadsAvailable(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	bead, err := m.Next(context.Background())
+	bead, reason, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if bead != nil {
 		t.Errorf("expected nil bead when no work available, got %v", bead)
+	}
+	if reason != ReasonNoReady {
+		t.Errorf("expected ReasonNoReady, got %v", reason)
 	}
 }
 
@@ -549,12 +574,119 @@ func TestNext_AllBeadsFiltered(t *testing.T) {
 
 	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistoryCompleted}
 
-	bead, err := m.Next(context.Background())
+	bead, reason, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if bead != nil {
 		t.Errorf("expected nil bead when all filtered, got %v", bead)
+	}
+	// All beads were filtered because they're completed, so ReasonNoReady is expected
+	if reason != ReasonNoReady {
+		t.Errorf("expected ReasonNoReady, got %v", reason)
+	}
+}
+
+func TestNext_AllBeadsInBackoff_ReturnsReasonBackoff(t *testing.T) {
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
+
+	cfg := config.Default()
+	cfg.Backoff.Initial = 1 * time.Hour
+
+	m := New(cfg, mock)
+
+	m.history["bd-001"] = &BeadHistory{
+		ID:          "bd-001",
+		Status:      HistoryFailed,
+		Attempts:    2,
+		LastAttempt: time.Now(),
+	}
+
+	bead, reason, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead != nil {
+		t.Errorf("expected nil bead when all in backoff, got %v", bead)
+	}
+	if reason != ReasonBackoff {
+		t.Errorf("expected ReasonBackoff, got %v", reason)
+	}
+}
+
+func TestNext_AllBeadsMaxFailure_ReturnsReasonMaxFailure(t *testing.T) {
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+	}
+
+	cfg := config.Default()
+	cfg.Backoff.MaxFailures = 3
+	cfg.Backoff.Initial = 1 * time.Millisecond
+
+	m := New(cfg, mock)
+
+	m.history["bd-001"] = &BeadHistory{
+		ID:          "bd-001",
+		Status:      HistoryFailed,
+		Attempts:    3,
+		LastAttempt: time.Now().Add(-1 * time.Hour),
+	}
+
+	bead, reason, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead != nil {
+		t.Errorf("expected nil bead when all max failures, got %v", bead)
+	}
+	if reason != ReasonMaxFailure {
+		t.Errorf("expected ReasonMaxFailure, got %v", reason)
+	}
+}
+
+func TestNext_MixedBackoffAndMaxFailure_ReturnsReasonBackoff(t *testing.T) {
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "bd-001", Title: "Test bead 1", Status: "open", Priority: 1},
+		{ID: "bd-002", Title: "Test bead 2", Status: "open", Priority: 2},
+	}
+
+	cfg := config.Default()
+	cfg.Backoff.MaxFailures = 3
+	cfg.Backoff.Initial = 1 * time.Hour
+
+	m := New(cfg, mock)
+
+	// One bead in backoff
+	m.history["bd-001"] = &BeadHistory{
+		ID:          "bd-001",
+		Status:      HistoryFailed,
+		Attempts:    2,
+		LastAttempt: time.Now(),
+	}
+
+	// One bead at max failures (past backoff period)
+	m.history["bd-002"] = &BeadHistory{
+		ID:          "bd-002",
+		Status:      HistoryFailed,
+		Attempts:    3,
+		LastAttempt: time.Now().Add(-24 * time.Hour),
+	}
+
+	bead, reason, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead != nil {
+		t.Errorf("expected nil bead, got %v", bead)
+	}
+	// When there's a mix of backoff and max failures, we return backoff
+	if reason != ReasonBackoff {
+		t.Errorf("expected ReasonBackoff when mixed, got %v", reason)
 	}
 }
 
@@ -567,7 +699,7 @@ func TestNext_MarksAsWorking(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	bead, err := m.Next(context.Background())
+	bead, _, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -605,7 +737,7 @@ func TestNext_IncrementsAttempts(t *testing.T) {
 		LastAttempt: time.Now().Add(-1 * time.Hour),
 	}
 
-	bead, err := m.Next(context.Background())
+	bead, _, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -891,13 +1023,13 @@ func TestFilterEligible_ExcludesLabels(t *testing.T) {
 		{ID: "bd-004", Priority: 4, Labels: nil},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 2 {
-		t.Errorf("expected 2 eligible beads, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 2 {
+		t.Errorf("expected 2 eligible beads, got %d", len(result.eligible))
 	}
 
 	ids := make(map[string]bool)
-	for _, b := range eligible {
+	for _, b := range result.eligible {
 		ids[b.ID] = true
 	}
 	if !ids["bd-001"] {
@@ -917,9 +1049,9 @@ func TestFilterEligible_NoExcludeLabels(t *testing.T) {
 		{ID: "bd-002", Priority: 2, Labels: []string{"blocked"}},
 	}
 
-	eligible := m.filterEligible(beads, nil)
-	if len(eligible) != 2 {
-		t.Errorf("expected 2 eligible beads when no exclude labels, got %d", len(eligible))
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 2 {
+		t.Errorf("expected 2 eligible beads when no exclude labels, got %d", len(result.eligible))
 	}
 }
 
@@ -1054,16 +1186,16 @@ func TestFilterEligible_WithEpicDescendants(t *testing.T) {
 		"task-003": true,
 	}
 
-	eligible := m.filterEligible(beads, descendants)
+	result := m.filterEligible(beads, descendants)
 
-	if len(eligible) != 2 {
-		t.Fatalf("expected 2 eligible beads, got %d", len(eligible))
+	if len(result.eligible) != 2 {
+		t.Fatalf("expected 2 eligible beads, got %d", len(result.eligible))
 	}
-	if eligible[0].ID != "task-001" {
-		t.Errorf("expected task-001, got %s", eligible[0].ID)
+	if result.eligible[0].ID != "task-001" {
+		t.Errorf("expected task-001, got %s", result.eligible[0].ID)
 	}
-	if eligible[1].ID != "task-003" {
-		t.Errorf("expected task-003, got %s", eligible[1].ID)
+	if result.eligible[1].ID != "task-003" {
+		t.Errorf("expected task-003, got %s", result.eligible[1].ID)
 	}
 }
 
@@ -1076,10 +1208,10 @@ func TestFilterEligible_WithNilDescendants(t *testing.T) {
 		{ID: "task-002", Priority: 2, IssueType: "task"},
 	}
 
-	eligible := m.filterEligible(beads, nil)
+	result := m.filterEligible(beads, nil)
 
-	if len(eligible) != 2 {
-		t.Errorf("expected 2 eligible beads when no epic filter, got %d", len(eligible))
+	if len(result.eligible) != 2 {
+		t.Errorf("expected 2 eligible beads when no epic filter, got %d", len(result.eligible))
 	}
 }
 
@@ -1096,10 +1228,10 @@ func TestFilterEligible_EpicDescendantsEmptyResult(t *testing.T) {
 		"epic-001": true,
 	}
 
-	eligible := m.filterEligible(beads, descendants)
+	result := m.filterEligible(beads, descendants)
 
-	if len(eligible) != 0 {
-		t.Errorf("expected 0 eligible beads, got %d", len(eligible))
+	if len(result.eligible) != 0 {
+		t.Errorf("expected 0 eligible beads, got %d", len(result.eligible))
 	}
 }
 
@@ -1121,7 +1253,7 @@ func TestNext_WithEpicFilter(t *testing.T) {
 	cfg.WorkQueue.Epic = "epic-001"
 	m := New(cfg, mock)
 
-	bead, err := m.Next(context.Background())
+	bead, _, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1149,7 +1281,7 @@ func TestNext_WithEpicFilter_NoEligibleBeads(t *testing.T) {
 	cfg.WorkQueue.Epic = "epic-001"
 	m := New(cfg, mock)
 
-	bead, err := m.Next(context.Background())
+	bead, _, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1168,7 +1300,7 @@ func TestNext_WithoutEpicFilter(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	bead, err := m.Next(context.Background())
+	bead, _, err := m.Next(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1359,7 +1491,7 @@ func TestNextTopLevel_SelectsFromActiveTopLevel(t *testing.T) {
 
 	m.SetActiveTopLevel("epic-001")
 
-	bead, err := m.NextTopLevel(context.Background())
+	bead, reason, err := m.NextTopLevel(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1373,6 +1505,10 @@ func TestNextTopLevel_SelectsFromActiveTopLevel(t *testing.T) {
 
 	if m.ActiveTopLevel() != "epic-001" {
 		t.Errorf("expected active top-level to remain epic-001, got %s", m.ActiveTopLevel())
+	}
+
+	if reason != ReasonSuccess {
+		t.Errorf("expected ReasonSuccess, got %v", reason)
 	}
 }
 
@@ -1394,7 +1530,7 @@ func TestNextTopLevel_SwitchesWhenExhausted(t *testing.T) {
 
 	m.SetActiveTopLevel("epic-001")
 
-	bead, err := m.NextTopLevel(context.Background())
+	bead, _, err := m.NextTopLevel(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1418,12 +1554,15 @@ func TestNextTopLevel_NoBeads(t *testing.T) {
 	cfg := config.Default()
 	m := New(cfg, mock)
 
-	bead, err := m.NextTopLevel(context.Background())
+	bead, reason, err := m.NextTopLevel(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if bead != nil {
 		t.Errorf("expected nil bead when no work available, got %v", bead)
+	}
+	if reason != ReasonNoReady {
+		t.Errorf("expected ReasonNoReady, got %v", reason)
 	}
 }
 

@@ -236,7 +236,7 @@ func (c *Controller) runIdle() {
 	// Poll for work using appropriate selection method.
 	// Epic flag takes precedence (handled within workqueue.Next via config).
 	// Selection mode only matters when no epic is specified.
-	bead, err := c.selectNextBead()
+	bead, reason, err := c.selectNextBead()
 	if err != nil {
 		c.logger.Error("work queue poll failed", "error", err)
 		c.emit(&events.ErrorEvent{
@@ -249,7 +249,9 @@ func (c *Controller) runIdle() {
 	}
 
 	if bead == nil {
-		// No work available - try to close any eligible epics
+		// No work available - log the reason for debugging
+		c.logger.Debug("no bead selected", "reason", reason.String())
+		// Try to close any eligible epics
 		go c.closeEligibleEpics("")
 		c.sleep(c.config.WorkQueue.PollInterval)
 		return
@@ -261,7 +263,8 @@ func (c *Controller) runIdle() {
 
 // selectNextBead uses the appropriate selection method based on configuration.
 // Epic flag takes precedence over selection mode.
-func (c *Controller) selectNextBead() (*workqueue.Bead, error) {
+// Returns the selected bead, a reason why no bead was selected (if nil), and any error.
+func (c *Controller) selectNextBead() (*workqueue.Bead, workqueue.SelectionReason, error) {
 	// If epic is configured, use global selection (workqueue.Next already filters by epic)
 	if c.config.WorkQueue.Epic != "" {
 		return c.workQueue.Next(c.ctx)
@@ -272,9 +275,9 @@ func (c *Controller) selectNextBead() (*workqueue.Bead, error) {
 		// Track the active top-level before selection
 		beforeTopLevel := c.workQueue.ActiveTopLevel()
 
-		bead, err := c.workQueue.NextTopLevel(c.ctx)
+		bead, reason, err := c.workQueue.NextTopLevel(c.ctx)
 		if err != nil {
-			return nil, err
+			return nil, reason, err
 		}
 
 		// Sync active top-level changes to state sink
@@ -283,7 +286,7 @@ func (c *Controller) selectNextBead() (*workqueue.Bead, error) {
 			c.syncActiveTopLevel()
 		}
 
-		return bead, nil
+		return bead, reason, nil
 	}
 
 	// Default to global selection
