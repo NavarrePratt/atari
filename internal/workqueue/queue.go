@@ -25,6 +25,7 @@ const (
 	HistoryCompleted = events.HistoryCompleted
 	HistoryFailed    = events.HistoryFailed
 	HistoryAbandoned = events.HistoryAbandoned
+	HistorySkipped   = events.HistorySkipped
 )
 
 // SelectionReason indicates why a bead selection returned the result it did.
@@ -519,6 +520,25 @@ func (m *Manager) RecordFailure(beadID string, err error) {
 	} else {
 		h.Status = HistoryFailed
 	}
+}
+
+// RecordSkipped marks a bead as skipped (user chose to move past it).
+func (m *Manager) RecordSkipped(beadID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.history[beadID] == nil {
+		m.history[beadID] = &BeadHistory{ID: beadID}
+	}
+	m.history[beadID].Status = HistorySkipped
+}
+
+// ResetHistory clears the history for a bead, allowing it to be retried.
+func (m *Manager) ResetHistory(beadID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.history, beadID)
 }
 
 // QueueStats provides statistics about the work queue.

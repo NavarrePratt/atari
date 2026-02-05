@@ -316,6 +316,7 @@ const (
 	HistoryCompleted HistoryStatus = "completed"
 	HistoryFailed    HistoryStatus = "failed"
 	HistoryAbandoned HistoryStatus = "abandoned"
+	HistorySkipped   HistoryStatus = "skipped"
 )
 
 // BeadHistory tracks the processing history of a bead.

@@ -159,6 +159,19 @@ func (c *CLIClient) UpdateStatus(ctx context.Context, id, status, notes string) 
 	return nil
 }
 
+// Comment adds a comment to a bead.
+func (c *CLIClient) Comment(ctx context.Context, id, message string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.runner.Run(ctx, "br", "comment", id, message)
+	if err != nil {
+		return fmt.Errorf("br comment %s failed: %w", id, err)
+	}
+
+	return nil
+}
+
 // Close closes a bead with a reason.
 func (c *CLIClient) Close(ctx context.Context, id, reason string) error {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)

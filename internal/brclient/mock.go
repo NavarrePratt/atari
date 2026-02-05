@@ -26,6 +26,7 @@ type MockClient struct {
 	ReadyResponse       []Bead
 	ReadyError          error
 	UpdateStatusError   error
+	CommentError        error
 	CloseError          error
 	CloseEligibleResult []EpicCloseResult
 	CloseEligibleError  error
@@ -40,6 +41,7 @@ type MockClient struct {
 	LabelsCalls        []string
 	ReadyCalls         []*ReadyOptions
 	UpdateStatusCalls  []UpdateStatusCall
+	CommentCalls       []CommentCall
 	CloseCalls         []CloseCall
 	CloseEligibleCalls int
 }
@@ -49,6 +51,12 @@ type UpdateStatusCall struct {
 	ID     string
 	Status string
 	Notes  string
+}
+
+// CommentCall records a Comment call.
+type CommentCall struct {
+	ID      string
+	Message string
 }
 
 // CloseCall records a Close call.
@@ -151,6 +159,19 @@ func (m *MockClient) UpdateStatus(ctx context.Context, id, status, notes string)
 	})
 
 	return m.UpdateStatusError
+}
+
+// Comment implements BeadUpdater.
+func (m *MockClient) Comment(ctx context.Context, id, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.CommentCalls = append(m.CommentCalls, CommentCall{
+		ID:      id,
+		Message: message,
+	})
+
+	return m.CommentError
 }
 
 // Close implements BeadUpdater.

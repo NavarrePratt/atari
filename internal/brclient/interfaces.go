@@ -77,6 +77,9 @@ type BeadUpdater interface {
 	// UpdateStatus changes a bead's status and optionally adds notes.
 	UpdateStatus(ctx context.Context, id, status, notes string) error
 
+	// Comment adds a comment to a bead.
+	Comment(ctx context.Context, id, message string) error
+
 	// Close closes a bead with a reason.
 	Close(ctx context.Context, id, reason string) error
 

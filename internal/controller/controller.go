@@ -28,6 +28,7 @@ const (
 	StateIdle     State = "idle"
 	StateWorking  State = "working"
 	StatePaused   State = "paused"
+	StateStalled  State = "stalled"
 	StateStopping State = "stopping"
 	StateStopped  State = "stopped"
 )
@@ -37,6 +38,7 @@ var agentStateMap = map[State]string{
 	StateIdle:     "idle",
 	StateWorking:  "running",
 	StatePaused:   "idle",
+	StateStalled:  "stalled",
 	StateStopping: "stopped",
 	StateStopped:  "dead",
 }
@@ -64,17 +66,25 @@ type Controller struct {
 	currentBeadStart time.Time
 	beadMu           sync.RWMutex
 
+	// Stalled state context (protected by stallMu)
+	stalledBeadID    string
+	stalledBeadTitle string
+	stallReason      string
+	stalledAt        time.Time
+	stallMu          sync.RWMutex
+
 	ctx      context.Context
 	cancel   context.CancelFunc
 	cancelMu sync.Mutex
 	wg       sync.WaitGroup
 
-	// Control signals for pause/resume/stop
+	// Control signals for pause/resume/stop/retry
 	pauseSignal         chan struct{}
 	gracefulPauseSignal chan struct{}
 	resumeSignal        chan struct{}
 	stopSignal          chan struct{}
 	gracefulStopSignal  chan struct{}
+	retrySignal         chan struct{}
 
 	// Statistics (protected by statsMu)
 	statsMu      sync.Mutex
@@ -120,6 +130,7 @@ func New(cfg *config.Config, wq *workqueue.Manager, router *events.Router, brCli
 		resumeSignal:        make(chan struct{}, 1),
 		stopSignal:          make(chan struct{}, 1),
 		gracefulStopSignal:  make(chan struct{}, 1),
+		retrySignal:         make(chan struct{}, 1),
 	}
 
 	// Apply options
@@ -199,6 +210,8 @@ func (c *Controller) Run(ctx context.Context) error {
 			// This state is handled within runIdle after selecting a bead
 		case StatePaused:
 			c.runPaused()
+		case StateStalled:
+			c.runStalled()
 		case StateStopping:
 			c.runStopping()
 		case StateStopped:
@@ -251,6 +264,22 @@ func (c *Controller) runIdle() {
 	if bead == nil {
 		// No work available - log the reason for debugging
 		c.logger.Debug("no bead selected", "reason", reason.String())
+
+		// If all beads hit max failures, enter stalled state
+		if reason == workqueue.ReasonMaxFailure {
+			stalledBead := c.findStalledBead()
+			if stalledBead != nil {
+				lastError := ""
+				if h, ok := c.workQueue.History()[stalledBead.ID]; ok {
+					lastError = h.LastError
+				}
+				stallReason := fmt.Sprintf("max failures (%d attempts). Last error: %s",
+					c.config.Backoff.MaxFailures, lastError)
+				c.triggerStall(stalledBead.ID, stalledBead.Title, stallReason)
+				return
+			}
+		}
+
 		// Try to close any eligible epics
 		go c.closeEligibleEpics("")
 		c.sleep(c.config.WorkQueue.PollInterval)
@@ -1218,6 +1247,213 @@ func (c *Controller) clearCurrentBead() {
 	c.currentBeadTitle = ""
 	c.currentBeadStart = time.Time{}
 	c.beadMu.Unlock()
+}
+
+// triggerStall sets up the stalled state and updates the bead in br.
+func (c *Controller) triggerStall(beadID, beadTitle, reason string) {
+	c.stallMu.Lock()
+	c.stalledBeadID = beadID
+	c.stalledBeadTitle = beadTitle
+	c.stallReason = reason
+	c.stalledAt = time.Now()
+	c.stallMu.Unlock()
+
+	c.setState(StateStalled)
+	c.logger.Warn("controller stalled",
+		"bead_id", beadID,
+		"title", beadTitle,
+		"reason", reason)
+
+	// Update the bead notes and add a comment (best effort)
+	if c.brClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		notes := fmt.Sprintf("ABANDONED by atari: %s", reason)
+		if err := c.brClient.UpdateStatus(ctx, beadID, "open", notes); err != nil {
+			c.logger.Error("failed to update bead notes on stall",
+				"bead_id", beadID,
+				"error", err)
+		}
+
+		comment := fmt.Sprintf("Atari abandoned: %s", reason)
+		if err := c.brClient.Comment(ctx, beadID, comment); err != nil {
+			c.logger.Error("failed to add comment on stall",
+				"bead_id", beadID,
+				"error", err)
+		}
+	}
+}
+
+// clearStall clears the stalled state (thread-safe).
+func (c *Controller) clearStall() {
+	c.stallMu.Lock()
+	c.stalledBeadID = ""
+	c.stalledBeadTitle = ""
+	c.stallReason = ""
+	c.stalledAt = time.Time{}
+	c.stallMu.Unlock()
+}
+
+// StallInfo contains information about a stalled bead.
+type StallInfo struct {
+	BeadID    string
+	BeadTitle string
+	Reason    string
+	StalledAt time.Time
+}
+
+// getStallInfo returns the current stall info (thread-safe).
+func (c *Controller) getStallInfo() *StallInfo {
+	c.stallMu.RLock()
+	defer c.stallMu.RUnlock()
+
+	if c.stalledBeadID == "" {
+		return nil
+	}
+
+	return &StallInfo{
+		BeadID:    c.stalledBeadID,
+		BeadTitle: c.stalledBeadTitle,
+		Reason:    c.stallReason,
+		StalledAt: c.stalledAt,
+	}
+}
+
+// findStalledBead finds an abandoned bead that is blocking progress.
+// Returns nil if no abandoned bead is found.
+func (c *Controller) findStalledBead() *workqueue.Bead {
+	if c.brClient == nil {
+		return nil
+	}
+
+	// Get abandoned beads from history
+	history := c.workQueue.History()
+	var abandonedID string
+	var latestAttempt time.Time
+
+	for id, h := range history {
+		if h.Status == workqueue.HistoryAbandoned {
+			if h.LastAttempt.After(latestAttempt) {
+				latestAttempt = h.LastAttempt
+				abandonedID = id
+			}
+		}
+	}
+
+	if abandonedID == "" {
+		return nil
+	}
+
+	// Get full bead details
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bead, err := c.brClient.Show(ctx, abandonedID)
+	if err != nil {
+		c.logger.Warn("failed to get stalled bead details",
+			"bead_id", abandonedID,
+			"error", err)
+		return nil
+	}
+
+	// Convert to workqueue.Bead
+	if bead != nil {
+		return &workqueue.Bead{
+			ID:    bead.ID,
+			Title: bead.Title,
+		}
+	}
+	return nil
+}
+
+// beadExists checks if the stalled bead still exists in br.
+func (c *Controller) beadExists(beadID string) bool {
+	if c.brClient == nil {
+		return true // assume exists if we can't check
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bead, err := c.brClient.Show(ctx, beadID)
+	if err != nil {
+		// Errors include "bead not found"
+		return false
+	}
+	return bead != nil
+}
+
+// runStalled handles the stalled state: waits for retry, resume, or stop signals.
+func (c *Controller) runStalled() {
+	stallInfo := c.getStallInfo()
+	if stallInfo == nil {
+		// Shouldn't happen, but recover gracefully
+		c.logger.Warn("runStalled called without stall info, transitioning to idle")
+		c.setState(StateIdle)
+		return
+	}
+
+	// Use a ticker to periodically check if the stalled bead was deleted externally
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	select {
+	case <-c.retrySignal:
+		// Retry: clear stall and go back to idle (bead will be retried)
+		c.logger.Info("retrying stalled bead",
+			"bead_id", stallInfo.BeadID)
+		// Reset the failure history for this bead so it can be retried
+		c.workQueue.ResetHistory(stallInfo.BeadID)
+		c.clearStall()
+		c.setState(StateIdle)
+
+	case <-c.resumeSignal:
+		// Resume: mark bead as skipped, clear stall, go to idle
+		c.logger.Info("resuming from stall, skipping bead",
+			"bead_id", stallInfo.BeadID)
+		c.workQueue.RecordSkipped(stallInfo.BeadID)
+		c.clearStall()
+		c.setState(StateIdle)
+
+	case <-c.stopSignal:
+		// Stop: transition to stopping (stall state is persisted with stop)
+		c.setState(StateStopping)
+
+	case <-c.gracefulStopSignal:
+		c.setState(StateStopping)
+		c.logger.Info("stopping from stalled (graceful)")
+
+	case <-c.pauseSignal:
+		// Ignore pause while stalled (already stopped)
+		c.logger.Warn("pause signal ignored while stalled")
+
+	case <-c.gracefulPauseSignal:
+		// Ignore graceful pause while stalled
+		c.logger.Warn("graceful pause signal ignored while stalled")
+
+	case <-ticker.C:
+		// Periodic check: if the stalled bead was deleted, auto-clear
+		if !c.beadExists(stallInfo.BeadID) {
+			c.logger.Info("stalled bead was deleted externally, auto-clearing",
+				"bead_id", stallInfo.BeadID)
+			c.clearStall()
+			c.setState(StateIdle)
+		}
+
+	case <-c.ctx.Done():
+		c.setState(StateStopping)
+	}
+}
+
+// Retry requests the controller to retry a stalled bead.
+func (c *Controller) Retry() {
+	select {
+	case c.retrySignal <- struct{}{}:
+		c.logger.Info("retry requested")
+	default:
+		// Signal already pending
+	}
 }
 
 // GetDrainState returns the current drain state for observer context.
