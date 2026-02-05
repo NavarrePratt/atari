@@ -518,6 +518,54 @@ func (m *Manager) SetActiveTopLevel(id string) {
 	m.activeTopLevel = id
 }
 
+// HasEligibleReadyDescendants checks if a top-level item has any eligible ready descendants.
+// It returns true if there are ready beads that are:
+// 1. Descendants of the given top-level ID (or the top-level itself if not an epic)
+// 2. Not epics
+// 3. Not completed, abandoned, or skipped in history
+// 4. Not at max failures
+//
+// This is used to verify that restoring an active top-level from persisted state
+// won't cause immediate re-stall.
+func (m *Manager) HasEligibleReadyDescendants(ctx context.Context, topLevelID string) (bool, error) {
+	// Get ready beads
+	readyBeads, err := m.Poll(ctx)
+	if err != nil {
+		return false, err
+	}
+	if len(readyBeads) == 0 {
+		return false, nil
+	}
+
+	// Get all beads for hierarchy traversal
+	allBeads, err := m.client.List(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("fetch all beads: %w", err)
+	}
+
+	// Build descendant set
+	descendants := buildDescendantSet(topLevelID, allBeads)
+
+	// Filter to just ready descendants (excluding epics)
+	var descendantBeads []Bead
+	for _, bead := range readyBeads {
+		if bead.IssueType == "epic" {
+			continue
+		}
+		if descendants[bead.ID] {
+			descendantBeads = append(descendantBeads, bead)
+		}
+	}
+
+	if len(descendantBeads) == 0 {
+		return false, nil
+	}
+
+	// Check eligibility using existing logic (no additional epic filter needed)
+	result := m.filterEligible(descendantBeads, nil)
+	return len(result.eligible) > 0, nil
+}
+
 // RecordSuccess marks a bead as completed.
 func (m *Manager) RecordSuccess(beadID string) {
 	m.mu.Lock()

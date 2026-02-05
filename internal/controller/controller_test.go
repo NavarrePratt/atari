@@ -1312,6 +1312,167 @@ func TestControllerIsBeadClosed(t *testing.T) {
 	})
 }
 
+func TestVerifyTopLevelHasReadyWork(t *testing.T) {
+	t.Run("returns true for eligible descendants", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+
+		mockClient.ReadyResponse = []brclient.Bead{
+			{ID: "task-001", IssueType: "task"},
+		}
+		mockClient.ListResponse = []brclient.Bead{
+			{ID: "epic-001", IssueType: "epic"},
+			{ID: "task-001", Parent: "epic-001"},
+		}
+
+		wq := workqueue.New(cfg, mockClient)
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		result := c.verifyTopLevelHasReadyWork("epic-001")
+		if !result {
+			t.Error("expected true when eligible descendants exist")
+		}
+	})
+
+	t.Run("returns false for no workqueue", func(t *testing.T) {
+		cfg := testConfig()
+		c := New(cfg, nil, nil, nil, nil, nil)
+
+		result := c.verifyTopLevelHasReadyWork("epic-001")
+		if result {
+			t.Error("expected false when workqueue is nil")
+		}
+	})
+
+	t.Run("returns false when all descendants abandoned", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+
+		mockClient.ReadyResponse = []brclient.Bead{
+			{ID: "task-001", IssueType: "task"},
+		}
+		mockClient.ListResponse = []brclient.Bead{
+			{ID: "epic-001", IssueType: "epic"},
+			{ID: "task-001", Parent: "epic-001"},
+		}
+
+		wq := workqueue.New(cfg, mockClient)
+		// Mark the only descendant as abandoned
+		wq.SetHistory(map[string]*workqueue.BeadHistory{
+			"task-001": {ID: "task-001", Status: workqueue.HistoryAbandoned},
+		})
+
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		result := c.verifyTopLevelHasReadyWork("epic-001")
+		if result {
+			t.Error("expected false when all descendants are abandoned")
+		}
+	})
+
+	t.Run("returns false when all descendants skipped", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+
+		mockClient.ReadyResponse = []brclient.Bead{
+			{ID: "task-001", IssueType: "task"},
+		}
+		mockClient.ListResponse = []brclient.Bead{
+			{ID: "epic-001", IssueType: "epic"},
+			{ID: "task-001", Parent: "epic-001"},
+		}
+
+		wq := workqueue.New(cfg, mockClient)
+		// Mark the only descendant as skipped
+		wq.SetHistory(map[string]*workqueue.BeadHistory{
+			"task-001": {ID: "task-001", Status: workqueue.HistorySkipped},
+		})
+
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		result := c.verifyTopLevelHasReadyWork("epic-001")
+		if result {
+			t.Error("expected false when all descendants are skipped")
+		}
+	})
+
+	t.Run("returns false when all descendants at max failures", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Backoff.MaxFailures = 3
+		cfg.Backoff.Initial = 1 * time.Millisecond
+
+		mockClient := brclient.NewMockClient()
+
+		mockClient.ReadyResponse = []brclient.Bead{
+			{ID: "task-001", IssueType: "task"},
+		}
+		mockClient.ListResponse = []brclient.Bead{
+			{ID: "epic-001", IssueType: "epic"},
+			{ID: "task-001", Parent: "epic-001"},
+		}
+
+		wq := workqueue.New(cfg, mockClient)
+		// Mark the only descendant at max failures
+		wq.SetHistory(map[string]*workqueue.BeadHistory{
+			"task-001": {
+				ID:          "task-001",
+				Status:      workqueue.HistoryFailed,
+				Attempts:    3,
+				LastAttempt: time.Now().Add(-1 * time.Hour),
+			},
+		})
+
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		result := c.verifyTopLevelHasReadyWork("epic-001")
+		if result {
+			t.Error("expected false when all descendants at max failures")
+		}
+	})
+
+	t.Run("returns true when some descendants eligible", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+
+		mockClient.ReadyResponse = []brclient.Bead{
+			{ID: "task-001", IssueType: "task"},
+			{ID: "task-002", IssueType: "task"},
+		}
+		mockClient.ListResponse = []brclient.Bead{
+			{ID: "epic-001", IssueType: "epic"},
+			{ID: "task-001", Parent: "epic-001"},
+			{ID: "task-002", Parent: "epic-001"},
+		}
+
+		wq := workqueue.New(cfg, mockClient)
+		// Mark one descendant as abandoned, but leave the other eligible
+		wq.SetHistory(map[string]*workqueue.BeadHistory{
+			"task-001": {ID: "task-001", Status: workqueue.HistoryAbandoned},
+		})
+
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		result := c.verifyTopLevelHasReadyWork("epic-001")
+		if !result {
+			t.Error("expected true when at least one descendant is eligible")
+		}
+	})
+
+	t.Run("returns false on poll error", func(t *testing.T) {
+		cfg := testConfig()
+		mockClient := brclient.NewMockClient()
+		mockClient.ReadyError = errors.New("connection refused")
+
+		wq := workqueue.New(cfg, mockClient)
+		c := New(cfg, wq, nil, mockClient, nil, nil)
+
+		result := c.verifyTopLevelHasReadyWork("epic-001")
+		if result {
+			t.Error("expected false when poll fails")
+		}
+	})
+}
+
 func TestControllerStatsThreadSafety(t *testing.T) {
 	t.Run("incrementIteration is thread-safe", func(t *testing.T) {
 		cfg := testConfig()

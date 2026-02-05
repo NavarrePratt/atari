@@ -433,53 +433,25 @@ func (c *Controller) restoreStallContext() {
 		"reason", state.StallReason)
 }
 
-// verifyTopLevelHasReadyWork checks if a top-level item still has ready descendants.
+// verifyTopLevelHasReadyWork checks if a top-level item still has eligible ready descendants.
+// It considers workqueue history to exclude beads that are abandoned, skipped, or at max failures.
 func (c *Controller) verifyTopLevelHasReadyWork(topLevelID string) bool {
-	if c.brClient == nil {
+	if c.workQueue == nil {
 		return false
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get all beads for hierarchy traversal
-	allBeads, err := c.brClient.List(ctx, nil)
-	if err != nil || len(allBeads) == 0 {
+	hasEligible, err := c.workQueue.HasEligibleReadyDescendants(ctx, topLevelID)
+	if err != nil {
+		c.logger.Warn("failed to check eligible descendants",
+			"error", err,
+			"top_level_id", topLevelID)
 		return false
 	}
 
-	// Build descendant set
-	descendants := map[string]bool{topLevelID: true}
-	for {
-		added := false
-		for _, bead := range allBeads {
-			if bead.Parent != "" && descendants[bead.Parent] && !descendants[bead.ID] {
-				descendants[bead.ID] = true
-				added = true
-			}
-		}
-		if !added {
-			break
-		}
-	}
-
-	// Get ready beads
-	readyBeads, err := c.brClient.Ready(ctx, nil)
-	if err != nil || len(readyBeads) == 0 {
-		return false
-	}
-
-	// Check if any ready bead is a descendant (excluding epics)
-	for _, bead := range readyBeads {
-		if bead.IssueType == "epic" {
-			continue
-		}
-		if descendants[bead.ID] {
-			return true
-		}
-	}
-
-	return false
+	return hasEligible
 }
 
 // runWorkingOnBead executes a Claude session for the given bead.

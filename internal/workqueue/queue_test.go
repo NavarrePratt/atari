@@ -1757,3 +1757,266 @@ func TestResetBead_AbandonedBead(t *testing.T) {
 		t.Errorf("expected attempts 0 after reset, got %d", h.Attempts)
 	}
 }
+
+func TestHasEligibleReadyDescendants_Basic(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", IssueType: "task"},
+		{ID: "task-002", IssueType: "task"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+		{ID: "task-002", Parent: "other-epic"},
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasEligible {
+		t.Error("expected epic-001 to have eligible ready descendants")
+	}
+}
+
+func TestHasEligibleReadyDescendants_NoReadyBeads(t *testing.T) {
+	mock := newMockClient()
+	mock.ReadyResponse = []brclient.Bead{}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasEligible {
+		t.Error("expected false when no ready beads")
+	}
+}
+
+func TestHasEligibleReadyDescendants_NoDescendants(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-other", IssueType: "task"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+		{ID: "task-other", Parent: "other-epic"},
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasEligible {
+		t.Error("expected false when no ready descendants")
+	}
+}
+
+func TestHasEligibleReadyDescendants_AllAbandoned(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", IssueType: "task"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// Mark the only descendant as abandoned
+	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistoryAbandoned}
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasEligible {
+		t.Error("expected false when all descendants are abandoned")
+	}
+}
+
+func TestHasEligibleReadyDescendants_AllSkipped(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", IssueType: "task"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// Mark the only descendant as skipped
+	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistorySkipped}
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasEligible {
+		t.Error("expected false when all descendants are skipped")
+	}
+}
+
+func TestHasEligibleReadyDescendants_AllMaxFailures(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", IssueType: "task"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+	}
+
+	cfg := config.Default()
+	cfg.Backoff.MaxFailures = 3
+	cfg.Backoff.Initial = 1 * time.Millisecond
+	m := New(cfg, mock)
+
+	// Mark the only descendant at max failures
+	m.history["task-001"] = &BeadHistory{
+		ID:          "task-001",
+		Status:      HistoryFailed,
+		Attempts:    3,
+		LastAttempt: time.Now().Add(-1 * time.Hour), // Past backoff
+	}
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasEligible {
+		t.Error("expected false when all descendants hit max failures")
+	}
+}
+
+func TestHasEligibleReadyDescendants_SomeEligible(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", IssueType: "task"},
+		{ID: "task-002", IssueType: "task"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001", Parent: "epic-001"},
+		{ID: "task-002", Parent: "epic-001"},
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	// Mark one descendant as abandoned, but leave the other eligible
+	m.history["task-001"] = &BeadHistory{ID: "task-001", Status: HistoryAbandoned}
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasEligible {
+		t.Error("expected true when at least one descendant is eligible")
+	}
+}
+
+func TestHasEligibleReadyDescendants_SkipsEpics(t *testing.T) {
+	mock := newMockClient()
+
+	// The only ready bead is an epic
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasEligible {
+		t.Error("expected false when only ready bead is an epic")
+	}
+}
+
+func TestHasEligibleReadyDescendants_NestedDescendants(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "nested-task", IssueType: "task"},
+	}
+
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "sub-epic", IssueType: "epic", Parent: "epic-001"},
+		{ID: "nested-task", Parent: "sub-epic"},
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasEligible {
+		t.Error("expected true for nested descendants")
+	}
+}
+
+func TestHasEligibleReadyDescendants_PollError(t *testing.T) {
+	mock := newMockClient()
+	mock.ReadyError = errors.New("connection refused")
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	_, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err == nil {
+		t.Error("expected error when poll fails")
+	}
+}
+
+func TestHasEligibleReadyDescendants_ListError(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", IssueType: "task"},
+	}
+	mock.ListError = errors.New("connection refused")
+
+	cfg := config.Default()
+	m := New(cfg, mock)
+
+	_, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err == nil {
+		t.Error("expected error when list fails")
+	}
+}
