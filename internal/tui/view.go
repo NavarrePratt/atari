@@ -43,6 +43,11 @@ func (m model) View() string {
 		baseContent = m.renderEventsOnlyView()
 	}
 
+	// Overlay stall banner if stalled
+	if m.status == "stalled" && m.stalledBeadID != "" {
+		return m.renderStallBanner()
+	}
+
 	// Overlay quit confirmation if open
 	if m.quitConfirmOpen {
 		return m.renderQuitConfirmDialog()
@@ -103,6 +108,63 @@ func (m model) renderQuitConfirmDialog() string {
 	modalContent := modalStyle.Render(content.String())
 
 	// Center the modal on screen
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modalContent)
+}
+
+// renderStallBanner renders the prominent stall banner when controller is stalled.
+func (m model) renderStallBanner() string {
+	// Title style (red, bold)
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("196"))
+
+	// Info style
+	infoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+
+	// Hint style
+	hintStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245")).
+		Italic(true)
+
+	// Calculate stall duration
+	stallDuration := ""
+	if !m.stalledAt.IsZero() {
+		stallDuration = fmt.Sprintf(" (stalled for %s)", formatDurationHuman(time.Since(m.stalledAt).Milliseconds()))
+	}
+
+	var content strings.Builder
+	content.WriteString(titleStyle.Render(fmt.Sprintf("STALLED: %s%s", m.stalledBeadID, stallDuration)))
+	content.WriteString("\n\n")
+
+	// Title line (truncate if too long)
+	titleText := m.stalledBeadTitle
+	if len(titleText) > 50 {
+		titleText = titleText[:47] + "..."
+	}
+	content.WriteString(infoStyle.Render(fmt.Sprintf("Title: %q", titleText)))
+	content.WriteString("\n")
+
+	// Reason line (truncate if too long)
+	reason := m.stallReason
+	if len(reason) > 60 {
+		reason = reason[:57] + "..."
+	}
+	content.WriteString(infoStyle.Render(fmt.Sprintf("Reason: %s", reason)))
+	content.WriteString("\n\n")
+
+	content.WriteString(hintStyle.Render("Press Shift+R to retry, or 'r' to resume (skip this bead)"))
+
+	// Create modal box with red border
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(lipgloss.Color("196")).
+		Padding(1, 3).
+		Width(68)
+
+	modalContent := modalStyle.Render(content.String())
+
+	// Center the banner on screen
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modalContent)
 }
 
@@ -301,10 +363,12 @@ func (m model) renderHeaderOnlyView() string {
 func (m model) renderHeaderOnlyFooter() string {
 	var parts []string
 
-	// Pause/resume based on status
+	// Pause/resume/retry based on status
 	switch m.status {
 	case "paused", "pausing...", "pausing":
 		parts = append(parts, "r: resume")
+	case "stalled":
+		parts = append(parts, "R: retry", "r: skip")
 	case "stopped":
 		// No pause/resume for stopped state
 	default:
@@ -796,6 +860,8 @@ func (m model) renderStatusWithWorkDir(totalWidth, costWidth int) string {
 		style = styles.StatusPaused
 	case "stopped":
 		style = styles.StatusStopped
+	case "stalled":
+		style = styles.StatusStalled
 	default:
 		style = styles.StatusIdle
 	}
@@ -1033,10 +1099,12 @@ func (m model) renderGlobalFooter(width int) string {
 func (m model) renderEventsFooter() string {
 	var parts []string
 
-	// Pause/resume based on status
+	// Pause/resume/retry based on status
 	switch m.status {
 	case "paused", "pausing...", "pausing":
 		parts = append(parts, "r: resume")
+	case "stalled":
+		parts = append(parts, "R: retry", "r: skip")
 	case "stopped":
 		// No pause/resume for stopped state
 	default:

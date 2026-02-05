@@ -315,6 +315,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.status = "resuming..."
 			return m, nil
+
+		case "R":
+			// Shift+R: retry stalled bead
+			if m.status == "stalled" && m.onRetry != nil {
+				m.onRetry()
+				m.status = "retrying..."
+				return m, nil
+			}
 		}
 	}
 
@@ -343,6 +351,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "resuming..."
 		return m, nil
+
+	case "R":
+		// Shift+R: retry stalled bead
+		if m.status == "stalled" && m.onRetry != nil {
+			m.onRetry()
+			m.status = "retrying..."
+			return m, nil
+		}
 	}
 
 	// When graph is focused, forward remaining keys to graph pane
@@ -436,6 +452,20 @@ func (m *model) handleEvent(event events.Event) {
 
 	case *events.DrainStopEvent:
 		m.status = "stopped"
+
+	case *events.StallEvent:
+		// Capture stall info for banner display
+		m.stalledBeadID = e.BeadID
+		m.stalledBeadTitle = e.Title
+		m.stallReason = e.Reason
+		m.stalledAt = event.Timestamp()
+
+	case *events.StallClearedEvent:
+		// Clear stall info when stall is resolved
+		m.stalledBeadID = ""
+		m.stalledBeadTitle = ""
+		m.stallReason = ""
+		m.stalledAt = time.Time{}
 	}
 
 	// Add to event log with formatting
@@ -514,6 +544,20 @@ func (m *model) handleTick() {
 	// Update backoff stats for header display
 	m.inBackoff = stats.InBackoff
 	m.topBlockedBead = stats.TopBlockedBead
+
+	// Sync stall info from controller (for banner display after restart)
+	if stats.StalledBeadID != "" && m.stalledBeadID == "" {
+		m.stalledBeadID = stats.StalledBeadID
+		m.stalledBeadTitle = stats.StalledBeadTitle
+		m.stallReason = stats.StallReason
+		m.stalledAt = stats.StalledAt
+	} else if stats.StalledBeadID == "" && m.stalledBeadID != "" {
+		// Controller cleared stall but TUI still has it
+		m.stalledBeadID = ""
+		m.stalledBeadTitle = ""
+		m.stallReason = ""
+		m.stalledAt = time.Time{}
+	}
 
 	// Note: Turn count is tracked via TurnCompleteEvent, not synced from controller.
 	// The TUI is authoritative for session turn tracking.

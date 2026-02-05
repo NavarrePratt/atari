@@ -1209,6 +1209,14 @@ func (c *Controller) GetStats() viewmodel.TUIStats {
 		stats.TopBlockedBead = &blockedBeads[0]
 	}
 
+	// Include stall info if in stalled state
+	if stallInfo := c.getStallInfo(); stallInfo != nil {
+		stats.StalledBeadID = stallInfo.BeadID
+		stats.StalledBeadTitle = stallInfo.BeadTitle
+		stats.StallReason = stallInfo.Reason
+		stats.StalledAt = stallInfo.StalledAt
+	}
+
 	return stats
 }
 
@@ -1485,7 +1493,8 @@ func (c *Controller) runStalled() {
 	}
 }
 
-// Retry requests the controller to retry a stalled bead.
+// Retry requests the controller to retry the currently stalled bead.
+// This is a signal-based approach used by the TUI.
 func (c *Controller) Retry() {
 	select {
 	case c.retrySignal <- struct{}{}:
@@ -1493,6 +1502,50 @@ func (c *Controller) Retry() {
 	default:
 		// Signal already pending
 	}
+}
+
+// RetryBead resets a specific bead so it can be retried.
+// If beadID is empty and controller is stalled, retries the stalled bead.
+// If beadID is empty and controller is not stalled, returns an error.
+// If currently stalled on the specified bead, clears stall and transitions to idle.
+// This is idempotent: retrying an already-pending bead is a no-op.
+func (c *Controller) RetryBead(beadID string) error {
+	// Resolve bead ID
+	if beadID == "" {
+		stallInfo := c.getStallInfo()
+		if stallInfo == nil {
+			return fmt.Errorf("no bead specified and not currently stalled")
+		}
+		beadID = stallInfo.BeadID
+	}
+
+	c.logger.Info("retrying bead", "bead_id", beadID)
+
+	// Reset bead in workqueue (idempotent if already pending)
+	c.workQueue.ResetBead(beadID)
+
+	// If currently stalled on this bead, clear stall and go to idle
+	c.stallMu.RLock()
+	stalledOnThisBead := c.stalledBeadID == beadID
+	c.stallMu.RUnlock()
+
+	if stalledOnThisBead {
+		// Also reset history to clear abandoned/skipped status
+		c.workQueue.ResetHistory(beadID)
+		c.clearStall("retry")
+		if c.getState() == StateStalled {
+			c.setState(StateIdle)
+		}
+	}
+
+	return nil
+}
+
+// StalledBeadID returns the ID of the currently stalled bead, or empty string if not stalled.
+func (c *Controller) StalledBeadID() string {
+	c.stallMu.RLock()
+	defer c.stallMu.RUnlock()
+	return c.stalledBeadID
 }
 
 // GetDrainState returns the current drain state for observer context.

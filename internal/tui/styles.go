@@ -30,6 +30,7 @@ var styles = struct {
 	StatusWorking lipgloss.Style
 	StatusPaused  lipgloss.Style
 	StatusStopped lipgloss.Style
+	StatusStalled lipgloss.Style
 
 	// Focus indicators
 	FocusedBorder   lipgloss.Style
@@ -92,6 +93,10 @@ var styles = struct {
 
 	StatusStopped: lipgloss.NewStyle().
 		Foreground(lipgloss.Color("196")),
+
+	StatusStalled: lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("196")), // Red, bold for attention
 
 	// Focus indicators
 	FocusedBorder: lipgloss.NewStyle().

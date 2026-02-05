@@ -35,6 +35,7 @@ func TestTUILifecycleSmoke(t *testing.T) {
 		nil, // onPause
 		nil, // onResume
 		onQuit,
+		nil, // onRetry
 		nil, // statsGetter
 		nil, // observer
 		nil, // graphFetcher
@@ -102,6 +103,7 @@ func TestTUILifecycleCtrlCQuit(t *testing.T) {
 		nil, // onPause
 		nil, // onResume
 		onQuit,
+		nil, // onRetry
 		nil, // statsGetter
 		nil, // observer
 		nil, // graphFetcher
@@ -146,6 +148,7 @@ func TestTUILifecycleChannelClose(t *testing.T) {
 		nil, // onPause
 		nil, // onResume
 		nil, // onQuit
+		nil, // onRetry
 		nil, // statsGetter
 		nil, // observer
 		nil, // graphFetcher

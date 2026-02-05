@@ -115,6 +115,7 @@ func (env *tuiTestEnv) newModel() model {
 		env.onPause(),
 		env.onResume(),
 		env.onQuit(),
+		nil, // onRetry - nil is acceptable for most tests
 		env.statsGetter,
 		nil, // observer - nil is acceptable for most tests
 		nil, // graph fetcher - nil is acceptable for most tests

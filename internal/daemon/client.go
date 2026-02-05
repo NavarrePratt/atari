@@ -128,6 +128,14 @@ func (c *Client) Stop(force bool) error {
 	return err
 }
 
+// Retry requests the daemon to retry a bead.
+// If beadID is empty, retries the currently stalled bead.
+func (c *Client) Retry(beadID string) error {
+	params := RetryParams{BeadID: beadID}
+	_, err := c.call("retry", params)
+	return err
+}
+
 // IsRunning checks if the daemon is running by attempting to connect.
 func (c *Client) IsRunning() bool {
 	conn, err := net.DialTimeout("unix", c.sockPath, time.Second)

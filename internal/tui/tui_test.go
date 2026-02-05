@@ -110,7 +110,7 @@ func TestNew_WithWorkingDirectory(t *testing.T) {
 func TestNewModel_EpicIDWired(t *testing.T) {
 	eventChan := make(chan events.Event)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "bd-epic-456", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "bd-epic-456", "")
 
 	if m.epicID != "bd-epic-456" {
 		t.Errorf("expected model epicID 'bd-epic-456', got %q", m.epicID)
@@ -120,7 +120,7 @@ func TestNewModel_EpicIDWired(t *testing.T) {
 func TestNewModel_WorkingDirectoryWired(t *testing.T) {
 	eventChan := make(chan events.Event)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/path/to/workdir")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "/path/to/workdir")
 
 	if m.workingDirectory != "/path/to/workdir" {
 		t.Errorf("expected model workingDirectory '/path/to/workdir', got %q", m.workingDirectory)
@@ -129,7 +129,7 @@ func TestNewModel_WorkingDirectoryWired(t *testing.T) {
 
 func TestRenderStatus_WithEpic(t *testing.T) {
 	eventChan := make(chan events.Event)
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "bd-test-epic", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "bd-test-epic", "")
 	m.status = "idle"
 
 	status := m.renderStatus()
@@ -142,7 +142,7 @@ func TestRenderStatus_WithEpic(t *testing.T) {
 
 func TestRenderStatus_WithoutEpic(t *testing.T) {
 	eventChan := make(chan events.Event)
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "")
 	m.status = "idle"
 
 	status := m.renderStatus()
@@ -160,7 +160,7 @@ func TestNewModel_GraphPaneHasFetcher(t *testing.T) {
 	client := brclient.NewMockClient()
 	fetcher := NewBDFetcher(client)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, fetcher, nil, "", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, fetcher, nil, "", "")
 
 	// The graph pane should have the fetcher
 	if m.graphPane.fetcher == nil {
@@ -175,7 +175,7 @@ func TestNewModel_GraphPaneHasFetcher(t *testing.T) {
 func TestNewModel_GraphPaneNilFetcher(t *testing.T) {
 	eventChan := make(chan events.Event)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "")
 
 	// With nil fetcher, graph pane should still be created but fetcher is nil
 	if m.graphPane.fetcher != nil {
@@ -189,7 +189,7 @@ func TestNewModel_DetailModalHasFetcher(t *testing.T) {
 	client := brclient.NewMockClient()
 	fetcher := NewBDFetcher(client)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, fetcher, nil, "", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, fetcher, nil, "", "")
 
 	if m.detailModal == nil {
 		t.Fatal("detailModal is nil")
@@ -211,6 +211,7 @@ func TestNewModel_CallbacksWired(t *testing.T) {
 		func() { pauseCalled = true },
 		func() { resumeCalled = true },
 		func() { quitCalled = true },
+		nil, // onRetry
 		nil, nil, nil, nil, "", "",
 	)
 
@@ -238,7 +239,7 @@ func TestNewModel_CallbacksWired(t *testing.T) {
 func TestNewModel_DefaultState(t *testing.T) {
 	eventChan := make(chan events.Event)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "")
 
 	if m.status != "idle" {
 		t.Errorf("expected status 'idle', got %q", m.status)
@@ -261,7 +262,7 @@ func TestNewModel_DefaultState(t *testing.T) {
 func TestNewModel_ObserverPaneCreated(t *testing.T) {
 	eventChan := make(chan events.Event)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "")
 
 	// Observer pane should exist even without an observer
 	// (it just won't be functional)
@@ -324,6 +325,7 @@ func TestNewModel_FullConfiguration(t *testing.T) {
 		func() {}, // onPause
 		func() {}, // onResume
 		func() {}, // onQuit
+		nil,       // onRetry
 		stats,
 		obs,
 		fetcher,
@@ -367,7 +369,7 @@ func TestNewModel_FullConfiguration(t *testing.T) {
 func TestNewModel_GraphPaneAutoRefreshEnabled(t *testing.T) {
 	eventChan := make(chan events.Event)
 
-	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "")
+	m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "")
 
 	// The graphPane's autoRefreshCmd should return a non-nil command
 	// when auto-refresh is enabled (interval > 0)

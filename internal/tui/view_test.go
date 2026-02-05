@@ -854,7 +854,7 @@ func TestRenderBlockedInfo(t *testing.T) {
 func TestRenderStatusWithWorkDir(t *testing.T) {
 	t.Run("displays working directory after status", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/Users/test/project")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "/Users/test/project")
 		m.status = "idle"
 
 		status := m.renderStatusWithWorkDir(80, 10)
@@ -869,7 +869,7 @@ func TestRenderStatusWithWorkDir(t *testing.T) {
 
 	t.Run("displays working directory after epic when epic is set", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "bd-epic-123", "/home/user/work")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "bd-epic-123", "/home/user/work")
 		m.status = "working"
 
 		status := m.renderStatusWithWorkDir(100, 10)
@@ -887,7 +887,7 @@ func TestRenderStatusWithWorkDir(t *testing.T) {
 
 	t.Run("empty working directory results in no extra text", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "")
 		m.status = "idle"
 
 		status := m.renderStatusWithWorkDir(80, 10)
@@ -904,7 +904,7 @@ func TestRenderStatusWithWorkDir(t *testing.T) {
 
 	t.Run("path omitted when zero width provided", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/path/to/dir")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "/path/to/dir")
 		m.status = "idle"
 
 		// When totalWidth is 0, working directory should be skipped
@@ -917,7 +917,7 @@ func TestRenderStatusWithWorkDir(t *testing.T) {
 
 	t.Run("path omitted when terminal very narrow", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/very/long/path")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "/very/long/path")
 		m.status = "idle"
 
 		// Very narrow width where even "..." won't fit after status
@@ -932,7 +932,7 @@ func TestRenderStatusWithWorkDir(t *testing.T) {
 
 	t.Run("path truncated with ... prefix when narrow", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/Users/developer/projects/myapp")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "/Users/developer/projects/myapp")
 		m.status = "idle"
 
 		// Width that can fit status + some path but not all
@@ -1072,7 +1072,7 @@ func TestRenderStatusWithWorkDir_WidthCalculations(t *testing.T) {
 
 	t.Run("working directory shows after status with sufficient width", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/home/user")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "/home/user")
 		m.status = "idle"
 
 		// Wide enough to fit everything
@@ -1085,7 +1085,7 @@ func TestRenderStatusWithWorkDir_WidthCalculations(t *testing.T) {
 
 	t.Run("working directory truncated with moderate width", func(t *testing.T) {
 		eventChan := make(chan events.Event)
-		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, "", "/Users/developer/very/long/path/to/project")
+		m := newModel(eventChan, nil, nil, nil, nil, nil, nil, nil, nil, "", "/Users/developer/very/long/path/to/project")
 		m.status = "working"
 
 		// Moderate width that requires truncation

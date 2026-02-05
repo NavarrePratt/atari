@@ -196,6 +196,7 @@ func TestCallback_NilCallbacks_NoPanic(t *testing.T) {
 		nil, // onPause
 		nil, // onResume
 		nil, // onQuit
+		nil, // onRetry
 		env.statsGetter,
 		nil, // observer
 		nil, // graph fetcher

@@ -19,6 +19,8 @@ func (d *Daemon) handleRequest(ctx context.Context, req *Request) Response {
 		return d.handleResume()
 	case "stop":
 		return d.handleStop(req)
+	case "retry":
+		return d.handleRetry(req)
 	default:
 		return Response{Error: fmt.Sprintf("unknown method: %s", req.Method)}
 	}
@@ -123,4 +125,26 @@ func (d *Daemon) handleStop(req *Request) Response {
 	}()
 
 	return Response{Result: "stopping"}
+}
+
+// handleRetry requests the controller to retry a bead.
+// If no bead ID is provided, retries the currently stalled bead.
+func (d *Daemon) handleRetry(req *Request) Response {
+	if d.controller == nil {
+		return Response{Error: "no controller available"}
+	}
+
+	// Extract bead_id parameter if provided
+	beadID := ""
+	if params, ok := req.Params.(map[string]interface{}); ok {
+		if id, ok := params["bead_id"].(string); ok {
+			beadID = id
+		}
+	}
+
+	if err := d.controller.RetryBead(beadID); err != nil {
+		return Response{Error: err.Error()}
+	}
+
+	return Response{Result: "retrying"}
 }

@@ -38,3 +38,8 @@ type StatusStats struct {
 type StopParams struct {
 	Force bool `json:"force,omitempty"`
 }
+
+// RetryParams contains parameters for the retry method.
+type RetryParams struct {
+	BeadID string `json:"bead_id,omitempty"`
+}

@@ -21,13 +21,14 @@ type StatsGetter interface {
 
 // TUI is the terminal UI for monitoring atari.
 type TUI struct {
-	eventChan       <-chan events.Event
-	onPause         func()
-	onResume        func()
-	onQuit          func()
-	statsGetter     StatsGetter
-	observer        *observer.Observer
-	graphFetcher    BeadFetcher
+	eventChan        <-chan events.Event
+	onPause          func()
+	onResume         func()
+	onQuit           func()
+	onRetry          func()
+	statsGetter      StatsGetter
+	observer         *observer.Observer
+	graphFetcher     BeadFetcher
 	beadStateGetter  BeadStateGetter
 	epicID           string
 	workingDirectory string
@@ -67,6 +68,13 @@ func WithOnResume(fn func()) Option {
 func WithOnQuit(fn func()) Option {
 	return func(t *TUI) {
 		t.onQuit = fn
+	}
+}
+
+// WithOnRetry sets the callback invoked when the user presses Shift+R to retry a stalled bead.
+func WithOnRetry(fn func()) Option {
+	return func(t *TUI) {
+		t.onRetry = fn
 	}
 }
 
@@ -127,7 +135,7 @@ func (t *TUI) Run() error {
 	}
 
 	// Run the full bubbletea TUI
-	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.statsGetter, t.observer, t.graphFetcher, t.beadStateGetter, t.epicID, t.workingDirectory)
+	m := newModel(t.eventChan, t.onPause, t.onResume, t.onQuit, t.onRetry, t.statsGetter, t.observer, t.graphFetcher, t.beadStateGetter, t.epicID, t.workingDirectory)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err

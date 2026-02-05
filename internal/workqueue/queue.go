@@ -697,7 +697,7 @@ func (m *Manager) SetHistory(history map[string]*BeadHistory) {
 
 // GetBeadState returns the workqueue state for a bead.
 // Returns:
-//   - status: "", "failed", or "abandoned"
+//   - status: "", "failed", "abandoned", or "skipped"
 //   - attempts: number of attempts (0 if never tried)
 //   - inBackoff: true if bead is currently in backoff period
 func (m *Manager) GetBeadState(beadID string) (status string, attempts int, inBackoff bool) {
@@ -722,6 +722,8 @@ func (m *Manager) GetBeadState(beadID string) (status string, attempts int, inBa
 		}
 	case HistoryAbandoned:
 		status = "abandoned"
+	case HistorySkipped:
+		status = "skipped"
 	default:
 		// pending, working, completed - not relevant for styling
 		status = ""

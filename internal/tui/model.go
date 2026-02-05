@@ -149,9 +149,16 @@ type model struct {
 	onPause  func()
 	onResume func()
 	onQuit   func()
+	onRetry  func()
 
 	// Stats provider
 	statsGetter StatsGetter
+
+	// Stall info (populated when status is "stalled")
+	stalledBeadID    string
+	stalledBeadTitle string
+	stallReason      string
+	stalledAt        time.Time
 }
 
 // eventMsg wraps an event for the bubbletea message system.
@@ -160,7 +167,7 @@ type eventMsg events.Event
 // newModel creates a new model with the given configuration.
 func newModel(
 	eventChan <-chan events.Event,
-	onPause, onResume, onQuit func(),
+	onPause, onResume, onQuit, onRetry func(),
 	statsGetter StatsGetter,
 	obs *observer.Observer,
 	graphFetcher BeadFetcher,
@@ -190,6 +197,7 @@ func newModel(
 		onPause:          onPause,
 		onResume:         onResume,
 		onQuit:           onQuit,
+		onRetry:          onRetry,
 		statsGetter:      statsGetter,
 		eventsOpen:       true, // Events panel visible by default
 		observerPane:     NewObserverPane(obs),

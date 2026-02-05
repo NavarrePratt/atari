@@ -494,6 +494,7 @@ Use --daemon to run in the background.`,
 					tui.WithOnPause(ctrl.GracefulPause),
 					tui.WithOnResume(ctrl.Resume),
 					tui.WithOnQuit(ctrl.Stop),
+					tui.WithOnRetry(ctrl.Retry),
 					tui.WithStatsGetter(ctrl),
 					tui.WithObserver(obs),
 					tui.WithGraphFetcher(graphFetcher),
@@ -697,6 +698,41 @@ Use --daemon to run in the background.`,
 		},
 	}
 
+	// Retry command
+	retryCmd := &cobra.Command{
+		Use:   "retry [bead-id]",
+		Short: "Retry an abandoned or skipped bead",
+		Long: `Retry a bead that was abandoned (hit max failures) or skipped.
+
+Without arguments, retries the currently stalled bead (if any).
+With a bead ID, retries that specific bead even if not currently stalled.
+
+This command is idempotent: retrying an already-pending bead is a no-op.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := getDaemonClient()
+			if err != nil {
+				return err
+			}
+
+			beadID := ""
+			if len(args) > 0 {
+				beadID = args[0]
+			}
+
+			if err := client.Retry(beadID); err != nil {
+				return err
+			}
+
+			if beadID != "" {
+				fmt.Printf("Retry requested for bead %s\n", beadID)
+			} else {
+				fmt.Println("Retry requested for stalled bead")
+			}
+			return nil
+		},
+	}
+
 	// Stop command
 	stopCmd := &cobra.Command{
 		Use:   "stop",
@@ -814,6 +850,7 @@ Creates the following structure:
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(pauseCmd)
 	rootCmd.AddCommand(resumeCmd)
+	rootCmd.AddCommand(retryCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(eventsCmd)
 	rootCmd.AddCommand(initCmd)
