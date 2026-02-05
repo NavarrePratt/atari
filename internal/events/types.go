@@ -266,6 +266,7 @@ type BeadState struct {
 	Status    string `json:"status"`
 	Priority  int    `json:"priority"`
 	IssueType string `json:"issue_type"`
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // BeadChangedEvent is emitted when a bead's state changes in the JSONL file.

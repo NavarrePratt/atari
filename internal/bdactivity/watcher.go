@@ -333,7 +333,8 @@ func beadStateEqual(a, b *events.BeadState) bool {
 		a.Title == b.Title &&
 		a.Status == b.Status &&
 		a.Priority == b.Priority &&
-		a.IssueType == b.IssueType
+		a.IssueType == b.IssueType &&
+		a.CreatedBy == b.CreatedBy
 }
 
 // emitWarning emits a warning event to the router.
@@ -366,6 +367,7 @@ type jsonlBead struct {
 	Status    string `json:"status"`
 	Priority  int    `json:"priority"`
 	IssueType string `json:"issue_type"`
+	CreatedBy string `json:"created_by"`
 }
 
 // ParseJSONLLine parses a single line from the JSONL file.
@@ -391,5 +393,6 @@ func ParseJSONLLine(line []byte) (*events.BeadState, error) {
 		Status:    bead.Status,
 		Priority:  bead.Priority,
 		IssueType: bead.IssueType,
+		CreatedBy: bead.CreatedBy,
 	}, nil
 }

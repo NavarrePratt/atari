@@ -535,16 +535,23 @@ func TestWatcher_FileCreatedLater(t *testing.T) {
 
 func TestParseJSONLLine(t *testing.T) {
 	tests := []struct {
-		name     string
-		line     []byte
-		wantID   string
-		wantErr  bool
-		wantNil  bool
+		name        string
+		line        []byte
+		wantID      string
+		wantCreator string
+		wantErr     bool
+		wantNil     bool
 	}{
 		{
 			name:   "valid bead",
 			line:   []byte(`{"id":"bd-001","title":"Test","status":"open","priority":1,"issue_type":"task"}`),
 			wantID: "bd-001",
+		},
+		{
+			name:        "bead with created_by",
+			line:        []byte(`{"id":"bd-002","title":"Test","status":"open","priority":1,"issue_type":"task","created_by":"claude"}`),
+			wantID:      "bd-002",
+			wantCreator: "claude",
 		},
 		{
 			name:    "empty line",
@@ -581,6 +588,14 @@ func TestParseJSONLLine(t *testing.T) {
 				}
 				if bead.ID != tc.wantID {
 					t.Errorf("expected ID %s, got %s", tc.wantID, bead.ID)
+				}
+			}
+			if tc.wantCreator != "" {
+				if bead == nil {
+					t.Fatal("expected non-nil bead")
+				}
+				if bead.CreatedBy != tc.wantCreator {
+					t.Errorf("expected CreatedBy %s, got %s", tc.wantCreator, bead.CreatedBy)
 				}
 			}
 		})
@@ -622,6 +637,18 @@ func TestBeadStateEqual(t *testing.T) {
 			a:      &events.BeadState{ID: "bd-001", Title: "Old"},
 			b:      &events.BeadState{ID: "bd-001", Title: "New"},
 			expect: false,
+		},
+		{
+			name:   "different created_by",
+			a:      &events.BeadState{ID: "bd-001", CreatedBy: "claude"},
+			b:      &events.BeadState{ID: "bd-001", CreatedBy: "user"},
+			expect: false,
+		},
+		{
+			name:   "equal with created_by",
+			a:      &events.BeadState{ID: "bd-001", CreatedBy: "claude"},
+			b:      &events.BeadState{ID: "bd-001", CreatedBy: "claude"},
+			expect: true,
 		},
 	}
 
