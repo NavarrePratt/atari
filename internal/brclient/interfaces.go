@@ -100,6 +100,10 @@ type WorkQueueClient interface {
 
 	// List retrieves all beads for hierarchy analysis.
 	List(ctx context.Context, opts *ListOptions) ([]Bead, error)
+
+	// Show retrieves a single bead by ID.
+	// Used as a workaround for br list not including parent field.
+	Show(ctx context.Context, id string) (*Bead, error)
 }
 
 // Client combines all bead operations.

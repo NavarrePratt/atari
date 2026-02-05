@@ -33,3 +33,6 @@ Thumbs.db
 
 # Test files
 example*.txt
+
+# Issue drafts (not committed)
+br-parent-field-issue.md

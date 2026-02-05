@@ -4,6 +4,7 @@ package workqueue
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -306,7 +307,11 @@ func buildDescendantSet(epicID string, beads []Bead) map[string]bool {
 	return descendants
 }
 
-// fetchAllBeads retrieves all beads from br list --json.
+// fetchAllBeads retrieves all beads and populates parent fields.
+//
+// TODO: Refactor back to br list when it includes parent field.
+// See: https://github.com/coreweave/beads-rust/issues/XXX
+// Current workaround uses br show per-bead which is N+1.
 func (m *Manager) fetchAllBeads(ctx context.Context) ([]Bead, error) {
 	beads, err := m.client.List(ctx, nil)
 	if err != nil {
@@ -315,6 +320,29 @@ func (m *Manager) fetchAllBeads(ctx context.Context) ([]Bead, error) {
 
 	if len(beads) == 0 {
 		return nil, nil
+	}
+
+	// Populate parent field using br show for beads missing it.
+	// br list --json does not include parent, but br show --json does.
+	for i := range beads {
+		if beads[i].Parent != "" {
+			continue
+		}
+
+		full, err := m.client.Show(ctx, beads[i].ID)
+		if err != nil {
+			slog.Warn("failed to fetch parent for bead, skipping",
+				"bead_id", beads[i].ID,
+				"error", err)
+			continue
+		}
+		if full == nil {
+			slog.Warn("br show returned nil for bead, skipping parent lookup",
+				"bead_id", beads[i].ID)
+			continue
+		}
+
+		beads[i].Parent = full.Parent
 	}
 
 	return beads, nil
