@@ -48,7 +48,7 @@ Track all work with `br`. Create issues for test failures and bugs. Record metic
 
 **Work**: One issue at a time. Commit after each. Verify end-to-end.
 
-**Completion**: File remaining work as issues. Close completed issues. Push to remote.
+**Completion**: File remaining work as issues. Close completed issues. Do NOT push.
 
 ## CRITICAL: Bead Closure
 

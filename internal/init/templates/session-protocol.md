@@ -45,10 +45,9 @@ br create "Follow-up: ..." --json    # File remaining work
 br close <id> --reason "..." --json  # Close completed issues
 # Run quality validation (lint, test, type-check)
 # Use /commit for atomic commits
-git push                              # MUST succeed
 ```
 
-Session is NOT complete until `git push` succeeds.
+Do NOT push to remote - commits should remain local for user review.
 
 ## Clean State Requirement
 
