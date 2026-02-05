@@ -274,6 +274,105 @@ func TestCLIClient_UpdateStatus(t *testing.T) {
 	}
 }
 
+func TestCLIClient_Comment(t *testing.T) {
+	runner := testutil.NewMockRunner()
+	runner.SetResponse("br", []string{"comment", "bd-001", "Test comment"}, []byte(`{}`))
+
+	client := NewCLIClient(runner)
+	err := client.Comment(context.Background(), "bd-001", "Test comment")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls := runner.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	expected := []string{"comment", "bd-001", "Test comment"}
+	if !slicesEqual(calls[0].Args, expected) {
+		t.Errorf("args = %v, want %v", calls[0].Args, expected)
+	}
+}
+
+func TestCLIClient_UpdateNotes(t *testing.T) {
+	tests := []struct {
+		name         string
+		id           string
+		notes        string
+		currentBead  *Bead
+		wantShowArgs []string
+		wantUpdArgs  []string
+		showErr      error
+		wantErr      bool
+		errSubstr    string
+	}{
+		{
+			name:  "success - preserves status",
+			id:    "bd-001",
+			notes: "New notes",
+			currentBead: &Bead{
+				ID:     "bd-001",
+				Status: "in_progress",
+			},
+			wantShowArgs: []string{"show", "bd-001", "--json"},
+			wantUpdArgs:  []string{"update", "bd-001", "--status", "in_progress", "--notes", "New notes"},
+		},
+		{
+			name:         "show fails",
+			id:           "bd-999",
+			notes:        "Notes",
+			wantShowArgs: []string{"show", "bd-999", "--json"},
+			showErr:      errors.New("not found"),
+			wantErr:      true,
+			errSubstr:    "fetch bead",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := testutil.NewMockRunner()
+
+			if tt.showErr != nil {
+				runner.SetError("br", tt.wantShowArgs, tt.showErr)
+			} else if tt.currentBead != nil {
+				// Mock Show response
+				showResp := []byte(`[{"id": "` + tt.currentBead.ID + `", "status": "` + tt.currentBead.Status + `"}]`)
+				runner.SetResponse("br", tt.wantShowArgs, showResp)
+				// Mock UpdateStatus response
+				runner.SetResponse("br", tt.wantUpdArgs, []byte(`{}`))
+			}
+
+			client := NewCLIClient(runner)
+			err := client.UpdateNotes(context.Background(), tt.id, tt.notes)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.errSubstr != "" && !contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errSubstr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			calls := runner.GetCalls()
+			if len(calls) != 2 {
+				t.Fatalf("expected 2 calls (Show + UpdateStatus), got %d", len(calls))
+			}
+			if !slicesEqual(calls[0].Args, tt.wantShowArgs) {
+				t.Errorf("show args = %v, want %v", calls[0].Args, tt.wantShowArgs)
+			}
+			if !slicesEqual(calls[1].Args, tt.wantUpdArgs) {
+				t.Errorf("update args = %v, want %v", calls[1].Args, tt.wantUpdArgs)
+			}
+		})
+	}
+}
+
 func TestCLIClient_Close(t *testing.T) {
 	runner := testutil.NewMockRunner()
 	runner.SetResponse("br", []string{"close", "bd-001", "--reason", "Completed successfully"}, []byte(`{}`))

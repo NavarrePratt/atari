@@ -172,6 +172,18 @@ func (c *CLIClient) Comment(ctx context.Context, id, message string) error {
 	return nil
 }
 
+// UpdateNotes updates a bead's notes while preserving its current status.
+func (c *CLIClient) UpdateNotes(ctx context.Context, id, notes string) error {
+	// Fetch current bead to get its status
+	bead, err := c.Show(ctx, id)
+	if err != nil {
+		return fmt.Errorf("fetch bead %s for notes update: %w", id, err)
+	}
+
+	// Update with current status to preserve it while changing notes
+	return c.UpdateStatus(ctx, id, bead.Status, notes)
+}
+
 // Close closes a bead with a reason.
 func (c *CLIClient) Close(ctx context.Context, id, reason string) error {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)

@@ -26,6 +26,7 @@ type MockClient struct {
 	ReadyResponse       []Bead
 	ReadyError          error
 	UpdateStatusError   error
+	UpdateNotesError    error
 	CommentError        error
 	CloseError          error
 	CloseEligibleResult []EpicCloseResult
@@ -41,6 +42,7 @@ type MockClient struct {
 	LabelsCalls        []string
 	ReadyCalls         []*ReadyOptions
 	UpdateStatusCalls  []UpdateStatusCall
+	UpdateNotesCalls   []UpdateNotesCall
 	CommentCalls       []CommentCall
 	CloseCalls         []CloseCall
 	CloseEligibleCalls int
@@ -51,6 +53,12 @@ type UpdateStatusCall struct {
 	ID     string
 	Status string
 	Notes  string
+}
+
+// UpdateNotesCall records an UpdateNotes call.
+type UpdateNotesCall struct {
+	ID    string
+	Notes string
 }
 
 // CommentCall records a Comment call.
@@ -161,6 +169,19 @@ func (m *MockClient) UpdateStatus(ctx context.Context, id, status, notes string)
 	return m.UpdateStatusError
 }
 
+// UpdateNotes implements BeadUpdater.
+func (m *MockClient) UpdateNotes(ctx context.Context, id, notes string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.UpdateNotesCalls = append(m.UpdateNotesCalls, UpdateNotesCall{
+		ID:    id,
+		Notes: notes,
+	})
+
+	return m.UpdateNotesError
+}
+
 // Comment implements BeadUpdater.
 func (m *MockClient) Comment(ctx context.Context, id, message string) error {
 	m.mu.Lock()
@@ -224,6 +245,8 @@ func (m *MockClient) Reset() {
 	m.LabelsCalls = nil
 	m.ReadyCalls = nil
 	m.UpdateStatusCalls = nil
+	m.UpdateNotesCalls = nil
+	m.CommentCalls = nil
 	m.CloseCalls = nil
 	m.CloseEligibleCalls = 0
 }
