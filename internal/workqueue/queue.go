@@ -205,8 +205,8 @@ func (m *Manager) filterEligible(beads []Bead, epicDescendants map[string]bool) 
 			continue
 		}
 
-		// Skip completed or abandoned beads
-		if history.Status == HistoryCompleted || history.Status == HistoryAbandoned {
+		// Skip completed, abandoned, or skipped beads
+		if history.Status == HistoryCompleted || history.Status == HistoryAbandoned || history.Status == HistorySkipped {
 			continue
 		}
 
@@ -539,6 +539,20 @@ func (m *Manager) ResetHistory(beadID string) {
 	defer m.mu.Unlock()
 
 	delete(m.history, beadID)
+}
+
+// ResetBead clears failure state for a bead, allowing it to be retried.
+// Unlike ResetHistory, this preserves the history entry but resets all state.
+func (m *Manager) ResetBead(beadID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if h := m.history[beadID]; h != nil {
+		h.Status = HistoryPending
+		h.Attempts = 0
+		h.LastAttempt = time.Time{}
+		h.LastError = ""
+	}
 }
 
 // QueueStats provides statistics about the work queue.

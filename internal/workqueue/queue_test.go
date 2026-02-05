@@ -1635,3 +1635,125 @@ func TestFetchAllBeads_Error(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestFilterEligible_ExcludesSkipped(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, newMockClient())
+
+	m.history["bd-001"] = &BeadHistory{ID: "bd-001", Status: HistorySkipped}
+
+	beads := []Bead{
+		{ID: "bd-001", Priority: 1},
+		{ID: "bd-002", Priority: 2},
+	}
+
+	result := m.filterEligible(beads, nil)
+	if len(result.eligible) != 1 {
+		t.Errorf("expected 1 eligible bead, got %d", len(result.eligible))
+	}
+	if result.eligible[0].ID != "bd-002" {
+		t.Errorf("expected bd-002, got %s", result.eligible[0].ID)
+	}
+}
+
+func TestRecordSkipped(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, newMockClient())
+
+	m.RecordSkipped("bd-001")
+
+	h := m.history["bd-001"]
+	if h == nil {
+		t.Fatal("expected history entry")
+	}
+	if h.Status != HistorySkipped {
+		t.Errorf("expected status skipped, got %s", h.Status)
+	}
+}
+
+func TestRecordSkipped_ExistingHistory(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, newMockClient())
+
+	m.history["bd-001"] = &BeadHistory{
+		ID:       "bd-001",
+		Status:   HistoryWorking,
+		Attempts: 2,
+	}
+
+	m.RecordSkipped("bd-001")
+
+	h := m.history["bd-001"]
+	if h.Status != HistorySkipped {
+		t.Errorf("expected status skipped, got %s", h.Status)
+	}
+	if h.Attempts != 2 {
+		t.Errorf("expected attempts preserved as 2, got %d", h.Attempts)
+	}
+}
+
+func TestResetBead(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, newMockClient())
+
+	m.history["bd-001"] = &BeadHistory{
+		ID:          "bd-001",
+		Status:      HistorySkipped,
+		Attempts:    3,
+		LastAttempt: time.Now(),
+		LastError:   "test error",
+	}
+
+	m.ResetBead("bd-001")
+
+	h := m.history["bd-001"]
+	if h == nil {
+		t.Fatal("expected history entry to still exist")
+	}
+	if h.Status != HistoryPending {
+		t.Errorf("expected status pending, got %s", h.Status)
+	}
+	if h.Attempts != 0 {
+		t.Errorf("expected attempts 0, got %d", h.Attempts)
+	}
+	if !h.LastAttempt.IsZero() {
+		t.Errorf("expected LastAttempt to be zero, got %v", h.LastAttempt)
+	}
+	if h.LastError != "" {
+		t.Errorf("expected LastError to be empty, got %s", h.LastError)
+	}
+}
+
+func TestResetBead_NoExistingHistory(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, newMockClient())
+
+	m.ResetBead("bd-001")
+
+	if m.history["bd-001"] != nil {
+		t.Error("expected no history entry for non-existent bead")
+	}
+}
+
+func TestResetBead_AbandonedBead(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, newMockClient())
+
+	m.history["bd-001"] = &BeadHistory{
+		ID:          "bd-001",
+		Status:      HistoryAbandoned,
+		Attempts:    5,
+		LastAttempt: time.Now(),
+		LastError:   "max failures exceeded",
+	}
+
+	m.ResetBead("bd-001")
+
+	h := m.history["bd-001"]
+	if h.Status != HistoryPending {
+		t.Errorf("expected status pending after reset, got %s", h.Status)
+	}
+	if h.Attempts != 0 {
+		t.Errorf("expected attempts 0 after reset, got %d", h.Attempts)
+	}
+}
