@@ -24,6 +24,8 @@ const (
 	EventDrainStart        EventType = "drain.start"
 	EventDrainStop         EventType = "drain.stop"
 	EventDrainStateChanged EventType = "drain.state_changed"
+	EventDrainStall        EventType = "drain.stall"
+	EventDrainStallCleared EventType = "drain.stall_cleared"
 
 	// Iteration events
 	EventIterationStart EventType = "iteration.start"
@@ -150,6 +152,22 @@ type DrainStateChangedEvent struct {
 	BaseEvent
 	From string `json:"from"`
 	To   string `json:"to"`
+}
+
+// StallEvent is emitted when the controller enters the stalled state.
+// This persists stall context so it survives restarts.
+type StallEvent struct {
+	BaseEvent
+	BeadID string `json:"bead_id"`
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
+}
+
+// StallClearedEvent is emitted when stall context is cleared (on retry or resume).
+type StallClearedEvent struct {
+	BaseEvent
+	BeadID string `json:"bead_id"` // The bead that was stalled
+	Action string `json:"action"`  // "retry" or "resume" or "auto_cleared"
 }
 
 // IterationStartEvent is emitted when beginning work on a bead.

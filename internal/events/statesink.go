@@ -16,20 +16,25 @@ const StateBufferSize = 1000
 
 // CurrentStateVersion is the current state file format version.
 // Increment this when making incompatible changes to the State struct.
-const CurrentStateVersion = 1
+const CurrentStateVersion = 2
 
 // State represents the persistent drain state.
 type State struct {
-	Version            int                     `json:"version"`
-	Status             string                  `json:"status"`
-	Iteration          int                     `json:"iteration"`
-	CurrentBead        string                  `json:"current_bead,omitempty"`
-	History            map[string]*BeadHistory `json:"history"`
-	TotalCost          float64                 `json:"total_cost"`
-	TotalTurns         int                     `json:"total_turns"`
-	UpdatedAt          time.Time               `json:"updated_at"`
-	ActiveTopLevel     string                  `json:"active_top_level,omitempty"`
-	ActiveTopLevelTitle string                 `json:"active_top_level_title,omitempty"`
+	Version             int                     `json:"version"`
+	Status              string                  `json:"status"`
+	Iteration           int                     `json:"iteration"`
+	CurrentBead         string                  `json:"current_bead,omitempty"`
+	History             map[string]*BeadHistory `json:"history"`
+	TotalCost           float64                 `json:"total_cost"`
+	TotalTurns          int                     `json:"total_turns"`
+	UpdatedAt           time.Time               `json:"updated_at"`
+	ActiveTopLevel      string                  `json:"active_top_level,omitempty"`
+	ActiveTopLevelTitle string                  `json:"active_top_level_title,omitempty"`
+	// Stall context (persisted for recovery across restarts)
+	StalledBeadID    string    `json:"stalled_bead_id,omitempty"`
+	StalledBeadTitle string    `json:"stalled_bead_title,omitempty"`
+	StallReason      string    `json:"stall_reason,omitempty"`
+	StalledAt        time.Time `json:"stalled_at,omitempty"`
 }
 
 // DefaultMinSaveDelay is the minimum time between saves.
@@ -177,6 +182,20 @@ func (s *StateSink) handleEvent(event Event) {
 			s.countedSessions[e.SessionID] = true
 			s.dirty = true
 		}
+
+	case *StallEvent:
+		s.state.StalledBeadID = e.BeadID
+		s.state.StalledBeadTitle = e.Title
+		s.state.StallReason = e.Reason
+		s.state.StalledAt = e.Timestamp()
+		s.dirty = true
+
+	case *StallClearedEvent:
+		s.state.StalledBeadID = ""
+		s.state.StalledBeadTitle = ""
+		s.state.StallReason = ""
+		s.state.StalledAt = time.Time{}
+		s.dirty = true
 	}
 
 	// Debounced save
@@ -251,16 +270,42 @@ func (s *StateSink) Load() error {
 		return nil
 	}
 
-	// Check version compatibility
-	if state.Version == 0 || state.Version != CurrentStateVersion {
+	// Check version compatibility and migrate if needed
+	if state.Version == 0 {
+		// Corrupted or pre-version state - backup and reset
 		if backupErr := s.backupStateFile(); backupErr != nil {
-			slog.Warn("incompatible state version, failed to backup",
+			slog.Warn("invalid state version 0, failed to backup",
+				"path", s.path,
+				"backup_error", backupErr)
+		} else {
+			slog.Warn("invalid state version 0, backed up and starting fresh",
+				"path", s.path)
+		}
+		s.resetState()
+		return nil
+	}
+
+	// Migrate from older versions
+	if state.Version < CurrentStateVersion {
+		slog.Info("migrating state file",
+			"path", s.path,
+			"from_version", state.Version,
+			"to_version", CurrentStateVersion)
+		// Version 1 -> 2: new stall fields are zero-valued (empty strings, zero time)
+		// which is correct default behavior. Just update the version.
+		state.Version = CurrentStateVersion
+	}
+
+	// Reject future versions we don't understand
+	if state.Version > CurrentStateVersion {
+		if backupErr := s.backupStateFile(); backupErr != nil {
+			slog.Warn("state version from future, failed to backup",
 				"path", s.path,
 				"file_version", state.Version,
 				"current_version", CurrentStateVersion,
 				"backup_error", backupErr)
 		} else {
-			slog.Warn("incompatible state version, backed up and starting fresh",
+			slog.Warn("state version from future, backed up and starting fresh",
 				"path", s.path,
 				"file_version", state.Version,
 				"current_version", CurrentStateVersion)

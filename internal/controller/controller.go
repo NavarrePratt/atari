@@ -164,6 +164,9 @@ func (c *Controller) Run(ctx context.Context) error {
 	// Restore active top-level from persisted state (for top-level selection mode)
 	c.restoreActiveTopLevel()
 
+	// Restore stall context from persisted state (if any)
+	c.restoreStallContext()
+
 	// Start BD activity watcher if configured (best-effort, non-fatal)
 	if c.bdWatcher != nil {
 		if err := c.bdWatcher.Start(c.ctx); err != nil {
@@ -383,6 +386,51 @@ func (c *Controller) restoreActiveTopLevel() {
 		c.logger.Info("cleared stale active top-level from state",
 			"id", state.ActiveTopLevel)
 	}
+}
+
+// restoreStallContext restores stall context from persisted state.
+// If a stalled bead exists in state, verifies it still exists and restores the stalled state.
+// If the bead no longer exists, clears the stall from state.
+func (c *Controller) restoreStallContext() {
+	if c.stateSink == nil {
+		return
+	}
+
+	state := c.stateSink.State()
+	if state.StalledBeadID == "" {
+		return
+	}
+
+	// Verify the stalled bead still exists
+	if !c.beadExists(state.StalledBeadID) {
+		c.logger.Info("stalled bead no longer exists, clearing stall",
+			"bead_id", state.StalledBeadID)
+		// Emit event to clear from persisted state
+		c.emit(&events.StallClearedEvent{
+			BaseEvent: events.NewInternalEvent(events.EventDrainStallCleared),
+			BeadID:    state.StalledBeadID,
+			Action:    "auto_cleared",
+		})
+		return
+	}
+
+	// Restore stall context to controller memory
+	c.stallMu.Lock()
+	c.stalledBeadID = state.StalledBeadID
+	c.stalledBeadTitle = state.StalledBeadTitle
+	c.stallReason = state.StallReason
+	c.stalledAt = state.StalledAt
+	c.stallMu.Unlock()
+
+	// Set state to stalled (bypass setState to avoid re-emitting state change event)
+	c.stateMu.Lock()
+	c.state = StateStalled
+	c.stateMu.Unlock()
+
+	c.logger.Info("restored stall context from state",
+		"bead_id", state.StalledBeadID,
+		"title", state.StalledBeadTitle,
+		"reason", state.StallReason)
 }
 
 // verifyTopLevelHasReadyWork checks if a top-level item still has ready descendants.
@@ -1258,6 +1306,14 @@ func (c *Controller) triggerStall(beadID, beadTitle, reason string) {
 	c.stalledAt = time.Now()
 	c.stallMu.Unlock()
 
+	// Emit stall event for persistence
+	c.emit(&events.StallEvent{
+		BaseEvent: events.NewInternalEvent(events.EventDrainStall),
+		BeadID:    beadID,
+		Title:     beadTitle,
+		Reason:    reason,
+	})
+
 	c.setState(StateStalled)
 	c.logger.Warn("controller stalled",
 		"bead_id", beadID,
@@ -1285,14 +1341,25 @@ func (c *Controller) triggerStall(beadID, beadTitle, reason string) {
 	}
 }
 
-// clearStall clears the stalled state (thread-safe).
-func (c *Controller) clearStall() {
+// clearStall clears the stalled state and emits a StallClearedEvent (thread-safe).
+// The action parameter describes why the stall was cleared: "retry", "resume", or "auto_cleared".
+func (c *Controller) clearStall(action string) {
 	c.stallMu.Lock()
+	beadID := c.stalledBeadID
 	c.stalledBeadID = ""
 	c.stalledBeadTitle = ""
 	c.stallReason = ""
 	c.stalledAt = time.Time{}
 	c.stallMu.Unlock()
+
+	// Emit stall cleared event for persistence
+	if beadID != "" {
+		c.emit(&events.StallClearedEvent{
+			BaseEvent: events.NewInternalEvent(events.EventDrainStallCleared),
+			BeadID:    beadID,
+			Action:    action,
+		})
+	}
 }
 
 // StallInfo contains information about a stalled bead.
@@ -1405,7 +1472,7 @@ func (c *Controller) runStalled() {
 			"bead_id", stallInfo.BeadID)
 		// Reset the failure history for this bead so it can be retried
 		c.workQueue.ResetHistory(stallInfo.BeadID)
-		c.clearStall()
+		c.clearStall("retry")
 		c.setState(StateIdle)
 
 	case <-c.resumeSignal:
@@ -1413,7 +1480,7 @@ func (c *Controller) runStalled() {
 		c.logger.Info("resuming from stall, skipping bead",
 			"bead_id", stallInfo.BeadID)
 		c.workQueue.RecordSkipped(stallInfo.BeadID)
-		c.clearStall()
+		c.clearStall("resume")
 		c.setState(StateIdle)
 
 	case <-c.stopSignal:
@@ -1437,7 +1504,7 @@ func (c *Controller) runStalled() {
 		if !c.beadExists(stallInfo.BeadID) {
 			c.logger.Info("stalled bead was deleted externally, auto-clearing",
 				"bead_id", stallInfo.BeadID)
-			c.clearStall()
+			c.clearStall("auto_cleared")
 			c.setState(StateIdle)
 		}
 

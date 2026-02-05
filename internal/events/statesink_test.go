@@ -17,8 +17,8 @@ func TestNewStateSink(t *testing.T) {
 	if sink.path != "/tmp/test-state.json" {
 		t.Errorf("path = %q, want %q", sink.path, "/tmp/test-state.json")
 	}
-	if sink.state.Version != 1 {
-		t.Errorf("state.Version = %d, want 1", sink.state.Version)
+	if sink.state.Version != CurrentStateVersion {
+		t.Errorf("state.Version = %d, want %d", sink.state.Version, CurrentStateVersion)
 	}
 	if sink.state.History == nil {
 		t.Error("state.History is nil, want initialized map")
@@ -1033,4 +1033,239 @@ func TestStateSinkSessionEndCostCountedForRetries(t *testing.T) {
 
 	cancel()
 	_ = sink.Stop()
+}
+
+func TestStateSinkVersion1Migration(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	// Write a version 1 state file (old format without stall fields)
+	v1State := `{
+		"version": 1,
+		"status": "idle",
+		"iteration": 5,
+		"total_cost": 1.50,
+		"total_turns": 100,
+		"history": {
+			"bd-old": {"id": "bd-old", "status": "completed", "attempts": 1}
+		}
+	}`
+	if err := os.WriteFile(path, []byte(v1State), 0644); err != nil {
+		t.Fatalf("failed to write v1 state: %v", err)
+	}
+
+	// Load with new sink
+	sink := NewStateSink(path)
+	err := sink.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// State should be migrated to version 2
+	state := sink.State()
+	if state.Version != CurrentStateVersion {
+		t.Errorf("Version = %d, want %d (should be migrated)", state.Version, CurrentStateVersion)
+	}
+
+	// Existing data should be preserved
+	if state.Status != "idle" {
+		t.Errorf("Status = %q, want %q", state.Status, "idle")
+	}
+	if state.Iteration != 5 {
+		t.Errorf("Iteration = %d, want 5", state.Iteration)
+	}
+	if state.TotalCost != 1.50 {
+		t.Errorf("TotalCost = %f, want 1.50", state.TotalCost)
+	}
+	if len(state.History) != 1 {
+		t.Errorf("History has %d entries, want 1", len(state.History))
+	}
+
+	// New stall fields should be empty/zero
+	if state.StalledBeadID != "" {
+		t.Errorf("StalledBeadID = %q, want empty", state.StalledBeadID)
+	}
+	if state.StalledBeadTitle != "" {
+		t.Errorf("StalledBeadTitle = %q, want empty", state.StalledBeadTitle)
+	}
+	if state.StallReason != "" {
+		t.Errorf("StallReason = %q, want empty", state.StallReason)
+	}
+	if !state.StalledAt.IsZero() {
+		t.Errorf("StalledAt = %v, want zero", state.StalledAt)
+	}
+
+	// No backup file should exist (migration, not reset)
+	backupPath := path + ".backup"
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Error("backup file should not exist for migration")
+	}
+}
+
+func TestStateSinkStallEventPersistence(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	sink := NewStateSink(path)
+	sink.SetMinDelay(0)
+	events := make(chan Event, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	stallTime := time.Now()
+
+	// Send stall event
+	events <- &StallEvent{
+		BaseEvent: BaseEvent{
+			EventType: EventDrainStall,
+			Time:      stallTime,
+			Src:       SourceInternal,
+		},
+		BeadID: "bd-stalled",
+		Title:  "Stalled Bead",
+		Reason: "max failures (3 attempts)",
+	}
+
+	time.Sleep(30 * time.Millisecond)
+
+	// Verify stall fields are set
+	state := sink.State()
+	if state.StalledBeadID != "bd-stalled" {
+		t.Errorf("StalledBeadID = %q, want %q", state.StalledBeadID, "bd-stalled")
+	}
+	if state.StalledBeadTitle != "Stalled Bead" {
+		t.Errorf("StalledBeadTitle = %q, want %q", state.StalledBeadTitle, "Stalled Bead")
+	}
+	if state.StallReason != "max failures (3 attempts)" {
+		t.Errorf("StallReason = %q, want %q", state.StallReason, "max failures (3 attempts)")
+	}
+	if state.StalledAt.IsZero() {
+		t.Error("StalledAt should be set")
+	}
+
+	cancel()
+	_ = sink.Stop()
+}
+
+func TestStateSinkStallClearedEventPersistence(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	sink := NewStateSink(path)
+	sink.SetMinDelay(0)
+	events := make(chan Event, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := sink.Start(ctx, events)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// First set stall
+	events <- &StallEvent{
+		BaseEvent: NewInternalEvent(EventDrainStall),
+		BeadID:    "bd-stalled",
+		Title:     "Stalled Bead",
+		Reason:    "max failures",
+	}
+
+	time.Sleep(30 * time.Millisecond)
+
+	// Verify stall is set
+	state := sink.State()
+	if state.StalledBeadID == "" {
+		t.Fatal("StalledBeadID should be set before clear")
+	}
+
+	// Now clear stall
+	events <- &StallClearedEvent{
+		BaseEvent: NewInternalEvent(EventDrainStallCleared),
+		BeadID:    "bd-stalled",
+		Action:    "retry",
+	}
+
+	time.Sleep(30 * time.Millisecond)
+
+	// Verify stall fields are cleared
+	state = sink.State()
+	if state.StalledBeadID != "" {
+		t.Errorf("StalledBeadID = %q, want empty", state.StalledBeadID)
+	}
+	if state.StalledBeadTitle != "" {
+		t.Errorf("StalledBeadTitle = %q, want empty", state.StalledBeadTitle)
+	}
+	if state.StallReason != "" {
+		t.Errorf("StallReason = %q, want empty", state.StallReason)
+	}
+	if !state.StalledAt.IsZero() {
+		t.Errorf("StalledAt = %v, want zero", state.StalledAt)
+	}
+
+	cancel()
+	_ = sink.Stop()
+}
+
+func TestStateSinkStallPersistedAndLoaded(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "state.json")
+
+	// Create first sink and set stall
+	sink1 := NewStateSink(path)
+	sink1.SetMinDelay(0)
+	events1 := make(chan Event, 10)
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+
+	err := sink1.Start(ctx1, events1)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	stallTime := time.Now()
+
+	events1 <- &StallEvent{
+		BaseEvent: BaseEvent{
+			EventType: EventDrainStall,
+			Time:      stallTime,
+			Src:       SourceInternal,
+		},
+		BeadID: "bd-persistent",
+		Title:  "Persistent Stall",
+		Reason: "test reason",
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	cancel1()
+	_ = sink1.Stop()
+
+	// Create new sink and load
+	sink2 := NewStateSink(path)
+	err = sink2.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// Verify stall was persisted and loaded
+	state := sink2.State()
+	if state.StalledBeadID != "bd-persistent" {
+		t.Errorf("StalledBeadID = %q, want %q", state.StalledBeadID, "bd-persistent")
+	}
+	if state.StalledBeadTitle != "Persistent Stall" {
+		t.Errorf("StalledBeadTitle = %q, want %q", state.StalledBeadTitle, "Persistent Stall")
+	}
+	if state.StallReason != "test reason" {
+		t.Errorf("StallReason = %q, want %q", state.StallReason, "test reason")
+	}
+	if state.StalledAt.IsZero() {
+		t.Error("StalledAt should be preserved")
+	}
 }
