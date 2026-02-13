@@ -2020,3 +2020,101 @@ func TestHasEligibleReadyDescendants_ListError(t *testing.T) {
 		t.Error("expected error when list fails")
 	}
 }
+
+// TestNext_WithEpicFilter_RealisticMock simulates real br behavior where
+// br list --json does NOT include Parent, but br show --json does.
+// This is the bug that caused --epic to stay IDLE forever.
+func TestNext_WithEpicFilter_RealisticMock(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", Title: "Task in epic", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{ID: "task-002", Title: "Task outside epic", Status: "open", Priority: 1, IssueType: "task", CreatedAt: time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)},
+	}
+
+	// Realistic: br list --json does NOT populate Parent
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", Title: "Epic", Status: "open", IssueType: "epic"},
+		{ID: "task-001", Title: "Task in epic", Status: "open"},
+		{ID: "task-002", Title: "Task outside epic", Status: "open"},
+	}
+
+	// br show --json DOES populate Parent
+	mock.ShowResponses["task-001"] = &brclient.Bead{
+		ID: "task-001", Title: "Task in epic", Status: "open", Parent: "epic-001",
+	}
+	mock.ShowResponses["task-002"] = &brclient.Bead{
+		ID: "task-002", Title: "Task outside epic", Status: "open", Parent: "other-epic",
+	}
+	mock.ShowResponses["epic-001"] = &brclient.Bead{
+		ID: "epic-001", Title: "Epic", Status: "open", IssueType: "epic",
+	}
+
+	cfg := config.Default()
+	cfg.WorkQueue.Epic = "epic-001"
+	m := New(cfg, mock, nil)
+
+	bead, reason, err := m.Next(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("expected a bead, got nil - fetchDescendants likely not using fetchAllBeads()")
+	}
+	if bead.ID != "task-001" {
+		t.Errorf("expected task-001 (in epic), got %s", bead.ID)
+	}
+	if reason != ReasonSuccess {
+		t.Errorf("expected ReasonSuccess, got %v", reason)
+	}
+
+	// Verify Show was called to populate parent fields
+	if len(mock.ShowCalls) == 0 {
+		t.Error("expected Show calls to populate parent fields, got none")
+	}
+}
+
+// TestHasEligibleReadyDescendants_RealisticMock simulates real br behavior where
+// br list --json does NOT include Parent, but br show --json does.
+func TestHasEligibleReadyDescendants_RealisticMock(t *testing.T) {
+	mock := newMockClient()
+
+	mock.ReadyResponse = []brclient.Bead{
+		{ID: "task-001", IssueType: "task"},
+		{ID: "task-002", IssueType: "task"},
+	}
+
+	// Realistic: br list --json does NOT populate Parent
+	mock.ListResponse = []brclient.Bead{
+		{ID: "epic-001", IssueType: "epic"},
+		{ID: "task-001"},
+		{ID: "task-002"},
+	}
+
+	// br show --json DOES populate Parent
+	mock.ShowResponses["task-001"] = &brclient.Bead{
+		ID: "task-001", Parent: "epic-001",
+	}
+	mock.ShowResponses["task-002"] = &brclient.Bead{
+		ID: "task-002", Parent: "other-epic",
+	}
+	mock.ShowResponses["epic-001"] = &brclient.Bead{
+		ID: "epic-001", IssueType: "epic",
+	}
+
+	cfg := config.Default()
+	m := New(cfg, mock, nil)
+
+	hasEligible, err := m.HasEligibleReadyDescendants(context.Background(), "epic-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasEligible {
+		t.Error("expected epic-001 to have eligible ready descendants - fetchAllBeads likely not used")
+	}
+
+	// Verify Show was called to populate parent fields
+	if len(mock.ShowCalls) == 0 {
+		t.Error("expected Show calls to populate parent fields, got none")
+	}
+}

@@ -282,7 +282,7 @@ func (m *Manager) hasExcludedLabel(beadLabels []string) bool {
 // (including the epic itself). The algorithm iteratively adds beads whose parent
 // is already in the set until no new beads are found.
 func (m *Manager) fetchDescendants(ctx context.Context, epicID string) (map[string]bool, error) {
-	beads, err := m.client.List(ctx, nil)
+	beads, err := m.fetchAllBeads(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -549,8 +549,8 @@ func (m *Manager) HasEligibleReadyDescendants(ctx context.Context, topLevelID st
 		return false, nil
 	}
 
-	// Get all beads for hierarchy traversal
-	allBeads, err := m.client.List(ctx, nil)
+	// Get all beads for hierarchy traversal (with parent fields populated)
+	allBeads, err := m.fetchAllBeads(ctx)
 	if err != nil {
 		return false, fmt.Errorf("fetch all beads: %w", err)
 	}
