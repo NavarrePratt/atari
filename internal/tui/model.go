@@ -155,10 +155,12 @@ type model struct {
 	statsGetter StatsGetter
 
 	// Stall info (populated when status is "stalled")
-	stalledBeadID    string
-	stalledBeadTitle string
-	stallReason      string
-	stalledAt        time.Time
+	stalledBeadID      string
+	stalledBeadTitle   string
+	stallReason        string
+	stalledAt          time.Time
+	stallType          string
+	stallCreatedBeads  []string
 }
 
 // eventMsg wraps an event for the bubbletea message system.

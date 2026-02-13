@@ -26,4 +26,6 @@ type TUIStats struct {
 	StalledBeadTitle string    // Title of the stalled bead
 	StallReason      string    // Reason for the stall
 	StalledAt        time.Time // When the stall occurred
+	StallType        string    // "abandoned" or "review"
+	CreatedBeads     []string  // bead IDs created during session (for review stalls)
 }

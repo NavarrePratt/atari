@@ -446,6 +446,18 @@ func (c *Controller) restoreStallContext() {
 
 	// Check if this is a review stall (no bead ID but has stall type)
 	if state.StallType == StallTypeReview {
+		// Check if all created beads have been resolved (closed/deleted)
+		if c.allCreatedBeadsResolved(state.CreatedBeads) {
+			c.logger.Info("all created beads resolved, clearing review stall",
+				"created_beads", state.CreatedBeads)
+			c.emit(&events.StallClearedEvent{
+				BaseEvent: events.NewInternalEvent(events.EventDrainStallCleared),
+				BeadID:    "",
+				Action:    "auto_cleared",
+			})
+			return
+		}
+
 		// Restore review stall context to controller memory
 		c.stallMu.Lock()
 		c.stalledBeadID = ""
@@ -1315,6 +1327,8 @@ func (c *Controller) GetStats() viewmodel.TUIStats {
 		stats.StalledBeadTitle = stallInfo.BeadTitle
 		stats.StallReason = stallInfo.Reason
 		stats.StalledAt = stallInfo.StalledAt
+		stats.StallType = stallInfo.StallType
+		stats.CreatedBeads = stallInfo.CreatedBeads
 	}
 
 	return stats
@@ -1520,6 +1534,30 @@ func (c *Controller) findStalledBead() *workqueue.Bead {
 		}
 	}
 	return nil
+}
+
+// allCreatedBeadsResolved checks if all created beads have been resolved (closed or deleted).
+// A bead is considered resolved if it is closed/completed or no longer exists.
+func (c *Controller) allCreatedBeadsResolved(beadIDs []string) bool {
+	if len(beadIDs) == 0 {
+		return true
+	}
+	if c.brClient == nil {
+		return false
+	}
+
+	for _, id := range beadIDs {
+		if c.isBeadClosed(id) {
+			continue
+		}
+		// Check if bead was deleted (not found = resolved)
+		if !c.beadExists(id) {
+			continue
+		}
+		// Bead exists and is not closed - not resolved
+		return false
+	}
+	return true
 }
 
 // beadExists checks if the stalled bead still exists in br.

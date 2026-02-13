@@ -459,6 +459,8 @@ func (m *model) handleEvent(event events.Event) {
 		m.stalledBeadTitle = e.Title
 		m.stallReason = e.Reason
 		m.stalledAt = event.Timestamp()
+		m.stallType = e.StallType
+		m.stallCreatedBeads = e.CreatedBeads
 
 	case *events.StallClearedEvent:
 		// Clear stall info when stall is resolved
@@ -466,6 +468,8 @@ func (m *model) handleEvent(event events.Event) {
 		m.stalledBeadTitle = ""
 		m.stallReason = ""
 		m.stalledAt = time.Time{}
+		m.stallType = ""
+		m.stallCreatedBeads = nil
 	}
 
 	// Add to event log with formatting
@@ -546,17 +550,22 @@ func (m *model) handleTick() {
 	m.topBlockedBead = stats.TopBlockedBead
 
 	// Sync stall info from controller (for banner display after restart)
-	if stats.StalledBeadID != "" && m.stalledBeadID == "" {
+	// Use StallReason as the presence indicator since review stalls have no StalledBeadID
+	if stats.StallReason != "" && m.stallReason == "" {
 		m.stalledBeadID = stats.StalledBeadID
 		m.stalledBeadTitle = stats.StalledBeadTitle
 		m.stallReason = stats.StallReason
 		m.stalledAt = stats.StalledAt
-	} else if stats.StalledBeadID == "" && m.stalledBeadID != "" {
+		m.stallType = stats.StallType
+		m.stallCreatedBeads = stats.CreatedBeads
+	} else if stats.StallReason == "" && m.stallReason != "" {
 		// Controller cleared stall but TUI still has it
 		m.stalledBeadID = ""
 		m.stalledBeadTitle = ""
 		m.stallReason = ""
 		m.stalledAt = time.Time{}
+		m.stallType = ""
+		m.stallCreatedBeads = nil
 	}
 
 	// Note: Turn count is tracked via TurnCompleteEvent, not synced from controller.

@@ -44,7 +44,7 @@ func (m model) View() string {
 	}
 
 	// Overlay stall banner if stalled
-	if m.status == "stalled" && m.stalledBeadID != "" {
+	if m.status == "stalled" && m.stallReason != "" {
 		return m.renderStallBanner()
 	}
 
@@ -113,6 +113,14 @@ func (m model) renderQuitConfirmDialog() string {
 
 // renderStallBanner renders the prominent stall banner when controller is stalled.
 func (m model) renderStallBanner() string {
+	if m.stallType == "review" {
+		return m.renderReviewStallBanner()
+	}
+	return m.renderAbandonedStallBanner()
+}
+
+// renderAbandonedStallBanner renders the stall banner for abandoned beads.
+func (m model) renderAbandonedStallBanner() string {
 	// Title style (red, bold)
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -159,6 +167,70 @@ func (m model) renderStallBanner() string {
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
 		BorderForeground(lipgloss.Color("196")).
+		Padding(1, 3).
+		Width(68)
+
+	modalContent := modalStyle.Render(content.String())
+
+	// Center the banner on screen
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modalContent)
+}
+
+// renderReviewStallBanner renders the stall banner for review stalls (created beads).
+func (m model) renderReviewStallBanner() string {
+	// Title style (yellow, bold)
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("220"))
+
+	// Info style
+	infoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+
+	// Bead ID style
+	beadStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("75"))
+
+	// Hint style
+	hintStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245")).
+		Italic(true)
+
+	// Calculate stall duration
+	stallDuration := ""
+	if !m.stalledAt.IsZero() {
+		stallDuration = fmt.Sprintf(" (waiting for %s)", formatDurationHuman(time.Since(m.stalledAt).Milliseconds()))
+	}
+
+	var content strings.Builder
+	content.WriteString(titleStyle.Render(fmt.Sprintf("REVIEW NEEDED%s", stallDuration)))
+	content.WriteString("\n\n")
+
+	// List created beads
+	if len(m.stallCreatedBeads) > 0 {
+		content.WriteString(infoStyle.Render("Created beads:"))
+		content.WriteString("\n")
+		for _, id := range m.stallCreatedBeads {
+			content.WriteString("  ")
+			content.WriteString(beadStyle.Render(id))
+			content.WriteString("\n")
+		}
+	}
+
+	// Reason line (truncate if too long)
+	reason := m.stallReason
+	if len(reason) > 60 {
+		reason = reason[:57] + "..."
+	}
+	content.WriteString(infoStyle.Render(fmt.Sprintf("Reason: %s", reason)))
+	content.WriteString("\n\n")
+
+	content.WriteString(hintStyle.Render("Press Shift+R to acknowledge and continue"))
+
+	// Create modal box with yellow border
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(lipgloss.Color("220")).
 		Padding(1, 3).
 		Width(68)
 
