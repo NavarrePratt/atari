@@ -468,10 +468,7 @@ func (c *Controller) restoreStallContext() {
 		c.stalledCreatedBeads = state.CreatedBeads
 		c.stallMu.Unlock()
 
-		// Set state to stalled (bypass setState to avoid re-emitting state change event)
-		c.stateMu.Lock()
-		c.state = StateStalled
-		c.stateMu.Unlock()
+		c.setState(StateStalled)
 
 		c.logger.Info("restored review stall context from state",
 			"reason", state.StallReason,
@@ -506,10 +503,7 @@ func (c *Controller) restoreStallContext() {
 	c.stalledCreatedBeads = state.CreatedBeads
 	c.stallMu.Unlock()
 
-	// Set state to stalled (bypass setState to avoid re-emitting state change event)
-	c.stateMu.Lock()
-	c.state = StateStalled
-	c.stateMu.Unlock()
+	c.setState(StateStalled)
 
 	c.logger.Info("restored stall context from state",
 		"bead_id", state.StalledBeadID,
