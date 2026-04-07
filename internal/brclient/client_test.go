@@ -102,21 +102,28 @@ func TestCLIClient_List(t *testing.T) {
 			opts:     nil,
 			response: []byte(`[{"id": "bd-001"}, {"id": "bd-002"}]`),
 			wantLen:  2,
-			wantArgs: []string{"list", "--json"},
+			wantArgs: []string{"list", "--json", "--limit", "0"},
 		},
 		{
 			name:     "with status filter",
 			opts:     &ListOptions{Status: "closed"},
 			response: []byte(`[{"id": "bd-001"}]`),
 			wantLen:  1,
-			wantArgs: []string{"list", "--json", "--status", "closed"},
+			wantArgs: []string{"list", "--json", "--limit", "0", "--status", "closed"},
 		},
 		{
 			name:     "empty response",
 			opts:     nil,
 			response: []byte{},
 			wantLen:  0,
-			wantArgs: []string{"list", "--json"},
+			wantArgs: []string{"list", "--json", "--limit", "0"},
+		},
+		{
+			name:     "wrapped JSON response",
+			opts:     nil,
+			response: []byte(`{"issues": [{"id": "bd-001"}, {"id": "bd-002"}], "total": 2, "limit": 50, "offset": 0, "has_more": false}`),
+			wantLen:  2,
+			wantArgs: []string{"list", "--json", "--limit", "0"},
 		},
 	}
 
@@ -159,28 +166,28 @@ func TestCLIClient_Ready(t *testing.T) {
 			opts:     nil,
 			response: []byte(`[{"id": "bd-001"}]`),
 			wantLen:  1,
-			wantArgs: []string{"ready", "--json"},
+			wantArgs: []string{"ready", "--json", "--limit", "0"},
 		},
 		{
 			name:     "with label",
 			opts:     &ReadyOptions{Label: "atari"},
 			response: []byte(`[{"id": "bd-001"}]`),
 			wantLen:  1,
-			wantArgs: []string{"ready", "--json", "--label", "atari"},
+			wantArgs: []string{"ready", "--json", "--limit", "0", "--label", "atari"},
 		},
 		{
 			name:     "unassigned only",
 			opts:     &ReadyOptions{UnassignedOnly: true},
 			response: []byte(`[]`),
 			wantLen:  0,
-			wantArgs: []string{"ready", "--json", "--unassigned"},
+			wantArgs: []string{"ready", "--json", "--limit", "0", "--unassigned"},
 		},
 		{
 			name:     "both options",
 			opts:     &ReadyOptions{Label: "atari", UnassignedOnly: true},
 			response: []byte(`[{"id": "bd-001"}]`),
 			wantLen:  1,
-			wantArgs: []string{"ready", "--json", "--label", "atari", "--unassigned"},
+			wantArgs: []string{"ready", "--json", "--limit", "0", "--label", "atari", "--unassigned"},
 		},
 	}
 
@@ -457,6 +464,82 @@ func TestCLIClient_WithTimeout(t *testing.T) {
 	}
 	if client.timeout != DefaultTimeout {
 		t.Error("original client timeout was modified")
+	}
+}
+
+func TestUnmarshalBeads(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     []byte
+		wantLen   int
+		wantIDs   []string
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "bare array",
+			input:   []byte(`[{"id": "bd-001"}, {"id": "bd-002"}]`),
+			wantLen: 2,
+			wantIDs: []string{"bd-001", "bd-002"},
+		},
+		{
+			name:    "wrapped object",
+			input:   []byte(`{"issues": [{"id": "bd-001"}], "total": 1, "limit": 50, "offset": 0, "has_more": false}`),
+			wantLen: 1,
+			wantIDs: []string{"bd-001"},
+		},
+		{
+			name:    "empty wrapped",
+			input:   []byte(`{"issues": []}`),
+			wantLen: 0,
+		},
+		{
+			name:    "empty input",
+			input:   nil,
+			wantLen: 0,
+		},
+		{
+			name:      "invalid JSON",
+			input:     []byte(`not json`),
+			wantErr:   true,
+			errSubstr: "unexpected JSON format",
+		},
+		{
+			name:    "whitespace-padded bare array",
+			input:   []byte(`  [{"id": "bd-001"}]  `),
+			wantLen: 1,
+			wantIDs: []string{"bd-001"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			beads, err := unmarshalBeads(tt.input)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.errSubstr != "" && !contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errSubstr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(beads) != tt.wantLen {
+				t.Fatalf("got %d beads, want %d", len(beads), tt.wantLen)
+			}
+
+			for i, wantID := range tt.wantIDs {
+				if beads[i].ID != wantID {
+					t.Errorf("bead[%d].ID = %q, want %q", i, beads[i].ID, wantID)
+				}
+			}
+		})
 	}
 }
 

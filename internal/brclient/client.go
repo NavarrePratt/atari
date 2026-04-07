@@ -1,6 +1,7 @@
 package brclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -65,7 +66,7 @@ func (c *CLIClient) List(ctx context.Context, opts *ListOptions) ([]Bead, error)
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	args := []string{"list", "--json"}
+	args := []string{"list", "--json", "--limit", "0"}
 	if opts != nil && opts.Status != "" {
 		args = append(args, "--status", opts.Status)
 	}
@@ -79,8 +80,8 @@ func (c *CLIClient) List(ctx context.Context, opts *ListOptions) ([]Bead, error)
 		return nil, nil
 	}
 
-	var beads []Bead
-	if err := json.Unmarshal(output, &beads); err != nil {
+	beads, err := unmarshalBeads(output)
+	if err != nil {
 		return nil, fmt.Errorf("parse br list output: %w", err)
 	}
 
@@ -114,7 +115,7 @@ func (c *CLIClient) Ready(ctx context.Context, opts *ReadyOptions) ([]Bead, erro
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	args := []string{"ready", "--json"}
+	args := []string{"ready", "--json", "--limit", "0"}
 	if opts != nil {
 		if opts.Label != "" {
 			args = append(args, "--label", opts.Label)
@@ -133,8 +134,8 @@ func (c *CLIClient) Ready(ctx context.Context, opts *ReadyOptions) ([]Bead, erro
 		return nil, nil
 	}
 
-	var beads []Bead
-	if err := json.Unmarshal(output, &beads); err != nil {
+	beads, err := unmarshalBeads(output)
+	if err != nil {
 		return nil, fmt.Errorf("parse br ready output: %w", err)
 	}
 
@@ -217,6 +218,32 @@ func (c *CLIClient) CloseEligibleEpics(ctx context.Context) ([]EpicCloseResult, 
 	}
 
 	return results, nil
+}
+
+// unmarshalBeads handles both bare array and wrapped object JSON formats.
+func unmarshalBeads(data []byte) ([]Bead, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	switch trimmed[0] {
+	case '[':
+		var beads []Bead
+		if err := json.Unmarshal(trimmed, &beads); err != nil {
+			return nil, fmt.Errorf("parse bead array: %w", err)
+		}
+		return beads, nil
+	case '{':
+		var wrapped struct {
+			Issues []Bead `json:"issues"`
+		}
+		if err := json.Unmarshal(trimmed, &wrapped); err != nil {
+			return nil, fmt.Errorf("parse wrapped bead response: %w", err)
+		}
+		return wrapped.Issues, nil
+	default:
+		return nil, fmt.Errorf("unexpected JSON format: starts with %q", trimmed[0])
+	}
 }
 
 // Verify CLIClient implements Client interface.
